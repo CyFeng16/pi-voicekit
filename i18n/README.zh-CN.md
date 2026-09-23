@@ -3,7 +3,7 @@
 # pi-listen
 
 <p align="center">
-  <img src="assets/banner.png" alt="pi-listen — Pi 编程智能体的语音输入工具" width="100%" />
+  <img src="../assets/banner.png" alt="pi-listen — Pi 编程智能体的语音输入工具" width="100%" />
 </p>
 
 **为 [Pi](https://github.com/earendil-works/pi-coding-agent) 打造的按住即说语音输入。** 支持 Deepgram 云端流式传输或本地模型完全离线使用。
@@ -12,13 +12,13 @@
 [![license](https://img.shields.io/npm/l/pi-voicekit.svg)](https://github.com/CyFeng16/pi-voicekit/blob/main/LICENSE)
 [![author](https://img.shields.io/badge/author-@baanditeagle-1DA1F2?logo=x&logoColor=white)](https://x.com/baanditeagle)
 
-> **v5.0.1 — 安全补丁** — API 密钥不再泄露到项目配置中。麦克风音频无法通过恶意仓库设置重定向到远程服务器。API 密钥引导流程中的 Shell 注入漏洞已修复。配置写入现在是原子操作。[完整更新日志 →](CHANGELOG.md)
+> **v5.0.1 — 安全补丁** — API 密钥不再泄露到项目配置中。麦克风音频无法通过恶意仓库设置重定向到远程服务器。API 密钥引导流程中的 Shell 注入漏洞已修复。配置写入现在是原子操作。[完整更新日志 →](../CHANGELOG.md)
 
 ---
 
 ## 看看它是如何工作的
 
-<video src="assets/pi-listen.mp4" controls width="100%"></video>
+<video src="../assets/pi-listen.mp4" controls width="100%"></video>
 
 ---
 
@@ -86,25 +86,25 @@ pi-listen 自动检测你的音频工具。如果你已安装 sox 或 ffmpeg，�
 
 ### 通用 — 后端、语言、作用域
 
-<img src="assets/settings-general.png" alt="通用设置 — 后端、模型、语言、作用域、语音开关" width="600" />
+<img src="../assets/settings-general.png" alt="通用设置 — 后端、模型、语言、作用域、语音开关" width="600" />
 
 在 Deepgram（云端，实时流式传输）和 Local（离线，批量模式）之间切换。更改语言、作用域，启用/禁用语音 — 全部支持键盘快捷键操作。
 
 ### 模型 — 浏览、搜索、安装
 
-<img src="assets/settings-models.png" alt="模型标签页 — 浏览 21 个模型，带准确度/速度评分" width="600" />
+<img src="../assets/settings-models.png" alt="模型标签页 — 浏览 21 个模型，带准确度/速度评分" width="600" />
 
 浏览来自 Parakeet、Whisper、Moonshine、SenseVoice、GigaAM、Paraformer 和 Qwen3 的 21 个模型。每个模型显示准确度和速度评分（●●●●○/●●●●○）、适用性标签和下载状态。支持模糊搜索快速查找模型。按 Enter 激活并下载。
 
 ### 已下载 — 管理已安装的模型
 
-<img src="assets/settings-downloaded.png" alt="已下载标签页 — 管理已安装模型，激活或删除" width="600" />
+<img src="../assets/settings-downloaded.png" alt="已下载标签页 — 管理已安装模型，激活或删除" width="600" />
 
 查看已安装的模型、总磁盘占用和当前激活的模型。按 Enter 激活，按 `x` 删除。来自 [Handy](https://github.com/cjpais/handy) 的模型会被自动检测，可直接导入无需重新下载。
 
 ### 设备 — 硬件信息和依赖项
 
-<img src="assets/settings-device.png" alt="设备标签页 — 硬件信息、依赖项、磁盘空间" width="600" />
+<img src="../assets/settings-device.png" alt="设备标签页 — 硬件信息、依赖项、磁盘空间" width="600" />
 
 查看硬件信息（内存、CPU、GPU）、依赖项状态（sherpa-onnx 运行时）、可用磁盘空间和已下载模型总大小。模型推荐基于你的硬件配置。
 
@@ -274,13 +274,13 @@ extensions/voice/settings-panel.ts  设置面板 — Component 接口、覆盖�
 - **无遥测** — pi-listen 不收集或传输任何使用数据
 - **API 密钥** — 存储在环境变量或 Pi 设置中，从不记录日志
 
-漏洞报告请参阅 [SECURITY.md](SECURITY.md)。
+漏洞报告请参阅 [SECURITY.md](../SECURITY.md)。
 
 ---
 
 ## 许可证
 
-[MIT](LICENSE) © 2026 codexstar69
+[MIT](../LICENSE) © 2026 codexstar69
 
 ---
 

@@ -3,7 +3,7 @@
 # pi-listen
 
 <p align="center">
-  <img src="assets/banner.png" alt="pi-listen — Pi コーディングエージェント用の音声入力" width="100%" />
+  <img src="../assets/banner.png" alt="pi-listen — Pi コーディングエージェント用の音声入力" width="100%" />
 </p>
 
 **[Pi](https://github.com/earendil-works/pi-coding-agent) 向けの長押しトーク音声入力。** Deepgram によるクラウドストリーミング、またはローカルモデルによる完全オフライン対応。
@@ -12,13 +12,13 @@
 [![license](https://img.shields.io/npm/l/pi-voicekit.svg)](https://github.com/CyFeng16/pi-voicekit/blob/main/LICENSE)
 [![author](https://img.shields.io/badge/author-@baanditeagle-1DA1F2?logo=x&logoColor=white)](https://x.com/baanditeagle)
 
-> **v5.0.1 — セキュリティパッチ** — API キーがプロジェクト設定に漏洩する問題を修正。悪意のあるリポジトリ設定によるマイク音声のリモートサーバーへのリダイレクトを防止。API キーオンボーディング時のシェルインジェクションを修正。設定の書き込みがアトミック操作に。[完全な変更履歴 →](CHANGELOG.md)
+> **v5.0.1 — セキュリティパッチ** — API キーがプロジェクト設定に漏洩する問題を修正。悪意のあるリポジトリ設定によるマイク音声のリモートサーバーへのリダイレクトを防止。API キーオンボーディング時のシェルインジェクションを修正。設定の書き込みがアトミック操作に。[完全な変更履歴 →](../CHANGELOG.md)
 
 ---
 
 ## 動作デモ
 
-<video src="assets/pi-listen.mp4" controls width="100%"></video>
+<video src="../assets/pi-listen.mp4" controls width="100%"></video>
 
 ---
 
@@ -86,25 +86,25 @@ pi-listen は音声ツールを自動検出します。sox または ffmpeg が�
 
 ### 全般 — バックエンド、言語、スコープ
 
-<img src="assets/settings-general.png" alt="全般設定 — バックエンド、モデル、言語、スコープ、音声トグル" width="600" />
+<img src="../assets/settings-general.png" alt="全般設定 — バックエンド、モデル、言語、スコープ、音声トグル" width="600" />
 
 Deepgram（クラウド、ライブストリーミング）と Local（オフライン、バッチモード）を切り替え。言語、スコープの変更、音声の有効/無効化 — すべてキーボードショートカットで操作可能。
 
 ### モデル — 閲覧、検索、インストール
 
-<img src="assets/settings-models.png" alt="モデルタブ — 21モデルを精度/速度評価付きで閲覧" width="600" />
+<img src="../assets/settings-models.png" alt="モデルタブ — 21モデルを精度/速度評価付きで閲覧" width="600" />
 
 Parakeet、Whisper、Moonshine、SenseVoice、GigaAM、Paraformer、Qwen3 の21モデルを閲覧。各モデルには精度と速度の評価（●●●●○/●●●●○）、適性バッジ、ダウンロード状態が表示されます。ファジー検索でモデルを素早く検索。Enter キーで有効化とダウンロード。
 
 ### ダウンロード済み — インストール済みモデルの管理
 
-<img src="assets/settings-downloaded.png" alt="ダウンロード済みタブ — インストール済みモデルの管理、有効化または削除" width="600" />
+<img src="../assets/settings-downloaded.png" alt="ダウンロード済みタブ — インストール済みモデルの管理、有効化または削除" width="600" />
 
 インストール済みのモデル、合計ディスク使用量、アクティブなモデルを確認。Enter で有効化、`x` で削除。[Handy](https://github.com/cjpais/handy) のモデルは自動検出され、再ダウンロードなしでインポートできます。
 
 ### デバイス — ハードウェアプロファイルと依存関係
 
-<img src="assets/settings-device.png" alt="デバイスタブ — ハードウェアプロファイル、依存関係、ディスク容量" width="600" />
+<img src="../assets/settings-device.png" alt="デバイスタブ — ハードウェアプロファイル、依存関係、ディスク容量" width="600" />
 
 ハードウェアプロファイル（RAM、CPU、GPU）、依存関係の状態（sherpa-onnx ランタイム）、利用可能なディスク容量、ダウンロード済みモデルの合計を確認。モデルの推奨はこのプロファイルに基づきます。
 
@@ -274,13 +274,13 @@ Pi 内で `/voice test` を実行して完全な診断を行います。
 - **テレメトリなし** — pi-listen は利用データの収集・送信を行いません
 - **API キー** — 環境変数または Pi 設定に保存、ログには記録されません
 
-脆弱性の報告については [SECURITY.md](SECURITY.md) をご覧ください。
+脆弱性の報告については [SECURITY.md](../SECURITY.md) をご覧ください。
 
 ---
 
 ## ライセンス
 
-[MIT](LICENSE) © 2026 codexstar69
+[MIT](../LICENSE) © 2026 codexstar69
 
 ---
 

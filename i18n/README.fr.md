@@ -3,7 +3,7 @@
 # pi-listen
 
 <p align="center">
-  <img src="assets/banner.png" alt="pi-listen — Saisie vocale pour l'agent de programmation Pi" width="100%" />
+  <img src="../assets/banner.png" alt="pi-listen — Saisie vocale pour l'agent de programmation Pi" width="100%" />
 </p>
 
 **Saisie vocale maintenir-pour-parler pour [Pi](https://github.com/earendil-works/pi-coding-agent).** Streaming cloud via Deepgram ou entièrement hors ligne avec des modèles locaux.
@@ -12,13 +12,13 @@
 [![license](https://img.shields.io/npm/l/pi-voicekit.svg)](https://github.com/CyFeng16/pi-voicekit/blob/main/LICENSE)
 [![author](https://img.shields.io/badge/author-@baanditeagle-1DA1F2?logo=x&logoColor=white)](https://x.com/baanditeagle)
 
-> **v5.0.1 — Correctif de sécurité** — Les clés API ne fuient plus dans la configuration du projet. L'audio du micro ne peut plus être redirigé vers des serveurs distants via des paramètres de dépôt malveillants. Injection shell corrigée dans le processus d'intégration des clés API. Les écritures de configuration sont désormais atomiques. [Journal des modifications complet →](CHANGELOG.md)
+> **v5.0.1 — Correctif de sécurité** — Les clés API ne fuient plus dans la configuration du projet. L'audio du micro ne peut plus être redirigé vers des serveurs distants via des paramètres de dépôt malveillants. Injection shell corrigée dans le processus d'intégration des clés API. Les écritures de configuration sont désormais atomiques. [Journal des modifications complet →](../CHANGELOG.md)
 
 ---
 
 ## Voir comment ça marche
 
-<video src="assets/pi-listen.mp4" controls width="100%"></video>
+<video src="../assets/pi-listen.mp4" controls width="100%"></video>
 
 ---
 
@@ -86,25 +86,25 @@ Toute la configuration au même endroit : `/voice-settings`. Quatre onglets couv
 
 ### Général — backend, langue, portée
 
-<img src="assets/settings-general.png" alt="Paramètres généraux — backend, modèle, langue, portée, activation/désactivation de la voix" width="600" />
+<img src="../assets/settings-general.png" alt="Paramètres généraux — backend, modèle, langue, portée, activation/désactivation de la voix" width="600" />
 
 Basculez entre Deepgram (cloud, streaming en direct) et Local (hors ligne, mode par lots). Changez la langue, la portée et activez/désactivez la voix — le tout avec des raccourcis clavier.
 
 ### Modèles — parcourir, rechercher, installer
 
-<img src="assets/settings-models.png" alt="Onglet Modèles — parcourir 21 modèles avec évaluations de précision/vitesse" width="600" />
+<img src="../assets/settings-models.png" alt="Onglet Modèles — parcourir 21 modèles avec évaluations de précision/vitesse" width="600" />
 
 Parcourez 21 modèles issus de Parakeet, Whisper, Moonshine, SenseVoice, GigaAM, Paraformer et Qwen3. Chaque modèle affiche des évaluations de précision et de vitesse (●●●●○/●●●●○), des badges d'aptitude et l'état de téléchargement. Recherche floue pour trouver les modèles rapidement. Appuyez sur Entrée pour activer et télécharger.
 
 ### Téléchargés — gérer les modèles installés
 
-<img src="assets/settings-downloaded.png" alt="Onglet Téléchargés — gérer les modèles installés, activer ou supprimer" width="600" />
+<img src="../assets/settings-downloaded.png" alt="Onglet Téléchargés — gérer les modèles installés, activer ou supprimer" width="600" />
 
 Consultez ce qui est installé, l'utilisation totale du disque et quel modèle est actif. Appuyez sur Entrée pour activer, `x` pour supprimer. Les modèles de [Handy](https://github.com/cjpais/handy) sont détectés automatiquement et peuvent être importés sans re-téléchargement.
 
 ### Appareil — profil matériel et dépendances
 
-<img src="assets/settings-device.png" alt="Onglet Appareil — profil matériel, dépendances, espace disque" width="600" />
+<img src="../assets/settings-device.png" alt="Onglet Appareil — profil matériel, dépendances, espace disque" width="600" />
 
 Consultez votre profil matériel (RAM, CPU, GPU), l'état des dépendances (runtime sherpa-onnx), l'espace disque disponible et le total des modèles téléchargés. Les recommandations de modèles sont basées sur ce profil.
 
@@ -274,13 +274,13 @@ Exécutez `/voice test` dans Pi pour un diagnostic complet.
 - **Pas de télémétrie** — pi-listen ne collecte ni ne transmet de données d'utilisation
 - **Clé API** — stockée dans une variable d'environnement ou les paramètres Pi, jamais journalisée
 
-Consultez [SECURITY.md](SECURITY.md) pour signaler des vulnérabilités.
+Consultez [SECURITY.md](../SECURITY.md) pour signaler des vulnérabilités.
 
 ---
 
 ## Licence
 
-[MIT](LICENSE) © 2026 codexstar69
+[MIT](../LICENSE) © 2026 codexstar69
 
 ---
 

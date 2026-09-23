@@ -3,7 +3,7 @@
 # pi-listen
 
 <p align="center">
-  <img src="assets/banner.png" alt="pi-listen — Pi 코딩 에이전트용 음성 입력" width="100%" />
+  <img src="../assets/banner.png" alt="pi-listen — Pi 코딩 에이전트용 음성 입력" width="100%" />
 </p>
 
 **[Pi](https://github.com/earendil-works/pi-coding-agent)를 위한 길게 누르기 음성 입력.** Deepgram 클라우드 스트리밍 또는 로컬 모델로 완전 오프라인 지원.
@@ -12,13 +12,13 @@
 [![license](https://img.shields.io/npm/l/pi-voicekit.svg)](https://github.com/CyFeng16/pi-voicekit/blob/main/LICENSE)
 [![author](https://img.shields.io/badge/author-@baanditeagle-1DA1F2?logo=x&logoColor=white)](https://x.com/baanditeagle)
 
-> **v5.0.1 — 보안 패치** — API 키가 프로젝트 설정에 노출되던 문제 수정. 악성 저장소 설정을 통한 마이크 오디오의 원격 서버 리디렉션 차단. API 키 온보딩 시 셸 인젝션 수정. 설정 쓰기가 원자적 작업으로 변경. [전체 변경 로그 →](CHANGELOG.md)
+> **v5.0.1 — 보안 패치** — API 키가 프로젝트 설정에 노출되던 문제 수정. 악성 저장소 설정을 통한 마이크 오디오의 원격 서버 리디렉션 차단. API 키 온보딩 시 셸 인젝션 수정. 설정 쓰기가 원자적 작업으로 변경. [전체 변경 로그 →](../CHANGELOG.md)
 
 ---
 
 ## 작동 방식 보기
 
-<video src="assets/pi-listen.mp4" controls width="100%"></video>
+<video src="../assets/pi-listen.mp4" controls width="100%"></video>
 
 ---
 
@@ -86,25 +86,25 @@ pi-listen이 오디오 도구를 자동 감지합니다. sox나 ffmpeg가 이미
 
 ### 일반 — 백엔드, 언어, 범위
 
-<img src="assets/settings-general.png" alt="일반 설정 — 백엔드, 모델, 언어, 범위, 음성 토글" width="600" />
+<img src="../assets/settings-general.png" alt="일반 설정 — 백엔드, 모델, 언어, 범위, 음성 토글" width="600" />
 
 Deepgram(클라우드, 라이브 스트리밍)과 Local(오프라인, 배치 모드) 간 전환. 언어, 범위 변경, 음성 활성화/비활성화 — 모두 키보드 단축키로 조작 가능.
 
 ### 모델 — 탐색, 검색, 설치
 
-<img src="assets/settings-models.png" alt="모델 탭 — 정확도/속도 평가가 있는 21개 모델 탐색" width="600" />
+<img src="../assets/settings-models.png" alt="모델 탭 — 정확도/속도 평가가 있는 21개 모델 탐색" width="600" />
 
 Parakeet, Whisper, Moonshine, SenseVoice, GigaAM, Paraformer, Qwen3의 21개 모델을 탐색하세요. 각 모델은 정확도와 속도 평가(●●●●○/●●●●○), 적합성 배지, 다운로드 상태를 표시합니다. 퍼지 검색으로 모델을 빠르게 찾으세요. Enter를 눌러 활성화 및 다운로드.
 
 ### 다운로드됨 — 설치된 모델 관리
 
-<img src="assets/settings-downloaded.png" alt="다운로드됨 탭 — 설치된 모델 관리, 활성화 또는 삭제" width="600" />
+<img src="../assets/settings-downloaded.png" alt="다운로드됨 탭 — 설치된 모델 관리, 활성화 또는 삭제" width="600" />
 
 설치된 모델, 총 디스크 사용량, 활성 모델을 확인하세요. Enter로 활성화, `x`로 삭제. [Handy](https://github.com/cjpais/handy)의 모델은 자동 감지되어 다시 다운로드하지 않고 가져올 수 있습니다.
 
 ### 디바이스 — 하드웨어 프로필 및 의존성
 
-<img src="assets/settings-device.png" alt="디바이스 탭 — 하드웨어 프로필, 의존성, 디스크 공간" width="600" />
+<img src="../assets/settings-device.png" alt="디바이스 탭 — 하드웨어 프로필, 의존성, 디스크 공간" width="600" />
 
 하드웨어 프로필(RAM, CPU, GPU), 의존성 상태(sherpa-onnx 런타임), 사용 가능한 디스크 공간, 다운로드된 모델 총량을 확인하세요. 모델 추천은 이 프로필을 기반으로 합니다.
 
@@ -274,13 +274,13 @@ Pi 내부에서 `/voice test`를 실행하여 전체 진단을 수행하세요.
 - **텔레메트리 없음** — pi-listen은 사용 데이터를 수집하거나 전송하지 않습니다
 - **API 키** — 환경 변수 또는 Pi 설정에 저장, 로그에 기록되지 않음
 
-취약점 보고는 [SECURITY.md](SECURITY.md)를 참조하세요.
+취약점 보고는 [SECURITY.md](../SECURITY.md)를 참조하세요.
 
 ---
 
 ## 라이선스
 
-[MIT](LICENSE) © 2026 codexstar69
+[MIT](../LICENSE) © 2026 codexstar69
 
 ---
 
