@@ -1,14 +1,14 @@
-# pi-listen
+# pi-voicekit
 
-> Hold-to-talk voice input for the Pi coding agent. Cloud streaming via Deepgram or fully offline with local models.
+> Voice in + voice out for the Pi coding agent: hold-to-talk STT (Deepgram streaming or 21 offline models) plus TTS (Kitten Nano, Piper, Kokoro, or Deepgram Aura).
 
 ## Overview
 
-pi-listen adds voice-to-text input to Pi. Hold SPACE to record, release to transcribe. Two backends: Deepgram (cloud, live streaming as you speak) or local models (offline, batch mode after recording). 19 local models from Parakeet, Whisper, Moonshine, SenseVoice, and GigaAM with accuracy/speed ratings and device-aware recommendations.
+pi-voicekit adds voice input and voice output to Pi. Hold SPACE to record, release to transcribe. Two STT backends: Deepgram (cloud, live streaming as you speak) or local models (offline, batch mode after recording). 21 local models from Parakeet, Whisper, Moonshine, SenseVoice, GigaAM, Paraformer and Qwen3 with accuracy/speed ratings and device-aware recommendations. TTS covers Kitten Nano, Piper and Kokoro (offline) plus Deepgram Aura (cloud), including auto-speak of agent responses.
 
 ## Setup
 
-1. `pi install npm:@codexstar/pi-listen` (outside Pi)
+1. `pi install npm:pi-voicekit` (outside Pi)
 2. Open Pi, run `/voice-settings` to choose backend
 3. Deepgram: get key at https://dpgr.am/pi-voice ($200 free credit, lasts 6-12 months)
 4. Local: select a model, it downloads automatically
@@ -18,6 +18,9 @@ pi-listen adds voice-to-text input to Pi. Hold SPACE to record, release to trans
 
 - `/voice-settings` — Unified settings panel (backend, models, language, device)
 - `/voice-models` — Settings panel focused on Models tab
+- `/voice-speak <text>` — Speak text out loud (TTS)
+- `/voice-speak-models` — Browse / install TTS voice models
+- `/voice-speak-info` — Diagnose TTS state
 - `/voice test` — Full diagnostics (audio tool, mic, API key)
 - `/voice [on|off|dictate|stop|history]`
 
@@ -26,15 +29,19 @@ pi-listen adds voice-to-text input to Pi. Hold SPACE to record, release to trans
 - `extensions/voice.ts`: Main extension — state machine, recording, settings panel handler
 - `extensions/voice/config.ts`: Config loading, saving, migration
 - `extensions/voice/onboarding.ts`: First-run wizard, language picker
-- `extensions/voice/deepgram.ts`: Deepgram URL builder, API key resolver
-- `extensions/voice/local.ts`: Model catalog (19 models), in-process transcription
+- `extensions/voice/deepgram.ts`: Deepgram STT URL builder, API key resolver
+- `extensions/voice/local.ts`: Model catalog (21 models), in-process transcription
 - `extensions/voice/device.ts`: Device profiling, model fitness scoring
 - `extensions/voice/model-download.ts`: Download manager with resume, verification, Handy import
 - `extensions/voice/sherpa-engine.ts`: sherpa-onnx bindings, recognizer lifecycle
 - `extensions/voice/settings-panel.ts`: Settings panel overlay (4 tabs)
+- `extensions/voice/tts-engine.ts`: TTS engine selection and synthesis
+- `extensions/voice/tts-local-models.ts`: Local TTS voice catalog (Kitten, Piper, Kokoro)
+- `extensions/voice/tts-deepgram.ts`: Deepgram Aura TTS (cloud)
+- `extensions/voice/tts-playback.ts`: Audio playback, WAV encoding, abort handling
 
 ## Documentation
 
-- [README](https://github.com/codexstar69/pi-listen/blob/main/README.md): Setup, usage, features, screenshots
-- [Changelog](https://github.com/codexstar69/pi-listen/blob/main/CHANGELOG.md): Release history
-- [License](https://github.com/codexstar69/pi-listen/blob/main/LICENSE): MIT
+- [README](https://github.com/CyFeng16/pi-voicekit/blob/main/README.md): Setup, usage, features, screenshots
+- [Changelog](https://github.com/CyFeng16/pi-voicekit/blob/main/CHANGELOG.md): Release history
+- [License](https://github.com/CyFeng16/pi-voicekit/blob/main/LICENSE): MIT

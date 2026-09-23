@@ -1,7 +1,7 @@
 # pi-voicekit — Contributing & Agent Guidelines
 
 pi-voicekit is a **public, GitHub-hosted open-source project** (an independent
-continuation of the archived `codexstar69/pi-listen`, MIT). All repository-facing
+continuation of the now-dormant `codexstar69/pi-listen`, MIT). All repository-facing
 text is **English-first**.
 
 ## Language policy (REQUIRED)
@@ -28,7 +28,7 @@ formatting baseline lives in `.prettierrc.json` + `.editorconfig`.
 
 ## Project context
 
-- Fork of `codexstar69/pi-listen` (archived upstream; last release v7.2.2).
+- Fork of `codexstar69/pi-listen` (dormant upstream; last release v7.2.2, May 2026).
   Not affiliated with the original author — see README for the disclosure.
 - Local improvements are the long-term mainline; intentional modification of
   upstream files is allowed when documented and covered by tests.

@@ -92,9 +92,9 @@ Basculez entre Deepgram (cloud, streaming en direct) et Local (hors ligne, mode 
 
 ### Modèles — parcourir, rechercher, installer
 
-<img src="assets/settings-models.png" alt="Onglet Modèles — parcourir 19 modèles avec évaluations de précision/vitesse" width="600" />
+<img src="assets/settings-models.png" alt="Onglet Modèles — parcourir 21 modèles avec évaluations de précision/vitesse" width="600" />
 
-Parcourez 19 modèles issus de Parakeet, Whisper, Moonshine, SenseVoice et GigaAM. Chaque modèle affiche des évaluations de précision et de vitesse (●●●●○/●●●●○), des badges d'aptitude et l'état de téléchargement. Recherche floue pour trouver les modèles rapidement. Appuyez sur Entrée pour activer et télécharger.
+Parcourez 21 modèles issus de Parakeet, Whisper, Moonshine, SenseVoice, GigaAM, Paraformer et Qwen3. Chaque modèle affiche des évaluations de précision et de vitesse (●●●●○/●●●●○), des badges d'aptitude et l'état de téléchargement. Recherche floue pour trouver les modèles rapidement. Appuyez sur Entrée pour activer et télécharger.
 
 ### Téléchargés — gérer les modèles installés
 
@@ -144,7 +144,7 @@ Consultez votre profil matériel (RAM, CPU, GPU), l'état des dépendances (runt
 
 ## Modèles locaux
 
-19 modèles répartis en 5 familles. Triés par qualité — les meilleurs modèles en premier.
+21 modèles répartis en 7 familles. Triés par qualité — les meilleurs modèles en premier.
 
 ### Meilleurs choix
 
@@ -195,7 +195,7 @@ Les modèles de [Handy](https://github.com/cjpais/handy) (`~/Library/Application
 | Fonctionnalité                            | Description                                                                                                               |
 | ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
 | **Double backend**                        | Deepgram (cloud, streaming en direct) ou modèles locaux (hors ligne, par lots) — changement dans les paramètres           |
-| **19 modèles locaux**                     | Parakeet, Whisper, Moonshine, SenseVoice, GigaAM — avec évaluations précision/vitesse                                     |
+| **21 modèles locaux**                     | Parakeet, Whisper, Moonshine, SenseVoice, GigaAM, Paraformer, Qwen3 — avec évaluations précision/vitesse                                     |
 | **Panneau de configuration unifié**       | Un seul panneau superposé pour toute la configuration — `/voice-settings`                                                 |
 | **Recommandations selon l'appareil**      | Évalue les modèles par rapport à votre matériel. Seuls les meilleurs de leur catégorie obtiennent [recommended].          |
 | **Pipeline de téléchargement entreprise** | Pré-vérifications (disque, réseau, permissions), progression en direct avec vitesse/ETA, vérification post-téléchargement |
@@ -219,7 +219,7 @@ extensions/voice.ts                Extension principale — machine à états, e
 extensions/voice/config.ts         Chargement, sauvegarde et migration de la configuration
 extensions/voice/onboarding.ts     Assistant de première exécution, sélecteur de langue
 extensions/voice/deepgram.ts       Constructeur d'URL Deepgram, résolveur de clé API
-extensions/voice/local.ts          Catalogue de modèles (19 modèles), transcription en processus
+extensions/voice/local.ts          Catalogue de modèles (21 modèles), transcription en processus
 extensions/voice/device.ts         Profilage d'appareil — RAM, GPU, CPU, détection de conteneur
 extensions/voice/model-download.ts Gestionnaire de téléchargements — reprise, progression, vérification, import Handy
 extensions/voice/sherpa-engine.ts   Bindings sherpa-onnx — cycle de vie du reconnaisseur, inférence

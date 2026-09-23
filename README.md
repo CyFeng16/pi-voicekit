@@ -2,7 +2,7 @@
 
 # pi-voicekit
 
-> **Community continuation of [`codexstar69/pi-listen`](https://github.com/codexstar69/pi-listen)** (archived upstream, MIT).
+> **Community continuation of [`codexstar69/pi-listen`](https://github.com/codexstar69/pi-listen)** (upstream, MIT — dormant since v7.2.2 in May 2026).
 > Not affiliated with the original author. Old name: `pi-listen`.
 
 <p align="center">
@@ -109,9 +109,9 @@ Toggle between Deepgram (cloud, live streaming) and Local (offline, batch mode).
 
 ### Models — browse, search, install
 
-<img src="https://raw.githubusercontent.com/CyFeng16/pi-voicekit/main/assets/settings-models.png" alt="Models tab — browse 19 models with accuracy/speed ratings" width="600" />
+<img src="https://raw.githubusercontent.com/CyFeng16/pi-voicekit/main/assets/settings-models.png" alt="Models tab — browse 21 models with accuracy/speed ratings" width="600" />
 
-Browse 19 models from Parakeet, Whisper, Moonshine, SenseVoice, and GigaAM. Each model shows accuracy and speed ratings (●●●●○/●●●●○), fitness badges, and download status. Fuzzy search to find models fast. Press Enter to activate and download.
+Browse 21 models from Parakeet, Whisper, Moonshine, SenseVoice, GigaAM, Paraformer, and Qwen3. Each model shows accuracy and speed ratings (●●●●○/●●●●○), fitness badges, and download status. Fuzzy search to find models fast. Press Enter to activate and download.
 
 ### Downloaded — manage installed models
 
@@ -189,7 +189,7 @@ in front):
 
 ## Local Models
 
-19 models across 5 families. Sorted by quality — best models first.
+21 models across 7 families. Sorted by quality — best models first.
 
 ### Top picks
 
@@ -240,7 +240,7 @@ Models from [Handy](https://github.com/cjpais/handy) (`~/Library/Application Sup
 | Feature                          | Description                                                                              |
 | -------------------------------- | ---------------------------------------------------------------------------------------- |
 | **Dual backend**                 | Deepgram (cloud, live streaming) or local models (offline, batch) — switch in settings   |
-| **19 local models**              | Parakeet, Whisper, Moonshine, SenseVoice, GigaAM — with accuracy/speed ratings           |
+| **21 local models**             | Parakeet, Whisper, Moonshine, SenseVoice, GigaAM, Paraformer, Qwen3 — with accuracy/speed ratings |
 | **Unified settings panel**       | One overlay panel for all configuration — `/voice-settings`                              |
 | **Device-aware recommendations** | Scores models against your hardware. Only best-in-class models get [recommended].        |
 | **Enterprise download pipeline** | Pre-checks (disk, network, permissions), live progress with speed/ETA, post-verification |
@@ -264,7 +264,7 @@ extensions/voice.ts                Main extension — state machine, recording, 
 extensions/voice/config.ts         Config loading, saving, migration
 extensions/voice/onboarding.ts     First-run wizard, language picker
 extensions/voice/deepgram.ts       Deepgram URL builder, API key resolver
-extensions/voice/local.ts          Model catalog (19 models), in-process transcription
+extensions/voice/local.ts          Model catalog (21 models), in-process transcription
 extensions/voice/device.ts         Device profiling — RAM, GPU, CPU, container detection
 extensions/voice/model-download.ts Download manager — resume, progress, verification, Handy import
 extensions/voice/sherpa-engine.ts   sherpa-onnx bindings — recognizer lifecycle, inference

@@ -92,9 +92,9 @@ Deepgram(클라우드, 라이브 스트리밍)과 Local(오프라인, 배치 모
 
 ### 모델 — 탐색, 검색, 설치
 
-<img src="assets/settings-models.png" alt="모델 탭 — 정확도/속도 평가가 있는 19개 모델 탐색" width="600" />
+<img src="assets/settings-models.png" alt="모델 탭 — 정확도/속도 평가가 있는 21개 모델 탐색" width="600" />
 
-Parakeet, Whisper, Moonshine, SenseVoice, GigaAM의 19개 모델을 탐색하세요. 각 모델은 정확도와 속도 평가(●●●●○/●●●●○), 적합성 배지, 다운로드 상태를 표시합니다. 퍼지 검색으로 모델을 빠르게 찾으세요. Enter를 눌러 활성화 및 다운로드.
+Parakeet, Whisper, Moonshine, SenseVoice, GigaAM, Paraformer, Qwen3의 21개 모델을 탐색하세요. 각 모델은 정확도와 속도 평가(●●●●○/●●●●○), 적합성 배지, 다운로드 상태를 표시합니다. 퍼지 검색으로 모델을 빠르게 찾으세요. Enter를 눌러 활성화 및 다운로드.
 
 ### 다운로드됨 — 설치된 모델 관리
 
@@ -144,7 +144,7 @@ Parakeet, Whisper, Moonshine, SenseVoice, GigaAM의 19개 모델을 탐색하세
 
 ## 로컬 모델
 
-5개 패밀리에서 19개 모델. 품질순 정렬 — 최고 모델이 먼저.
+7개 패밀리에서 21개 모델. 품질순 정렬 — 최고 모델이 먼저.
 
 ### 추천 모델
 
@@ -195,7 +195,7 @@ SPACE 놓기 → 버퍼를 sherpa-onnx에 전송 (인프로세스)
 | 기능                                 | 설명                                                                               |
 | ------------------------------------ | ---------------------------------------------------------------------------------- |
 | **듀얼 백엔드**                      | Deepgram(클라우드, 라이브 스트리밍) 또는 로컬 모델(오프라인, 배치) — 설정에서 전환 |
-| **19개 로컬 모델**                   | Parakeet, Whisper, Moonshine, SenseVoice, GigaAM — 정확도/속도 평가 포함           |
+| **21개 로컬 모델**                   | Parakeet, Whisper, Moonshine, SenseVoice, GigaAM, Paraformer, Qwen3 — 정확도/속도 평가 포함           |
 | **통합 설정 패널**                   | 모든 설정을 하나의 오버레이 패널에서 — `/voice-settings`                           |
 | **디바이스 인식 추천**               | 하드웨어에 맞춰 모델 점수 평가. 동급 최고 모델만 [recommended] 표시.               |
 | **엔터프라이즈 다운로드 파이프라인** | 사전 검사(디스크, 네트워크, 권한), 속도/ETA 포함 실시간 진행률, 다운로드 후 검증   |
@@ -219,7 +219,7 @@ extensions/voice.ts                메인 확장 — 상태 머신, 녹음, UI, 
 extensions/voice/config.ts         설정 로딩, 저장, 마이그레이션
 extensions/voice/onboarding.ts     첫 실행 마법사, 언어 선택기
 extensions/voice/deepgram.ts       Deepgram URL 빌더, API 키 리졸버
-extensions/voice/local.ts          모델 카탈로그 (19개 모델), 인프로세스 텍스트 변환
+extensions/voice/local.ts          모델 카탈로그 (21개 모델), 인프로세스 텍스트 변환
 extensions/voice/device.ts         디바이스 프로파일링 — RAM, GPU, CPU, 컨테이너 감지
 extensions/voice/model-download.ts 다운로드 관리자 — 재개, 진행률, 검증, Handy 가져오기
 extensions/voice/sherpa-engine.ts   sherpa-onnx 바인딩 — 인식기 라이프사이클, 추론

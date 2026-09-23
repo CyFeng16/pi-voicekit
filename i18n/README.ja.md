@@ -92,9 +92,9 @@ Deepgram（クラウド、ライブストリーミング）と Local（オフラ
 
 ### モデル — 閲覧、検索、インストール
 
-<img src="assets/settings-models.png" alt="モデルタブ — 19モデルを精度/速度評価付きで閲覧" width="600" />
+<img src="assets/settings-models.png" alt="モデルタブ — 21モデルを精度/速度評価付きで閲覧" width="600" />
 
-Parakeet、Whisper、Moonshine、SenseVoice、GigaAM の19モデルを閲覧。各モデルには精度と速度の評価（●●●●○/●●●●○）、適性バッジ、ダウンロード状態が表示されます。ファジー検索でモデルを素早く検索。Enter キーで有効化とダウンロード。
+Parakeet、Whisper、Moonshine、SenseVoice、GigaAM、Paraformer、Qwen3 の21モデルを閲覧。各モデルには精度と速度の評価（●●●●○/●●●●○）、適性バッジ、ダウンロード状態が表示されます。ファジー検索でモデルを素早く検索。Enter キーで有効化とダウンロード。
 
 ### ダウンロード済み — インストール済みモデルの管理
 
@@ -144,7 +144,7 @@ Parakeet、Whisper、Moonshine、SenseVoice、GigaAM の19モデルを閲覧。�
 
 ## ローカルモデル
 
-5つのファミリーから19モデル。品質順に並べています — 最良のモデルが最初です。
+7つのファミリーから21モデル。品質順に並べています — 最良のモデルが最初です。
 
 ### おすすめ
 
@@ -195,7 +195,7 @@ SPACE を離す → バッファを sherpa-onnx に送信（インプロセス�
 | 機能                                           | 説明                                                                                                 |
 | ---------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
 | **デュアルバックエンド**                       | Deepgram（クラウド、ライブストリーミング）またはローカルモデル（オフライン、バッチ）— 設定で切り替え |
-| **19のローカルモデル**                         | Parakeet、Whisper、Moonshine、SenseVoice、GigaAM — 精度/速度評価付き                                 |
+| **21のローカルモデル**                         | Parakeet、Whisper、Moonshine、SenseVoice、GigaAM、Paraformer、Qwen3 — 精度/速度評価付き                                 |
 | **統合設定パネル**                             | すべての設定を一つのオーバーレイパネルで — `/voice-settings`                                         |
 | **デバイス対応の推奨**                         | ハードウェアに対してモデルをスコアリング。ベストインクラスのモデルのみ [recommended] 表示。          |
 | **エンタープライズ級ダウンロードパイプライン** | 事前チェック（ディスク、ネットワーク、権限）、速度/ETA 付きライブ進捗、ダウンロード後の検証          |
@@ -219,7 +219,7 @@ extensions/voice.ts                メイン拡張 — ステートマシン、�
 extensions/voice/config.ts         設定の読み込み、保存、マイグレーション
 extensions/voice/onboarding.ts     初回実行ウィザード、言語ピッカー
 extensions/voice/deepgram.ts       Deepgram URL ビルダー、API キーリゾルバー
-extensions/voice/local.ts          モデルカタログ（19モデル）、インプロセス文字起こし
+extensions/voice/local.ts          モデルカタログ（21モデル）、インプロセス文字起こし
 extensions/voice/device.ts         デバイスプロファイリング — RAM、GPU、CPU、コンテナ検出
 extensions/voice/model-download.ts ダウンロードマネージャー — レジューム、進捗、検証、Handy インポート
 extensions/voice/sherpa-engine.ts   sherpa-onnx バインディング — リコグナイザーライフサイクル、推論

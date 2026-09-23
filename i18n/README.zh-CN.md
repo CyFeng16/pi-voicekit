@@ -92,9 +92,9 @@ pi-listen 自动检测你的音频工具。如果你已安装 sox 或 ffmpeg，�
 
 ### 模型 — 浏览、搜索、安装
 
-<img src="assets/settings-models.png" alt="模型标签页 — 浏览 19 个模型，带准确度/速度评分" width="600" />
+<img src="assets/settings-models.png" alt="模型标签页 — 浏览 21 个模型，带准确度/速度评分" width="600" />
 
-浏览来自 Parakeet、Whisper、Moonshine、SenseVoice 和 GigaAM 的 19 个模型。每个模型显示准确度和速度评分（●●●●○/●●●●○）、适用性标签和下载状态。支持模糊搜索快速查找模型。按 Enter 激活并下载。
+浏览来自 Parakeet、Whisper、Moonshine、SenseVoice、GigaAM、Paraformer 和 Qwen3 的 21 个模型。每个模型显示准确度和速度评分（●●●●○/●●●●○）、适用性标签和下载状态。支持模糊搜索快速查找模型。按 Enter 激活并下载。
 
 ### 已下载 — 管理已安装的模型
 
@@ -144,7 +144,7 @@ pi-listen 自动检测你的音频工具。如果你已安装 sox 或 ffmpeg，�
 
 ## 本地模型
 
-19 个模型，涵盖 5 个系列。按质量排序 — 最佳模型排在前面。
+21 个模型，涵盖 7 个系列。按质量排序 — 最佳模型排在前面。
 
 ### 推荐首选
 
@@ -195,7 +195,7 @@ pi-listen 自动检测你的音频工具。如果你已安装 sox 或 ffmpeg，�
 | 功能               | 说明                                                                     |
 | ------------------ | ------------------------------------------------------------------------ |
 | **双后端**         | Deepgram（云端，实时流式传输）或本地模型（离线，批量模式）— 在设置中切换 |
-| **19 个本地模型**  | Parakeet、Whisper、Moonshine、SenseVoice、GigaAM — 带准确度/速度评分     |
+| **21 个本地模型**  | Parakeet、Whisper、Moonshine、SenseVoice、GigaAM、Paraformer、Qwen3 — 带准确度/速度评分     |
 | **统一设置面板**   | 所有配置集中在一个覆盖面板中 — `/voice-settings`                         |
 | **设备感知推荐**   | 根据你的硬件为模型评分。只有同类最优模型才会标记 [recommended]。         |
 | **企业级下载流程** | 预检查（磁盘、网络、权限），实时进度显示速度/ETA，下载后校验             |
@@ -219,7 +219,7 @@ extensions/voice.ts                主扩展 — 状态机、录音、UI、设�
 extensions/voice/config.ts         配置加载、保存、迁移
 extensions/voice/onboarding.ts     首次运行向导、语言选择器
 extensions/voice/deepgram.ts       Deepgram URL 构建器、API 密钥解析
-extensions/voice/local.ts          模型目录（19 个模型）、进程内转录
+extensions/voice/local.ts          模型目录（21 个模型）、进程内转录
 extensions/voice/device.ts         设备信息采集 — 内存、GPU、CPU、容器检测
 extensions/voice/model-download.ts 下载管理器 — 断点续传、进度、校验、Handy 导入
 extensions/voice/sherpa-engine.ts   sherpa-onnx 绑定 — 识别器生命周期、推理
