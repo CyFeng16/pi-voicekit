@@ -46,6 +46,8 @@
     "typecheck": "bunx tsc -p tsconfig.json",
     "test": "bun test",
     "check": "bun run typecheck && bun run test",
+    "format": "bunx prettier@3.3.3 --write \"**/*.{ts,json,yml,yaml}\"",
+    "format:check": "bunx prettier@3.3.3 --check \"**/*.{ts,json,yml,yaml}\"",
     "release:dry": "bun run check && bun publish --dry-run",
     "release": "bun run check && bun publish --access public"
   },
