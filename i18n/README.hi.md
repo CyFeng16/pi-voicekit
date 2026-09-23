@@ -8,8 +8,8 @@
 
 **[Pi](https://github.com/earendil-works/pi-coding-agent) के लिए होल्ड-टू-टॉक वॉइस इनपुट।** Deepgram के ज़रिए क्लाउड स्ट्रीमिंग या लोकल मॉडल के साथ पूरी तरह ऑफ़लाइन।
 
-[![npm version](https://img.shields.io/npm/v/pi-listen-ng.svg)](https://www.npmjs.com/package/pi-listen-ng)
-[![license](https://img.shields.io/npm/l/pi-listen-ng.svg)](https://github.com/CyFeng16/pi-listen-ng/blob/main/LICENSE)
+[![npm version](https://img.shields.io/npm/v/pi-voicekit.svg)](https://www.npmjs.com/package/pi-voicekit)
+[![license](https://img.shields.io/npm/l/pi-voicekit.svg)](https://github.com/CyFeng16/pi-voicekit/blob/main/LICENSE)
 [![author](https://img.shields.io/badge/author-@baanditeagle-1DA1F2?logo=x&logoColor=white)](https://x.com/baanditeagle)
 
 > **v5.0.1 — सुरक्षा पैच** — API कुंजियाँ अब प्रोजेक्ट कॉन्फ़िग में लीक नहीं होतीं। माइक ऑडियो को दुर्भावनापूर्ण रिपो सेटिंग्स के ज़रिए रिमोट सर्वर पर रीडायरेक्ट नहीं किया जा सकता। API कुंजी ऑनबोर्डिंग में शेल इंजेक्शन ठीक किया गया। कॉन्फ़िग राइट्स अब एटॉमिक हैं। [पूरा चेंजलॉग →](CHANGELOG.md)
@@ -28,7 +28,7 @@
 
 ```bash
 # सामान्य टर्मिनल में चलाएँ (Pi के अंदर नहीं)
-pi install npm:pi-listen-ng
+pi install npm:pi-voicekit
 ```
 
 ### 2. अपना बैकएंड चुनें
@@ -286,7 +286,7 @@ extensions/voice/settings-panel.ts  सेटिंग्स पैनल — Co
 
 ## लिंक
 
-- **npm:** [npmjs.com/package/pi-listen-ng](https://www.npmjs.com/package/pi-listen-ng)
-- **GitHub:** [github.com/CyFeng16/pi-listen-ng](https://github.com/CyFeng16/pi-listen-ng)
+- **npm:** [npmjs.com/package/pi-voicekit](https://www.npmjs.com/package/pi-voicekit)
+- **GitHub:** [github.com/CyFeng16/pi-voicekit](https://github.com/CyFeng16/pi-voicekit)
 - **Deepgram:** [dpgr.am/pi-voice](https://dpgr.am/pi-voice) ($200 मुफ़्त क्रेडिट)
 - **Pi CLI:** [github.com/earendil-works/pi-coding-agent](https://github.com/earendil-works/pi-coding-agent)

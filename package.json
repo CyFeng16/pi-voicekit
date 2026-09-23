@@ -1,6 +1,6 @@
 {
-  "name": "pi-listen-ng",
-  "version": "7.3.2",
+  "name": "pi-voicekit",
+  "version": "0.1.0",
   "description": "Voice in + voice out for Pi CLI — hold-to-talk STT (Deepgram or 19 offline models) plus TTS (Kitten Nano, Piper, Kokoro, or Deepgram Aura)",
   "type": "module",
   "keywords": [
@@ -34,13 +34,13 @@
     "url": "https://x.com/baanditeagle"
   },
   "license": "MIT",
-  "homepage": "https://github.com/CyFeng16/pi-listen-ng#readme",
+  "homepage": "https://github.com/CyFeng16/pi-voicekit#readme",
   "repository": {
     "type": "git",
-    "url": "https://github.com/CyFeng16/pi-listen-ng.git"
+    "url": "https://github.com/CyFeng16/pi-voicekit.git"
   },
   "bugs": {
-    "url": "https://github.com/CyFeng16/pi-listen-ng/issues"
+    "url": "https://github.com/CyFeng16/pi-voicekit/issues"
   },
   "scripts": {
     "typecheck": "bunx tsc -p tsconfig.json",

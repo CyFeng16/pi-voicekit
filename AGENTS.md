@@ -1,6 +1,6 @@
-# pi-listen-ng — Contributing & Agent Guidelines
+# pi-voicekit — Contributing & Agent Guidelines
 
-pi-listen-ng is a **public, GitHub-hosted open-source project** (an independent
+pi-voicekit is a **public, GitHub-hosted open-source project** (an independent
 continuation of the archived `codexstar69/pi-listen`, MIT). All repository-facing
 text is **English-first**.
 

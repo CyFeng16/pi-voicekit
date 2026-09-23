@@ -8,8 +8,8 @@
 
 **Entrada de voz mantener-para-hablar para [Pi](https://github.com/earendil-works/pi-coding-agent).** Streaming en la nube con Deepgram o completamente offline con modelos locales.
 
-[![npm version](https://img.shields.io/npm/v/pi-listen-ng.svg)](https://www.npmjs.com/package/pi-listen-ng)
-[![license](https://img.shields.io/npm/l/pi-listen-ng.svg)](https://github.com/CyFeng16/pi-listen-ng/blob/main/LICENSE)
+[![npm version](https://img.shields.io/npm/v/pi-voicekit.svg)](https://www.npmjs.com/package/pi-voicekit)
+[![license](https://img.shields.io/npm/l/pi-voicekit.svg)](https://github.com/CyFeng16/pi-voicekit/blob/main/LICENSE)
 [![author](https://img.shields.io/badge/author-@baanditeagle-1DA1F2?logo=x&logoColor=white)](https://x.com/baanditeagle)
 
 > **v5.0.1 — Parche de seguridad** — Las claves API ya no se filtran a la configuración del proyecto. El audio del micrófono no puede ser redirigido a servidores remotos mediante configuraciones maliciosas del repositorio. Se corrigió la inyección de shell en el proceso de incorporación de claves API. Las escrituras de configuración ahora son atómicas. [Registro de cambios completo →](CHANGELOG.md)
@@ -28,7 +28,7 @@
 
 ```bash
 # En una terminal normal (no dentro de Pi)
-pi install npm:pi-listen-ng
+pi install npm:pi-voicekit
 ```
 
 ### 2. Elige tu backend
@@ -286,7 +286,7 @@ Consulta [SECURITY.md](SECURITY.md) para reportar vulnerabilidades.
 
 ## Enlaces
 
-- **npm:** [npmjs.com/package/pi-listen-ng](https://www.npmjs.com/package/pi-listen-ng)
-- **GitHub:** [github.com/CyFeng16/pi-listen-ng](https://github.com/CyFeng16/pi-listen-ng)
+- **npm:** [npmjs.com/package/pi-voicekit](https://www.npmjs.com/package/pi-voicekit)
+- **GitHub:** [github.com/CyFeng16/pi-voicekit](https://github.com/CyFeng16/pi-voicekit)
 - **Deepgram:** [dpgr.am/pi-voice](https://dpgr.am/pi-voice) ($200 de crédito gratuito)
 - **Pi CLI:** [github.com/earendil-works/pi-coding-agent](https://github.com/earendil-works/pi-coding-agent)
