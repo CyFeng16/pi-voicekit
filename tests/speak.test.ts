@@ -64,7 +64,7 @@ describe("chunkText — robust sentence segmentation", () => {
 		// Every chunk is a sequence of complete words separated by single
 		// spaces — no chunk ends inside a token.
 		for (const chunk of out) {
-			expect(chunk.split(/\s+/).every(t => t === "" || /^\w+$/.test(t))).toBe(true);
+			expect(chunk.split(/\s+/).every((t) => t === "" || /^\w+$/.test(t))).toBe(true);
 		}
 	});
 

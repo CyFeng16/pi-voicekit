@@ -24,7 +24,9 @@ function makeTempModelDir(modelId: string): string {
 
 afterEach(() => {
 	for (const dir of tempDirs.splice(0)) {
-		try { fs.rmSync(dir, { recursive: true, force: true }); } catch {}
+		try {
+			fs.rmSync(dir, { recursive: true, force: true });
+		} catch {}
 	}
 });
 
@@ -52,7 +54,7 @@ describe("getModelPath", () => {
 
 describe("isModelDownloaded", () => {
 	test("returns false when directory does not exist", () => {
-		expect(isModelDownloaded("nonexistent-xyz", { "encoder": "https://example.com/encoder.onnx" })).toBe(false);
+		expect(isModelDownloaded("nonexistent-xyz", { encoder: "https://example.com/encoder.onnx" })).toBe(false);
 	});
 });
 
@@ -80,9 +82,7 @@ describe("download URLs validation", () => {
 				expect(() => new URL(url)).not.toThrow();
 				// Should point to HuggingFace or GitHub
 				const hostname = new URL(url).hostname;
-				expect(
-					hostname === "huggingface.co" || hostname === "github.com",
-				).toBe(true);
+				expect(hostname === "huggingface.co" || hostname === "github.com").toBe(true);
 			}
 		}
 	});

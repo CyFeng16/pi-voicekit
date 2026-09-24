@@ -10,7 +10,7 @@ import {
 
 describe("TTS_LOCAL_MODELS catalog shape", () => {
 	test("default model exists", () => {
-		expect(TTS_LOCAL_MODELS.find(m => m.id === DEFAULT_TTS_MODEL)).toBeDefined();
+		expect(TTS_LOCAL_MODELS.find((m) => m.id === DEFAULT_TTS_MODEL)).toBeDefined();
 	});
 
 	test("every entry has at least one voice", () => {
@@ -21,7 +21,7 @@ describe("TTS_LOCAL_MODELS catalog shape", () => {
 
 	test("every entry's defaultSid maps to a real voice", () => {
 		for (const m of TTS_LOCAL_MODELS) {
-			expect(m.voices.some(v => v.sid === m.defaultSid)).toBe(true);
+			expect(m.voices.some((v) => v.sid === m.defaultSid)).toBe(true);
 		}
 	});
 

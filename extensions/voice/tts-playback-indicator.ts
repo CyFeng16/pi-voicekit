@@ -72,7 +72,11 @@ export class TtsPlaybackIndicator extends BaseDisposableWidget {
 
 	/** Caller invokes this from [esc] when the indicator owns escape. */
 	stop(): void {
-		try { this.onStop?.(); } catch { /* never fail caller */ }
+		try {
+			this.onStop?.();
+		} catch {
+			/* never fail caller */
+		}
 		this.dispose();
 	}
 
@@ -92,7 +96,7 @@ export class TtsPlaybackIndicator extends BaseDisposableWidget {
 				invalidate() {},
 				render: (width: number): string[] => renderPlaybackLine({ theme, width, state, startedAt, tick }),
 			}),
-			{ placement: "belowEditor" },
+			{ placement: "belowEditor" }
 		);
 	}
 }

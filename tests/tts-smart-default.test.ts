@@ -106,10 +106,7 @@ describe("ensureTtsModelInstalled — concurrency guard (v7.0.1)", () => {
 		// but it does verify Promise.all of two concurrent calls behaves
 		// correctly and resolves to identical results.
 		if (!isTtsModelInstalled(DEFAULT)) return;
-		const [a, b] = await Promise.all([
-			ensureTtsModelInstalled(DEFAULT),
-			ensureTtsModelInstalled(DEFAULT),
-		]);
+		const [a, b] = await Promise.all([ensureTtsModelInstalled(DEFAULT), ensureTtsModelInstalled(DEFAULT)]);
 		expect(a.dir).toBe(b.dir);
 	});
 });

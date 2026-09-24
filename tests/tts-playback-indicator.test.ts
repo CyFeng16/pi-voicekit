@@ -46,7 +46,14 @@ describe("TtsPlaybackIndicator — state machine", () => {
 		const reg = makeWidgetRegistry();
 		const ticker = makeRenderTicker();
 		let stopped = 0;
-		const w = new TtsPlaybackIndicator({ ui, registry: reg, ticker, onStop: () => { stopped++; } });
+		const w = new TtsPlaybackIndicator({
+			ui,
+			registry: reg,
+			ticker,
+			onStop: () => {
+				stopped++;
+			},
+		});
 		w.setState("playing");
 		w.stop();
 		expect(stopped).toBe(1);
@@ -68,7 +75,13 @@ describe("TtsPlaybackIndicator — state machine", () => {
 describe("renderPlaybackLine — pure render", () => {
 	const noTheme = { fg: (_r: string, s: string) => s };
 	test("synthesizing renders spinner + 'Synthesizing'", () => {
-		const lines = renderPlaybackLine({ theme: noTheme, width: 80, state: "synthesizing", startedAt: Date.now(), tick: 0 });
+		const lines = renderPlaybackLine({
+			theme: noTheme,
+			width: 80,
+			state: "synthesizing",
+			startedAt: Date.now(),
+			tick: 0,
+		});
 		expect(lines).toHaveLength(1);
 		// v7.2: spinner is now the 10-frame braille rotation (Charm
 		// convention). Frame 0 is ⠋. Test asserts it's one of the

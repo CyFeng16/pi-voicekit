@@ -4,7 +4,7 @@ import { makeRenderTicker, type TickerSubscriber } from "../extensions/voice/ui-
 /** Run real time forward in 100 ms steps via fake clock (Bun timer mocking). */
 async function awaitTicks(n: number): Promise<void> {
 	// Real timers used; ticker runs at 100 ms. Wait n*100 + a small grace.
-	await new Promise(resolve => setTimeout(resolve, n * 100 + 30));
+	await new Promise((resolve) => setTimeout(resolve, n * 100 + 30));
 }
 
 describe("RenderTicker — lazy lifecycle", () => {
@@ -35,7 +35,11 @@ describe("RenderTicker — tick fires registered callbacks", () => {
 	test("tick is called approximately every 100 ms", async () => {
 		const t = makeRenderTicker();
 		let count = 0;
-		t.subscribe({ tick: () => { count++; } });
+		t.subscribe({
+			tick: () => {
+				count++;
+			},
+		});
 		await awaitTicks(3);
 		expect(count).toBeGreaterThanOrEqual(2);
 		t.dispose();
@@ -44,8 +48,16 @@ describe("RenderTicker — tick fires registered callbacks", () => {
 		const t = makeRenderTicker();
 		let a = 0;
 		let b = 0;
-		t.subscribe({ tick: () => { a++; } });
-		t.subscribe({ tick: () => { b++; } });
+		t.subscribe({
+			tick: () => {
+				a++;
+			},
+		});
+		t.subscribe({
+			tick: () => {
+				b++;
+			},
+		});
 		await awaitTicks(3);
 		expect(a).toBeGreaterThanOrEqual(2);
 		expect(b).toBeGreaterThanOrEqual(2);
@@ -59,8 +71,18 @@ describe("RenderTicker — failure isolation (Codex v4 #2)", () => {
 	test("a throwing subscriber does not block the rest", async () => {
 		const t = makeRenderTicker();
 		let healthy = 0;
-		t.subscribe({ tick: () => { throw new Error("boom"); }, label: "thrower" });
-		t.subscribe({ tick: () => { healthy++; }, label: "healthy" });
+		t.subscribe({
+			tick: () => {
+				throw new Error("boom");
+			},
+			label: "thrower",
+		});
+		t.subscribe({
+			tick: () => {
+				healthy++;
+			},
+			label: "healthy",
+		});
 		await awaitTicks(3);
 		expect(healthy).toBeGreaterThanOrEqual(2);
 		t.dispose();
@@ -72,8 +94,12 @@ describe("RenderTicker — auto-eviction after 3 throws (Codex v3 #2)", () => {
 		const t = makeRenderTicker();
 		let disposeCalled = 0;
 		const sub: TickerSubscriber = {
-			tick: () => { throw new Error("perma-broken"); },
-			dispose: () => { disposeCalled++; },
+			tick: () => {
+				throw new Error("perma-broken");
+			},
+			dispose: () => {
+				disposeCalled++;
+			},
 			label: "broken-widget",
 		};
 		t.subscribe(sub);
@@ -86,12 +112,21 @@ describe("RenderTicker — auto-eviction after 3 throws (Codex v3 #2)", () => {
 		const t = makeRenderTicker();
 		let healthyTicks = 0;
 		const broken: TickerSubscriber = {
-			tick: () => { throw new Error("tick-throws"); },
-			dispose: () => { throw new Error("dispose-also-throws"); },
+			tick: () => {
+				throw new Error("tick-throws");
+			},
+			dispose: () => {
+				throw new Error("dispose-also-throws");
+			},
 			label: "broken-cascade",
 		};
 		t.subscribe(broken);
-		t.subscribe({ tick: () => { healthyTicks++; }, label: "healthy" });
+		t.subscribe({
+			tick: () => {
+				healthyTicks++;
+			},
+			label: "healthy",
+		});
 		await awaitTicks(6);
 		// Healthy widget should keep ticking even though broken's
 		// dispose() threw during eviction.
@@ -100,7 +135,12 @@ describe("RenderTicker — auto-eviction after 3 throws (Codex v3 #2)", () => {
 	});
 	test("subscriber without dispose() is still auto-unsubscribed cleanly", async () => {
 		const t = makeRenderTicker();
-		t.subscribe({ tick: () => { throw new Error("boom"); }, label: "no-dispose" });
+		t.subscribe({
+			tick: () => {
+				throw new Error("boom");
+			},
+			label: "no-dispose",
+		});
 		await awaitTicks(5);
 		expect(t.refCount()).toBe(0); // evicted even without dispose hook
 		t.dispose();

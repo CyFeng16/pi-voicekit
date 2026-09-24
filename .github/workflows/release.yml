@@ -1,0 +1,60 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify tag matches package.json version
+        run: |
+          TAG="${GITHUB_REF#refs/tags/}"
+          VERSION="$(node -p "require('./package.json').version")"
+          if [ "${TAG#v}" != "$VERSION" ]; then
+            echo "::error::tag ${TAG} does not match package.json version ${VERSION}"
+            exit 1
+          fi
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.11
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Typecheck + tests
+        run: bun run check
+
+      - name: Setup Node (npm ≥ 11.5.1 supports OIDC publish)
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+
+      # Trusted Publishing 走 OIDC 换 token，仓库无需任何 secrets。
+      # npm ≥ 11.5.1 才支持从 GitHub Actions OIDC 直接出 token（含 provenance）。
+      - name: Bump npm to latest (supports OIDC)
+        run: npm install -g npm@latest
+
+      - name: Publish to npm (Trusted Publishing + provenance)
+        run: npm publish --provenance --access public
+
+      # 一次性前置（npmjs.com 后台，由维护者手动完成，不能在 CI 内配置）:
+      #   1. 首次认领/创建包 pi-listen-ng（npm access public 可在 publish 时完成）
+      #   2. 为包配置 Trusted Publishing 发布者（npm 端按 owner/repo/workflow
+      #      文件精确绑定，大小写敏感，必须与本文件名一致）:
+      #      - Provider: GitHub Actions
+      #      - Owner: CyFeng16     Repository: pi-listen-ng
+      #      - Workflow: release.yml
+      #   3. OIDC GA（2025-07-31）要求 npm ≥ 11.5.1 + Node ≥ 22.14.0；
+      #      本 workflow 用 Node 24 并显式升级 npm@latest。
+      #   在此之前本 workflow 会在 publish 步失败——属预期，非流程缺陷。

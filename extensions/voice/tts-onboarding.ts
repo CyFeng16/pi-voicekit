@@ -21,7 +21,7 @@
  * without changing any other code path.
  */
 
-import type { ExtensionCommandContext, ExtensionContext } from "@mariozechner/pi-coding-agent";
+import type { ExtensionCommandContext, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { VoiceConfig, VoiceSettingsScope } from "./config";
 import type { DeviceProfile } from "./device";
 import { recommendDefaultModel, isTtsModelInstalled, getTtsModel } from "./tts-local-models";
@@ -51,7 +51,11 @@ export function maybeShowTtsOnboarding(opts: OnboardTtsOpts): boolean {
 
 	const recommendation = recommendDefaultModel(device.systemLocale ?? "en");
 	let recModel;
-	try { recModel = getTtsModel(recommendation.modelId); } catch { recModel = undefined; }
+	try {
+		recModel = getTtsModel(recommendation.modelId);
+	} catch {
+		recModel = undefined;
+	}
 	const installed = isTtsModelInstalled(recommendation.modelId);
 
 	const lines = [

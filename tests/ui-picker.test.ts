@@ -1,7 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { PickerChassis, type PickerRow } from "../extensions/voice/ui-picker";
 
-interface VoiceItem { id: string; name: string }
+interface VoiceItem {
+	id: string;
+	name: string;
+}
 
 const TIER0: PickerRow<VoiceItem>[] = [
 	{ kind: "heading", label: "Tier 0 — Recommended" },
@@ -64,7 +67,7 @@ describe("PickerChassis — search filtering with heading skipping", () => {
 		expect(view.kind).toBe("list");
 		if (view.kind !== "list") return;
 		// kokoro + matcha both match "multi"; their headings come along
-		const labels = view.rows.map(r => (r.kind === "heading" ? `H:${r.label}` : `D:${r.value.id}`));
+		const labels = view.rows.map((r) => (r.kind === "heading" ? `H:${r.label}` : `D:${r.value.id}`));
 		expect(labels).toContain("D:kokoro");
 		expect(labels).toContain("D:matcha");
 		expect(labels).toContain("H:Tier 0 — Recommended");
@@ -85,7 +88,7 @@ describe("PickerChassis — search filtering with heading skipping", () => {
 		const view = p.view({ maxVisible: 12, compact: true });
 		expect(view.kind).toBe("list");
 		if (view.kind !== "list") return;
-		expect(view.rows.every(r => r.kind === "data")).toBe(true);
+		expect(view.rows.every((r) => r.kind === "data")).toBe(true);
 	});
 	test("heading is not duplicated when group has multiple matches", () => {
 		const p = new PickerChassis<VoiceItem>();
@@ -94,7 +97,7 @@ describe("PickerChassis — search filtering with heading skipping", () => {
 		const view = p.view({ maxVisible: 12, compact: false });
 		expect(view.kind).toBe("list");
 		if (view.kind !== "list") return;
-		const headingHits = view.rows.filter(r => r.kind === "heading" && r.label === "English Piper").length;
+		const headingHits = view.rows.filter((r) => r.kind === "heading" && r.label === "English Piper").length;
 		expect(headingHits).toBe(1);
 	});
 });

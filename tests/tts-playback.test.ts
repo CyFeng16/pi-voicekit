@@ -12,7 +12,7 @@ describe("encodeWav — WAV header correctness", () => {
 		expect(wav[2]).toBe(0x46); // F
 		expect(wav[3]).toBe(0x46); // F
 		// WAVE
-		expect(wav[8]).toBe(0x57);  // W
+		expect(wav[8]).toBe(0x57); // W
 		expect(wav[11]).toBe(0x45); // E
 
 		// 44-byte header + 2 bytes per sample
@@ -28,7 +28,7 @@ describe("encodeWav — WAV header correctness", () => {
 		const wav = encodeWav(samples, 16000);
 		const view = new DataView(wav.buffer, wav.byteOffset, wav.byteLength);
 		// Sample 0 (value 2.0) → clamped to 1.0 → 0x7FFF
-		expect(view.getInt16(44, true)).toBe(0x7FFF);
+		expect(view.getInt16(44, true)).toBe(0x7fff);
 		// Sample 1 (value -2.0) → clamped to -1.0 → -0x8000
 		expect(view.getInt16(46, true)).toBe(-0x8000);
 		// Sample 2 (value 0) → 0
@@ -60,7 +60,7 @@ describe("encodeWav — WAV header correctness", () => {
 		// length value via a Float32Array proxy — too elaborate. Just
 		// confirm the guard exists by inspecting the error path with a
 		// crafted samples-like object.
-		const huge: any = { length: 0xFFFFFFFF };
+		const huge: any = { length: 0xffffffff };
 		expect(() => encodeWav(huge as Float32Array, 24000)).toThrow(/exceeds WAV uint32/);
 	});
 });
@@ -73,7 +73,7 @@ describe("play — abort signal handling", () => {
 			play({
 				source: { samples: new Float32Array(10), sampleRate: 16000 },
 				signal: ac.signal,
-			}),
+			})
 		).rejects.toThrow(/aborted/i);
 	});
 
@@ -83,7 +83,7 @@ describe("play — abort signal handling", () => {
 		// on a system audio player being present in CI.
 		const stubPlayer = {
 			cmd: process.platform === "win32" ? "cmd" : "true",
-			args: () => process.platform === "win32" ? ["/c", "exit", "0"] : [],
+			args: () => (process.platform === "win32" ? ["/c", "exit", "0"] : []),
 		};
 		await play({
 			source: { samples: new Float32Array(10), sampleRate: 16000 },

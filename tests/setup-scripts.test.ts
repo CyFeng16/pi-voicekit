@@ -21,7 +21,7 @@ describe("documentation", () => {
 
 	test("package.json has correct metadata", () => {
 		const pkg = JSON.parse(read("package.json"));
-		expect(pkg.name).toBe("@codexstar/pi-listen");
+		expect(pkg.name).toBe("pi-listen-ng");
 		expect(pkg.pi?.extensions).toContain("./extensions/voice.ts");
 		expect(pkg.keywords).toContain("pi-extension");
 		expect(pkg.keywords).toContain("deepgram");

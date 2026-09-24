@@ -116,14 +116,14 @@ function estimateRuntimeRam(sizeBytes?: number): number {
 export function autoRecommendModel(
 	models: LocalModelInfo[],
 	device: DeviceProfile,
-	language: string,
+	language: string
 ): LocalModelInfo | undefined {
 	// Filter by language support
-	const langModels = models.filter(m => modelSupportsLanguage(m, language));
+	const langModels = models.filter((m) => modelSupportsLanguage(m, language));
 	if (langModels.length === 0) return undefined;
 
 	// Score each model
-	const scored = langModels.map(m => ({
+	const scored = langModels.map((m) => ({
 		model: m,
 		fitness: getModelFitness(m, device),
 		size: m.sizeBytes || 0,
@@ -165,13 +165,20 @@ function modelSupportsLanguage(model: LocalModelInfo, langCode: string): boolean
 			return base === "ru";
 		case "sensevoice":
 			return ["zh", "en", "ja", "ko", "yue"].includes(base!);
-		case "single-ar": return base === "ar";
-		case "single-zh": return base === "zh";
-		case "single-ja": return base === "ja";
-		case "single-ko": return base === "ko";
-		case "single-uk": return base === "uk";
-		case "single-vi": return base === "vi";
-		case "single-es": return base === "es";
+		case "single-ar":
+			return base === "ar";
+		case "single-zh":
+			return base === "zh";
+		case "single-ja":
+			return base === "ja";
+		case "single-ko":
+			return base === "ko";
+		case "single-uk":
+			return base === "uk";
+		case "single-vi":
+			return base === "vi";
+		case "single-es":
+			return base === "es";
 		default:
 			return true;
 	}
@@ -264,14 +271,14 @@ function detectContainer(): boolean {
 function getContainerRamMB(hostRamMB: number): number {
 	// Try cgroup v2 first, then v1
 	const paths = [
-		"/sys/fs/cgroup/memory.max",           // cgroup v2
+		"/sys/fs/cgroup/memory.max", // cgroup v2
 		"/sys/fs/cgroup/memory/memory.limit_in_bytes", // cgroup v1
 	];
 	for (const p of paths) {
 		try {
 			const raw = fs.readFileSync(p, "utf-8").trim();
 			// "max" = cgroup v2 unlimited
-		if (raw === "max") continue;
+			if (raw === "max") continue;
 			// cgroup v1 unlimited: LLONG_MAX or page-aligned variants (64-bit and 32-bit)
 			// Use string comparison to avoid parseInt precision loss on values > MAX_SAFE_INTEGER
 			if (raw === "9223372036854775807" || raw === "9223372036854771712") continue;
@@ -346,15 +353,16 @@ function detectGPU(platform: NodeJS.Platform, arch: string): DeviceProfile["gpu"
 
 	// NVIDIA — try nvidia-smi (2s timeout)
 	try {
-		const nv = spawnSync("nvidia-smi", [
-			"--query-gpu=name,memory.total",
-			"--format=csv,noheader,nounits",
-		], { timeout: 2000, encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"] });
+		const nv = spawnSync("nvidia-smi", ["--query-gpu=name,memory.total", "--format=csv,noheader,nounits"], {
+			timeout: 2000,
+			encoding: "utf-8",
+			stdio: ["pipe", "pipe", "pipe"],
+		});
 
 		if (nv.status === 0 && nv.stdout) {
 			const line = nv.stdout.trim().split("\n")[0];
 			if (line) {
-				const [name, vram] = line.split(",").map(s => s?.trim());
+				const [name, vram] = line.split(",").map((s) => s?.trim());
 				result.hasNvidia = true;
 				result.gpuName = name;
 				result.vramMB = vram ? parseInt(vram, 10) : undefined;

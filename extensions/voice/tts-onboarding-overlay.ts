@@ -30,16 +30,13 @@
  *   └──────────────────────────────────────────────────────────────┘
  */
 
-import { matchesKey, Key } from "@mariozechner/pi-tui";
-import type { Theme } from "@mariozechner/pi-coding-agent";
+import { matchesKey, Key } from "@earendil-works/pi-tui";
+import type { Theme } from "@earendil-works/pi-coding-agent";
 import { recommendDefaultModel, isTtsModelInstalled, getTtsModel } from "./tts-local-models";
 import { ICON } from "./ui-icons";
 import { isPanelTooNarrow, visualWidth, padRightVisual } from "./ui-width";
 
-export type OnboardingResult =
-	| { kind: "test" }
-	| { kind: "pickModel" }
-	| { kind: "skip" };
+export type OnboardingResult = { kind: "test" } | { kind: "pickModel" } | { kind: "skip" };
 
 export interface OnboardingOverlayDeps {
 	/** Active locale (e.g. "en", "zh") for recommendation. */
@@ -82,7 +79,11 @@ export class TtsOnboardingOverlay {
 
 		const recommendation = recommendDefaultModel(this.deps.systemLocale ?? "en");
 		let recModel;
-		try { recModel = getTtsModel(recommendation.modelId); } catch { recModel = undefined; }
+		try {
+			recModel = getTtsModel(recommendation.modelId);
+		} catch {
+			recModel = undefined;
+		}
 		const installed = recModel ? isTtsModelInstalled(recModel.id) : false;
 
 		const lines: string[] = [];
@@ -108,7 +109,11 @@ export class TtsOnboardingOverlay {
 
 		if (recModel) {
 			const langs = recModel.languages.length > 1 ? `${recModel.languages.length} langs` : recModel.languages[0];
-			lines.push(row(`  ${success(ICON.bulletActive)} ${dim("Recommended:")}  ${accent(recModel.name)} ${dim(`(${recModel.size}, ${langs})`)}`));
+			lines.push(
+				row(
+					`  ${success(ICON.bulletActive)} ${dim("Recommended:")}  ${accent(recModel.name)} ${dim(`(${recModel.size}, ${langs})`)}`
+				)
+			);
 			lines.push(row(`    ${dim(recModel.notes)}`));
 		} else {
 			lines.push(row(`  ${success(ICON.bulletActive)} ${dim("Recommended:")}  ${accent(recommendation.modelId)}`));
@@ -123,7 +128,11 @@ export class TtsOnboardingOverlay {
 
 		if (recommendation.fallback) {
 			lines.push(hr);
-			lines.push(row(`  ${dim(`Note: ${this.deps.systemLocale ?? "your locale"} has no native voice — English fallback chosen.`)}`));
+			lines.push(
+				row(
+					`  ${dim(`Note: ${this.deps.systemLocale ?? "your locale"} has no native voice — English fallback chosen.`)}`
+				)
+			);
 		}
 
 		lines.push(hr);
@@ -161,11 +170,17 @@ export class TtsOnboardingOverlay {
 		}
 	}
 
-	invalidate(): void { /* render is uncached */ }
+	invalidate(): void {
+		/* render is uncached */
+	}
 
 	private resolve(result: OnboardingResult): void {
 		if (this.resolved) return;
 		this.resolved = true;
-		try { this.done(result); } catch { /* never fail closure */ }
+		try {
+			this.done(result);
+		} catch {
+			/* never fail closure */
+		}
 	}
 }

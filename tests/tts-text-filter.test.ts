@@ -1,10 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import {
-	prepareForSpeech,
-	lightNormalize,
-	normalizeBCP47,
-	baseLanguage,
-} from "../extensions/voice/tts-text-filter";
+import { prepareForSpeech, lightNormalize, normalizeBCP47, baseLanguage } from "../extensions/voice/tts-text-filter";
 
 describe("prepareForSpeech — code blocks", () => {
 	test("drops fenced code blocks entirely", () => {

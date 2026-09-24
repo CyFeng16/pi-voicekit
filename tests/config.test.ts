@@ -276,7 +276,7 @@ describe("saveConfig", () => {
 
 		const savedPath = saveConfig(config, "global", cwd, { agentDir });
 		const dir = path.dirname(savedPath);
-		const tmpFiles = fs.readdirSync(dir).filter(f => f.endsWith(".tmp"));
+		const tmpFiles = fs.readdirSync(dir).filter((f) => f.endsWith(".tmp"));
 
 		expect(tmpFiles).toHaveLength(0);
 		expect(JSON.parse(fs.readFileSync(savedPath, "utf8"))).toBeDefined();

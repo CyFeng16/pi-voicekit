@@ -13,8 +13,8 @@
  *   - `h`  is intentionally NOT bound (vim users would trigger it).
  */
 
-import { matchesKey, Key } from "@mariozechner/pi-tui";
-import type { Theme } from "@mariozechner/pi-coding-agent";
+import { matchesKey, Key } from "@earendil-works/pi-tui";
+import type { Theme } from "@earendil-works/pi-coding-agent";
 import { ICON } from "./ui-icons";
 import { isPanelTooNarrow } from "./ui-width";
 
@@ -22,8 +22,14 @@ export interface HelpOverlayDeps {
 	readonly theme?: Theme;
 }
 
-interface HelpEntry { readonly key: string; readonly desc: string }
-interface HelpSection { readonly heading: string; readonly entries: ReadonlyArray<HelpEntry> }
+interface HelpEntry {
+	readonly key: string;
+	readonly desc: string;
+}
+interface HelpSection {
+	readonly heading: string;
+	readonly entries: ReadonlyArray<HelpEntry>;
+}
 
 const HELP_SECTIONS: ReadonlyArray<HelpSection> = [
 	{
@@ -96,19 +102,23 @@ export class HelpOverlay {
 
 		const w = Math.max(60, Math.min(width - 2, 90));
 		const lines: string[] = [];
-		lines.push(`  ${bold("pi-listen")} ${dim(ICON.middot)} ${bold("Help")} ${dim(`${ICON.middot} press [esc] to close`)}`);
+		lines.push(
+			`  ${bold("pi-listen")} ${dim(ICON.middot)} ${bold("Help")} ${dim(`${ICON.middot} press [esc] to close`)}`
+		);
 		lines.push(`  ${dim(ICON.boxH.repeat(Math.min(w, 60)))}`);
 		for (const sec of HELP_SECTIONS) {
 			lines.push("");
 			lines.push(`  ${accent(sec.heading)}`);
-			const keyW = Math.max(...sec.entries.map(e => e.key.length));
+			const keyW = Math.max(...sec.entries.map((e) => e.key.length));
 			for (const e of sec.entries) {
 				const k = e.key.padEnd(keyW);
 				lines.push(`    ${accent(k)}  ${dim(ICON.middot)}  ${dim(e.desc)}`);
 			}
 		}
 		lines.push("");
-		lines.push(`  ${dim("Note: Hindi (Devanagari) and Arabic voices fall back to romanized labels — see /voice-settings → Speak tab for the full voice list.")}`);
+		lines.push(
+			`  ${dim("Note: Hindi (Devanagari) and Arabic voices fall back to romanized labels — see /voice-settings → Speak tab for the full voice list.")}`
+		);
 		return lines;
 	}
 
@@ -134,12 +144,18 @@ export class HelpOverlay {
 		if (this.resolved) return;
 		if (matchesKey(data, Key.escape) || matchesKey(data, Key.enter)) {
 			this.resolved = true;
-			try { this.done(); } catch { /* never fail closure */ }
+			try {
+				this.done();
+			} catch {
+				/* never fail closure */
+			}
 			return;
 		}
 		// Any other key (including ? and F1 again) is ignored — overlay
 		// is read-only.
 	}
 
-	invalidate(): void { /* render is uncached */ }
+	invalidate(): void {
+		/* render is uncached */
+	}
 }

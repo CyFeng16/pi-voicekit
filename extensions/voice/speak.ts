@@ -125,7 +125,9 @@ export async function speak(opts: SpeakOpts): Promise<void> {
 		// Shadow .catch — swallows so an orphaned promise never
 		// surfaces as UnhandledPromiseRejection. The original `p` is
 		// returned so the actual awaiter sees the rejection.
-		p.catch(() => { /* see comment above */ });
+		p.catch(() => {
+			/* see comment above */
+		});
 		return p;
 	};
 
@@ -137,7 +139,11 @@ export async function speak(opts: SpeakOpts): Promise<void> {
 
 	const cleanupStream = () => {
 		if (stream) {
-			try { stream.cancel(); } catch { /* already cancelled */ }
+			try {
+				stream.cancel();
+			} catch {
+				/* already cancelled */
+			}
 			stream = null;
 		}
 	};
@@ -169,7 +175,9 @@ export async function speak(opts: SpeakOpts): Promise<void> {
 				await sink.done();
 				return;
 			} catch (err) {
-				try { sink.cancel(); } catch {}
+				try {
+					sink.cancel();
+				} catch {}
 				throw err;
 			}
 		}
@@ -245,12 +253,15 @@ interface SynthesizeChunkOpts {
  * Single chunk → audio. Returns either a Float32 PCM frame (local) or a
  * pre-encoded WAV blob (Deepgram). The playback layer accepts both.
  */
-async function synthesizeChunk(opts: SynthesizeChunkOpts): Promise<{ samples: Float32Array; sampleRate: number } | { wav: Uint8Array }> {
+async function synthesizeChunk(
+	opts: SynthesizeChunkOpts
+): Promise<{ samples: Float32Array; sampleRate: number } | { wav: Uint8Array }> {
 	const { chunk, backend, config, language, signal } = opts;
 	if (backend === "deepgram") {
-		const voiceId = typeof config.ttsDeepgramVoiceId === "string" && config.ttsDeepgramVoiceId
-			? config.ttsDeepgramVoiceId
-			: DEFAULT_DEEPGRAM_TTS_VOICE;
+		const voiceId =
+			typeof config.ttsDeepgramVoiceId === "string" && config.ttsDeepgramVoiceId
+				? config.ttsDeepgramVoiceId
+				: DEFAULT_DEEPGRAM_TTS_VOICE;
 		assertLanguageForDeepgram(voiceId, language);
 		const result = await deepgramSpeak({ text: chunk, voiceId, config, signal });
 		// The Deepgram REST endpoint we use returns a complete WAV blob;
@@ -266,17 +277,16 @@ async function synthesizeChunk(opts: SynthesizeChunkOpts): Promise<{ samples: Fl
 	if (!opts.resolveModelDir) {
 		throw new Error(
 			"speak(): local TTS requires a resolveModelDir resolver. " +
-			"This is supplied by voice.ts when invoking speak() from the slash-command layer.",
+				"This is supplied by voice.ts when invoking speak() from the slash-command layer."
 		);
 	}
 	const modelDir = opts.resolveModelDir(modelId);
 
-	const sid = typeof config.ttsLocalVoiceId === "number" && Number.isFinite(config.ttsLocalVoiceId)
-		? config.ttsLocalVoiceId
-		: model.defaultSid;
-	const speed = typeof config.ttsSpeed === "number" && Number.isFinite(config.ttsSpeed)
-		? config.ttsSpeed
-		: 1.0;
+	const sid =
+		typeof config.ttsLocalVoiceId === "number" && Number.isFinite(config.ttsLocalVoiceId)
+			? config.ttsLocalVoiceId
+			: model.defaultSid;
+	const speed = typeof config.ttsSpeed === "number" && Number.isFinite(config.ttsSpeed) ? config.ttsSpeed : 1.0;
 
 	const audio: TtsAudio = await synthesize({
 		text: chunk,
@@ -334,7 +344,10 @@ export function chunkText(text: string, language: string): string[] {
 
 		if (s.length > MAX_CHUNK_CHARS) {
 			// Single sentence longer than cap — wrap-split on word boundaries.
-			if (buf) { chunks.push(buf); buf = ""; }
+			if (buf) {
+				chunks.push(buf);
+				buf = "";
+			}
 			chunks.push(...wordWindowSplit(s));
 			continue;
 		}

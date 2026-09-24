@@ -51,8 +51,8 @@ import { visualWidth, padRightVisual } from "./ui-width";
  * 7→3→2→1 = 0x40→0x44→0x46→0x47. Right column 8→6→5→4 = 0x80→0xA0
  * →0xB0→0xB8.
  */
-const BRAILLE_LEFT_BITS  = [0, 0x40, 0x44, 0x46, 0x47] as const;
-const BRAILLE_RIGHT_BITS = [0, 0x80, 0xA0, 0xB0, 0xB8] as const;
+const BRAILLE_LEFT_BITS = [0, 0x40, 0x44, 0x46, 0x47] as const;
+const BRAILLE_RIGHT_BITS = [0, 0x80, 0xa0, 0xb0, 0xb8] as const;
 
 export function brailleBar(left: number, right: number): string {
 	const l = Math.max(0, Math.min(4, Math.round(left)));
@@ -77,7 +77,7 @@ export function liquidBraille(samples: number[], colorFn?: (level: number) => st
 	for (let i = 0; i < cells; i++) {
 		const leftSample = samples[i * 2] ?? 0;
 		const rightSample = samples[i * 2 + 1] ?? 0;
-		const left = leftSample * 4;   // 0..1 → 0..4
+		const left = leftSample * 4; // 0..1 → 0..4
 		const right = rightSample * 4;
 		const glyph = brailleBar(left, right);
 		if (colorFn) {
@@ -136,7 +136,7 @@ export function auroraColor(level: number): string {
  */
 export function titleBreathe(tickMs: number): string {
 	// 4-second cycle: phase ∈ [0, 1).
-	const phase = ((tickMs / 4000) % 1 + 1) % 1;
+	const phase = (((tickMs / 4000) % 1) + 1) % 1;
 	// sin-shaped modulation: 0 → mauve (idx 2), 1 → pink (idx 3).
 	const sinT = (Math.sin(phase * Math.PI * 2) + 1) / 2; // 0..1
 	// Map to aurora stops 2..4 (mauve → pink → peach edge).
@@ -159,9 +159,9 @@ export function titleBreathe(tickMs: number): string {
  */
 export function activityTag(level: number, dim: (s: string) => string): string {
 	if (level < 0.05) return dim("▁ quiet");
-	if (level < 0.20) return auroraColor(0.10) + "▃ voice"  + "\x1b[0m";
-	if (level < 0.50) return auroraColor(0.45) + "▅ active" + "\x1b[0m";
-	return                  auroraColor(0.85) + "▇ loud"   + "\x1b[0m";
+	if (level < 0.2) return auroraColor(0.1) + "▃ voice" + "\x1b[0m";
+	if (level < 0.5) return auroraColor(0.45) + "▅ active" + "\x1b[0m";
+	return auroraColor(0.85) + "▇ loud" + "\x1b[0m";
 }
 
 /** Hex-color string version (for callers that want to mix into rgb fonts). */
@@ -211,10 +211,10 @@ function trueWidth(s: string): number {
  */
 export function island(opts: {
 	width: number;
-	title: string;       // pre-styled or plain
-	content: string;     // pre-styled or plain
-	footer?: string;     // pre-styled or plain (optional 3rd line)
-	dim: (s: string) => string;   // theme dim wrapper
+	title: string; // pre-styled or plain
+	content: string; // pre-styled or plain
+	footer?: string; // pre-styled or plain (optional 3rd line)
+	dim: (s: string) => string; // theme dim wrapper
 	bold?: (s: string) => string; // unused (retained for API stability)
 }): string[] {
 	const { width, title, content, footer, dim } = opts;
@@ -230,17 +230,18 @@ export function island(opts: {
 	//   1     1  titleW 1   topFillerCount = innerW
 	// → topFillerCount = innerW - titleW - 3
 	const topFill = Math.max(0, innerW - titleW - 3);
-	const top = dim(ICON.boxRoundedTL)
-		+ dim(ICON.boxH)
-		+ " " + title + " "
-		+ dim(ICON.boxH.repeat(topFill))
-		+ dim(ICON.boxRoundedTR);
+	const top =
+		dim(ICON.boxRoundedTL) +
+		dim(ICON.boxH) +
+		" " +
+		title +
+		" " +
+		dim(ICON.boxH.repeat(topFill)) +
+		dim(ICON.boxRoundedTR);
 
 	// Content row — pad to fill innerW visually (with ANSI-stripped width)
 	const contentW = trueWidth(content);
-	const contentPadded = contentW < innerW
-		? content + " ".repeat(Math.max(0, innerW - contentW))
-		: content;
+	const contentPadded = contentW < innerW ? content + " ".repeat(Math.max(0, innerW - contentW)) : content;
 	const middle = dim(ICON.boxV) + contentPadded + dim(ICON.boxV);
 
 	// Bottom border with optional footer inlaid (same math as top).
@@ -248,11 +249,14 @@ export function island(opts: {
 	if (footer) {
 		const fW = trueWidth(footer);
 		const botFill = Math.max(0, innerW - fW - 3);
-		bottom = dim(ICON.boxRoundedBL)
-			+ dim(ICON.boxH)
-			+ " " + footer + " "
-			+ dim(ICON.boxH.repeat(botFill))
-			+ dim(ICON.boxRoundedBR);
+		bottom =
+			dim(ICON.boxRoundedBL) +
+			dim(ICON.boxH) +
+			" " +
+			footer +
+			" " +
+			dim(ICON.boxH.repeat(botFill)) +
+			dim(ICON.boxRoundedBR);
 	} else {
 		bottom = dim(ICON.boxRoundedBL) + dim(ICON.boxH.repeat(innerW)) + dim(ICON.boxRoundedBR);
 	}

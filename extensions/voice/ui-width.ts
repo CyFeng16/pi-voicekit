@@ -22,19 +22,19 @@
 // Hand-curated EAW Wide / Fullwidth ranges, sorted ascending by `lo` so the
 // scanner can early-exit on `cp < lo`. Comments label the Unicode block.
 const EAW_WIDE_RANGES: ReadonlyArray<readonly [number, number]> = [
-	[0x1100, 0x11ff],   // Hangul Jamo
-	[0x3000, 0x30ff],   // CJK Symbols & Punctuation, Hiragana, Katakana
-	[0x3100, 0x312f],   // Bopomofo
-	[0x3130, 0x318f],   // Hangul Compatibility Jamo
-	[0x31a0, 0x31bf],   // Bopomofo Extended
-	[0x31c0, 0x31ef],   // CJK Strokes
-	[0x31f0, 0x31ff],   // Katakana Phonetic Extensions
-	[0x3400, 0x4dbf],   // CJK Unified Ideographs Extension A
-	[0x4e00, 0x9fff],   // CJK Unified Ideographs (main block)
-	[0xac00, 0xd7a3],   // Hangul Syllables (Korean)
-	[0xf900, 0xfaff],   // CJK Compatibility Ideographs
-	[0xff01, 0xff60],   // Fullwidth ASCII
-	[0xffe0, 0xffe6],   // Fullwidth signs
+	[0x1100, 0x11ff], // Hangul Jamo
+	[0x3000, 0x30ff], // CJK Symbols & Punctuation, Hiragana, Katakana
+	[0x3100, 0x312f], // Bopomofo
+	[0x3130, 0x318f], // Hangul Compatibility Jamo
+	[0x31a0, 0x31bf], // Bopomofo Extended
+	[0x31c0, 0x31ef], // CJK Strokes
+	[0x31f0, 0x31ff], // Katakana Phonetic Extensions
+	[0x3400, 0x4dbf], // CJK Unified Ideographs Extension A
+	[0x4e00, 0x9fff], // CJK Unified Ideographs (main block)
+	[0xac00, 0xd7a3], // Hangul Syllables (Korean)
+	[0xf900, 0xfaff], // CJK Compatibility Ideographs
+	[0xff01, 0xff60], // Fullwidth ASCII
+	[0xffe0, 0xffe6], // Fullwidth signs
 	[0x20000, 0x2fffd], // CJK Unified Ideographs Extension B–F
 	[0x30000, 0x3fffd], // CJK Unified Ideographs Extension G
 ];

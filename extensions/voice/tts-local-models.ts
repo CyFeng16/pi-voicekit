@@ -164,20 +164,159 @@ export const TTS_LOCAL_MODELS: TtsLocalModelInfo[] = [
 	// ═══════════════════════════════════════════════════════════════════════
 	// TIER 1 — Per-language Piper voices (each ~20 MB)
 	// ═══════════════════════════════════════════════════════════════════════
-	piper("en_US-lessac-medium-int8", "Piper Lessac (en-US)", 20_971_520, ["en-US"], "Clear American voice — solid technical-prose default", "MIT", true, 22050),
-	piper("en_US-amy-medium-int8", "Piper Amy (en-US)", 21_065_728, ["en-US"], "Female American voice", "MIT", false, 22050, "female"),
-	piper("en_US-libritts_r-medium-int8", "Piper LibriTTS-R (en-US)", 23_383_244, ["en-US"], "904 voices in one model — pick a sid in the picker", "MIT", false, 22050, "neutral", 904),
-	piper("es_ES-davefx-medium-int8", "Piper DaveFX (es-ES)", 21_169_356, ["es-ES"], "European Spanish, male voice", "MIT", true, 22050, "male"),
-	piper("fr_FR-siwis-medium-int8", "Piper Siwis (fr-FR)", 20_866_662, ["fr-FR"], "French, female voice", "MIT", true, 22050, "female"),
-	piper("de_DE-thorsten-medium-int8", "Piper Thorsten (de-DE)", 20_971_520, ["de-DE"], "German, male voice", "MIT", true, 22050, "male"),
-	piper("hi_IN-pratham-medium-int8", "Piper Pratham (hi-IN)", 20_971_520, ["hi-IN"], "Hindi, male voice", "MIT", true, 22050, "male"),
-	piper("pt_BR-cadu-medium-int8", "Piper Cadu (pt-BR)", 21_169_356, ["pt-BR"], "Brazilian Portuguese, male voice", "MIT", true, 22050, "male"),
-	piper("zh_CN-chaowen-medium-int8", "Piper Chaowen (zh-CN)", 14_050_918, ["zh-CN"], "Mandarin Chinese — smaller archive than other languages", "MIT", true, 22050),
-	piper("it_IT-paola-medium-int8", "Piper Paola (it-IT)", 21_169_356, ["it-IT"], "Italian, female voice", "MIT", true, 22050, "female"),
-	piper("ru_RU-denis-medium-int8", "Piper Denis (ru-RU)", 21_065_728, ["ru-RU"], "Russian, male voice", "MIT", true, 22050, "male"),
-	piper("ar_JO-kareem-medium-int8", "Piper Kareem (ar-JO)", 20_971_520, ["ar-JO"], "Levantine Arabic, male voice", "MIT", false, 22050, "male"),
-	piper("tr_TR-fahrettin-medium-int8", "Piper Fahrettin (tr-TR)", 21_065_728, ["tr-TR"], "Turkish, male voice", "MIT", false, 22050, "male"),
-	piper("nl_NL-pim-medium-int8", "Piper Pim (nl-NL)", 21_065_728, ["nl-NL"], "Dutch, male voice", "MIT", false, 22050, "male"),
+	piper(
+		"en_US-lessac-medium-int8",
+		"Piper Lessac (en-US)",
+		20_971_520,
+		["en-US"],
+		"Clear American voice — solid technical-prose default",
+		"MIT",
+		true,
+		22050
+	),
+	piper(
+		"en_US-amy-medium-int8",
+		"Piper Amy (en-US)",
+		21_065_728,
+		["en-US"],
+		"Female American voice",
+		"MIT",
+		false,
+		22050,
+		"female"
+	),
+	piper(
+		"en_US-libritts_r-medium-int8",
+		"Piper LibriTTS-R (en-US)",
+		23_383_244,
+		["en-US"],
+		"904 voices in one model — pick a sid in the picker",
+		"MIT",
+		false,
+		22050,
+		"neutral",
+		904
+	),
+	piper(
+		"es_ES-davefx-medium-int8",
+		"Piper DaveFX (es-ES)",
+		21_169_356,
+		["es-ES"],
+		"European Spanish, male voice",
+		"MIT",
+		true,
+		22050,
+		"male"
+	),
+	piper(
+		"fr_FR-siwis-medium-int8",
+		"Piper Siwis (fr-FR)",
+		20_866_662,
+		["fr-FR"],
+		"French, female voice",
+		"MIT",
+		true,
+		22050,
+		"female"
+	),
+	piper(
+		"de_DE-thorsten-medium-int8",
+		"Piper Thorsten (de-DE)",
+		20_971_520,
+		["de-DE"],
+		"German, male voice",
+		"MIT",
+		true,
+		22050,
+		"male"
+	),
+	piper(
+		"hi_IN-pratham-medium-int8",
+		"Piper Pratham (hi-IN)",
+		20_971_520,
+		["hi-IN"],
+		"Hindi, male voice",
+		"MIT",
+		true,
+		22050,
+		"male"
+	),
+	piper(
+		"pt_BR-cadu-medium-int8",
+		"Piper Cadu (pt-BR)",
+		21_169_356,
+		["pt-BR"],
+		"Brazilian Portuguese, male voice",
+		"MIT",
+		true,
+		22050,
+		"male"
+	),
+	piper(
+		"zh_CN-chaowen-medium-int8",
+		"Piper Chaowen (zh-CN)",
+		14_050_918,
+		["zh-CN"],
+		"Mandarin Chinese — smaller archive than other languages",
+		"MIT",
+		true,
+		22050
+	),
+	piper(
+		"it_IT-paola-medium-int8",
+		"Piper Paola (it-IT)",
+		21_169_356,
+		["it-IT"],
+		"Italian, female voice",
+		"MIT",
+		true,
+		22050,
+		"female"
+	),
+	piper(
+		"ru_RU-denis-medium-int8",
+		"Piper Denis (ru-RU)",
+		21_065_728,
+		["ru-RU"],
+		"Russian, male voice",
+		"MIT",
+		true,
+		22050,
+		"male"
+	),
+	piper(
+		"ar_JO-kareem-medium-int8",
+		"Piper Kareem (ar-JO)",
+		20_971_520,
+		["ar-JO"],
+		"Levantine Arabic, male voice",
+		"MIT",
+		false,
+		22050,
+		"male"
+	),
+	piper(
+		"tr_TR-fahrettin-medium-int8",
+		"Piper Fahrettin (tr-TR)",
+		21_065_728,
+		["tr-TR"],
+		"Turkish, male voice",
+		"MIT",
+		false,
+		22050,
+		"male"
+	),
+	piper(
+		"nl_NL-pim-medium-int8",
+		"Piper Pim (nl-NL)",
+		21_065_728,
+		["nl-NL"],
+		"Dutch, male voice",
+		"MIT",
+		false,
+		22050,
+		"male"
+	),
 
 	// ═══════════════════════════════════════════════════════════════════════
 	// TIER 2 — Multilingual + English HQ (Kokoro family, opt-in due to size)
@@ -231,7 +370,8 @@ export const TTS_LOCAL_MODELS: TtsLocalModelInfo[] = [
 		// it and synthesize() refuses to use it. Re-enable when
 		// upstream ships an fp16/fp32 multilingual model OR a
 		// re-quantized int8 voices.bin without NaN embeddings.
-		incompatible: "kokoro multilingual int8 v1.0 produces NaN samples on most voices. Use kokoro-multi-lang-v1_1 (newer) or kokoro-en-v0_19 instead.",
+		incompatible:
+			"kokoro multilingual int8 v1.0 produces NaN samples on most voices. Use kokoro-multi-lang-v1_1 (newer) or kokoro-en-v0_19 instead.",
 	},
 	// v7.1.3: NEWER kokoro multilingual (v1.1) — sherpa-onnx upstream
 	// re-quantized voices.bin. Both fp32 (333+ MB) and int8 (140 MB)
@@ -383,11 +523,12 @@ function piper(
 	preferred: boolean,
 	sampleRate: number,
 	gender: "male" | "female" | "neutral" = "neutral",
-	voiceCount = 1,
+	voiceCount = 1
 ): TtsLocalModelInfo {
-	const voices: TtsVoice[] = voiceCount === 1
-		? [{ sid: 0, name: displayName, gender }]
-		: Array.from({ length: voiceCount }, (_, i) => ({ sid: i, name: `Speaker ${i}`, gender }));
+	const voices: TtsVoice[] =
+		voiceCount === 1
+			? [{ sid: 0, name: displayName, gender }]
+			: Array.from({ length: voiceCount }, (_, i) => ({ sid: i, name: `Speaker ${i}`, gender }));
 	return {
 		id: `piper-${stem}`,
 		name: displayName,
@@ -470,9 +611,7 @@ export function recommendDefaultModel(systemLocale: string): SmartDefaultRecomme
 	}
 
 	// Normalize: lowercase first subtag, e.g. "en_US.UTF-8" → "en"
-	const base = systemLocale
-		.split(/[-_.]/)[0]!
-		.toLowerCase();
+	const base = systemLocale.split(/[-_.]/)[0]!.toLowerCase();
 
 	// English locales — Kitten Nano is the smallest viable English TTS
 	// at 25 MB, and we ship it as the catalog default for first-run
@@ -516,11 +655,12 @@ export function recommendDefaultModel(systemLocale: string): SmartDefaultRecomme
 	// on sherpa-onnx-node 1.12.29 — fall through to the English-default
 	// fallback instead of routing the user to a silent model.
 	if (base === "ja" || base === "ko") {
-		const kokoro = TTS_LOCAL_MODELS.find(m => m.id === "kokoro-int8-multi-lang-v1_0");
+		const kokoro = TTS_LOCAL_MODELS.find((m) => m.id === "kokoro-int8-multi-lang-v1_0");
 		if (kokoro && !kokoro.incompatible) {
 			return {
 				modelId: "kokoro-int8-multi-lang-v1_0",
-				reason: `${base.toUpperCase()} locale detected — recommending Kokoro multilingual (126 MB, ` +
+				reason:
+					`${base.toUpperCase()} locale detected — recommending Kokoro multilingual (126 MB, ` +
 					`covers en/zh/ja/ko/es/fr/hi/it/pt in one model).`,
 				fallback: false,
 			};
@@ -532,7 +672,8 @@ export function recommendDefaultModel(systemLocale: string): SmartDefaultRecomme
 	// caller can surface verbatim.
 	return {
 		modelId: DEFAULT_TTS_MODEL,
-		reason: `Locale ${systemLocale} has no built-in TTS voice. Falling back to English (${DEFAULT_TTS_MODEL}). ` +
+		reason:
+			`Locale ${systemLocale} has no built-in TTS voice. Falling back to English (${DEFAULT_TTS_MODEL}). ` +
 			`Browse /voice-settings → Speak tab → Models for the full catalog.`,
 		fallback: true,
 	};
@@ -540,14 +681,14 @@ export function recommendDefaultModel(systemLocale: string): SmartDefaultRecomme
 
 /** Look up a model by id; throws if unknown so callers fail loudly. */
 export function getTtsModel(id: string): TtsLocalModelInfo {
-	const m = TTS_LOCAL_MODELS.find(x => x.id === id);
-	if (!m) throw new Error(`Unknown TTS model: ${id}. Known: ${TTS_LOCAL_MODELS.map(x => x.id).join(", ")}`);
+	const m = TTS_LOCAL_MODELS.find((x) => x.id === id);
+	if (!m) throw new Error(`Unknown TTS model: ${id}. Known: ${TTS_LOCAL_MODELS.map((x) => x.id).join(", ")}`);
 	return m;
 }
 
 /** Find the default voice index for a model; falls back to 0. */
 export function getDefaultVoiceSid(model: TtsLocalModelInfo): number {
-	if (model.voices.some(v => v.sid === model.defaultSid)) return model.defaultSid;
+	if (model.voices.some((v) => v.sid === model.defaultSid)) return model.defaultSid;
 	return model.voices[0]?.sid ?? 0;
 }
 
@@ -559,9 +700,20 @@ export function languageName(tag: string): string {
 	if (!tag) return "";
 	const base = tag.split("-")[0]!.toLowerCase();
 	const names: Record<string, string> = {
-		en: "English", es: "Spanish", fr: "French", de: "German", hi: "Hindi",
-		pt: "Portuguese", zh: "Chinese", it: "Italian", ru: "Russian",
-		ar: "Arabic", tr: "Turkish", nl: "Dutch", ja: "Japanese", ko: "Korean",
+		en: "English",
+		es: "Spanish",
+		fr: "French",
+		de: "German",
+		hi: "Hindi",
+		pt: "Portuguese",
+		zh: "Chinese",
+		it: "Italian",
+		ru: "Russian",
+		ar: "Arabic",
+		tr: "Turkish",
+		nl: "Dutch",
+		ja: "Japanese",
+		ko: "Korean",
 	};
 	return names[base] ?? tag;
 }
@@ -606,7 +758,7 @@ export function modelSupportsLanguage(model: TtsLocalModelInfo, lang: string): b
 	if (!requested.includes("-")) {
 		const matchingRegions = model.languages
 			.map(normalizeLangTag)
-			.filter(c => c.includes("-") && c.split("-")[0] === base);
+			.filter((c) => c.includes("-") && c.split("-")[0] === base);
 		if (matchingRegions.length === 1) return true;
 	}
 
@@ -656,9 +808,9 @@ export function getInstalledTtsModelDir(modelId: string): string {
 	if (!isTtsModelInstalled(modelId)) {
 		throw new Error(
 			`TTS model "${modelId}" is not installed. ` +
-			`Run /voice-settings → Models tab → install ${modelId}, ` +
-			`or download manually: ` +
-			`curl -L ${getTtsModel(modelId).archiveUrl} | tar xj -C "${getTtsModelsDir()}"`,
+				`Run /voice-settings → Models tab → install ${modelId}, ` +
+				`or download manually: ` +
+				`curl -L ${getTtsModel(modelId).archiveUrl} | tar xj -C "${getTtsModelsDir()}"`
 		);
 	}
 	return getTtsModelDir(modelId);
@@ -737,7 +889,7 @@ export function ensureTtsModelInstalled(
 	opts: {
 		signal?: AbortSignal;
 		onProgress?: (info: TtsInstallProgress) => void;
-	} = {},
+	} = {}
 ): Promise<TtsInstallResult> {
 	// Validate the modelId UPFRONT, before touching the in-flight Map.
 	// `getTtsModel` throws synchronously for unknown ids; if we left this
@@ -761,7 +913,9 @@ export function ensureTtsModelInstalled(
 				opts.onProgress?.({ phase: "done" });
 				return result;
 			},
-			(err) => { throw err; },
+			(err) => {
+				throw err;
+			}
 		);
 	}
 
@@ -802,7 +956,7 @@ async function doInstall(
 	opts: {
 		signal?: AbortSignal;
 		onProgress?: (info: TtsInstallProgress) => void;
-	},
+	}
 ): Promise<TtsInstallResult> {
 	const model = getTtsModel(modelId);
 	const dir = getTtsModelDir(modelId);
@@ -837,8 +991,8 @@ async function doInstall(
 		if (model.archiveSha256 && model.archiveSha256.toLowerCase() !== computedSha256.toLowerCase()) {
 			throw new Error(
 				`Archive integrity check failed for ${modelId}: ` +
-				`expected ${model.archiveSha256}, got ${computedSha256}. ` +
-				`Delete ${archivePath} and retry, or check for a corrupted upstream release.`,
+					`expected ${model.archiveSha256}, got ${computedSha256}. ` +
+					`Delete ${archivePath} and retry, or check for a corrupted upstream release.`
 			);
 		}
 
@@ -855,20 +1009,25 @@ async function doInstall(
 			// `vits-piper-en_US-lessac-medium-int8/`). Flatten to
 			// `<modelDir>/tokens.txt` etc.
 			const stagingEntries = fs.readdirSync(stagingDir);
-			const innerDir = stagingEntries.length === 1 && fs.statSync(path.join(stagingDir, stagingEntries[0]!)).isDirectory()
-				? path.join(stagingDir, stagingEntries[0]!)
-				: stagingDir;
+			const innerDir =
+				stagingEntries.length === 1 && fs.statSync(path.join(stagingDir, stagingEntries[0]!)).isDirectory()
+					? path.join(stagingDir, stagingEntries[0]!)
+					: stagingDir;
 			// rename is atomic when innerDir and dir are on the same
 			// filesystem (~/.pi/models/tts/.staging is a sibling of dir).
 			fs.renameSync(innerDir, dir);
 		} finally {
-			try { fs.rmSync(stagingDir, { recursive: true, force: true }); } catch {}
+			try {
+				fs.rmSync(stagingDir, { recursive: true, force: true });
+			} catch {}
 		}
 
 		// Phase 5 — clean up the archive file. Successful install means we
 		// no longer need the partial; resume is moot.
 		phaseReached = "done";
-		try { fs.unlinkSync(archivePath); } catch {}
+		try {
+			fs.unlinkSync(archivePath);
+		} catch {}
 	} catch (err) {
 		// Defense in depth: if we already reached `done` (install completed,
 		// renamed into place, archive unlinked) and somehow an error still
@@ -888,9 +1047,13 @@ async function doInstall(
 		// In all failure paths short of `done`, delete the destination dir
 		// if it got created.
 		if (phaseReached === "verify" || phaseReached === "extract") {
-			try { fs.unlinkSync(archivePath); } catch {}
+			try {
+				fs.unlinkSync(archivePath);
+			} catch {}
 		}
-		try { fs.rmSync(dir, { recursive: true, force: true }); } catch {}
+		try {
+			fs.rmSync(dir, { recursive: true, force: true });
+		} catch {}
 		throw err;
 	}
 
@@ -917,11 +1080,13 @@ async function doInstall(
 async function downloadArchive(
 	url: string,
 	archivePath: string,
-	opts: { signal?: AbortSignal; onProgress?: (info: TtsInstallProgress) => void },
+	opts: { signal?: AbortSignal; onProgress?: (info: TtsInstallProgress) => void }
 ): Promise<void> {
 	let existingBytes = 0;
 	if (fs.existsSync(archivePath)) {
-		try { existingBytes = fs.statSync(archivePath).size; } catch {}
+		try {
+			existingBytes = fs.statSync(archivePath).size;
+		} catch {}
 	}
 
 	const headers: Record<string, string> = {};
@@ -953,7 +1118,9 @@ async function downloadArchive(
 		// equal-size partial would fail the hash check.
 		// Drain the response body to free the connection (some HTTP impls
 		// hold the socket otherwise).
-		try { await res.body?.cancel?.(); } catch {}
+		try {
+			await res.body?.cancel?.();
+		} catch {}
 		return;
 	} else if (!res.ok) {
 		throw new Error(`Download failed: HTTP ${res.status} from ${url}`);
@@ -993,8 +1160,14 @@ async function downloadArchive(
 				const ok = sink.write(Buffer.from(value));
 				if (!ok) {
 					await new Promise<void>((resolve, reject) => {
-						const onDrain = () => { sink.off("error", onErr); resolve(); };
-						const onErr = (err: Error) => { sink.off("drain", onDrain); reject(err); };
+						const onDrain = () => {
+							sink.off("error", onErr);
+							resolve();
+						};
+						const onErr = (err: Error) => {
+							sink.off("drain", onDrain);
+							reject(err);
+						};
 						sink.once("drain", onDrain);
 						sink.once("error", onErr);
 					});
@@ -1003,7 +1176,9 @@ async function downloadArchive(
 			}
 		}
 	} finally {
-		try { reader.releaseLock(); } catch {}
+		try {
+			reader.releaseLock();
+		} catch {}
 		// Drain and close the file. End() callback fires after the final
 		// flush. Errors during close are surfaced via `error` listener
 		// captured before the await.

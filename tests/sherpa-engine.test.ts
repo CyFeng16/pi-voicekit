@@ -115,10 +115,6 @@ describe("transcribeBuffer", () => {
 		await expect(transcribeBuffer(pcm, recognizer)).resolves.toBe("ok");
 		expect(accepted).toHaveLength(1);
 		expect(accepted[0]?.sampleRate).toBe(16000);
-		expect(Array.from(accepted[0]?.samples || [])).toEqual([
-			-256 / 32768,
-			127 / 32768,
-			128 / 32768,
-		]);
+		expect(Array.from(accepted[0]?.samples || [])).toEqual([-256 / 32768, 127 / 32768, 128 / 32768]);
 	});
 });

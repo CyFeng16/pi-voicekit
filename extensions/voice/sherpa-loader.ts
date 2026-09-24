@@ -56,13 +56,17 @@ async function doLoadSherpa(): Promise<boolean> {
 	try {
 		// Early platform checks — fail fast with clear messages
 		if (process.arch === "arm") {
-			throw new Error("ARM32 (armv7l) is not supported by sherpa-onnx-node. Use 64-bit OS or the Deepgram cloud backend.");
+			throw new Error(
+				"ARM32 (armv7l) is not supported by sherpa-onnx-node. Use 64-bit OS or the Deepgram cloud backend."
+			);
 		}
 		if (process.platform === "linux") {
 			try {
 				const ldd = fs.readFileSync("/usr/bin/ldd", "utf-8");
 				if (ldd.includes("musl")) {
-					throw new Error("Alpine Linux (musl libc) is not supported by sherpa-onnx-node. Use a glibc-based distribution or the Deepgram cloud backend.");
+					throw new Error(
+						"Alpine Linux (musl libc) is not supported by sherpa-onnx-node. Use a glibc-based distribution or the Deepgram cloud backend."
+					);
 				}
 			} catch (e: any) {
 				if (e?.message?.includes("musl")) throw e;
@@ -97,7 +101,7 @@ async function doLoadSherpa(): Promise<boolean> {
 		const def = (ns as any).default;
 		const topHasCreateAsync = typeof top?.OfflineTts?.createAsync === "function";
 		const defHasCreateAsync = typeof def?.OfflineTts?.createAsync === "function";
-		sherpaModule = topHasCreateAsync ? top : (defHasCreateAsync ? def : top);
+		sherpaModule = topHasCreateAsync ? top : defHasCreateAsync ? def : top;
 		sherpaInitialized = true;
 		return true;
 	} catch (err: any) {

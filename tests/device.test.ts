@@ -61,8 +61,8 @@ describe("detectDevice", () => {
 // ─── getModelFitness ─────────────────────────────────────────────────────────
 
 describe("getModelFitness", () => {
-	const tinyModel = LOCAL_MODELS.find(m => m.id === "moonshine-v2-tiny")!;
-	const largeModel = LOCAL_MODELS.find(m => m.id === "whisper-large")!;
+	const tinyModel = LOCAL_MODELS.find((m) => m.id === "moonshine-v2-tiny")!;
+	const largeModel = LOCAL_MODELS.find((m) => m.id === "whisper-large")!;
 
 	test("tiny model is recommended on 8GB device", () => {
 		const device = mockDevice({ totalRamMB: 8192, freeRamMB: 6000 });
@@ -82,7 +82,7 @@ describe("getModelFitness", () => {
 
 	test("model returns warning when runtime exceeds 60% of total RAM", () => {
 		// whisper-medium needs ~2365 MB runtime, device has 3000 MB total → ratio 0.79 > 0.6
-		const mediumModel = LOCAL_MODELS.find(m => m.id === "whisper-medium")!;
+		const mediumModel = LOCAL_MODELS.find((m) => m.id === "whisper-medium")!;
 		const device = mockDevice({ totalRamMB: 3000, freeRamMB: 2000 });
 		expect(getModelFitness(mediumModel, device)).toBe("warning");
 	});
@@ -109,7 +109,8 @@ describe("autoRecommendModel", () => {
 		expect(recommended).toBeDefined();
 		// GigaAM v3 or whisper should be recommended for Russian
 		const model = recommended!;
-		const supportsRussian = model.langSupport === "russian-only" || model.langSupport === "whisper" || model.langSupport === "parakeet-multi";
+		const supportsRussian =
+			model.langSupport === "russian-only" || model.langSupport === "whisper" || model.langSupport === "parakeet-multi";
 		expect(supportsRussian).toBe(true);
 	});
 
@@ -133,7 +134,7 @@ describe("autoRecommendModel", () => {
 
 	test("returns undefined for unsupported language with no multilingual models", () => {
 		// Filter to only english-only models
-		const englishOnly = LOCAL_MODELS.filter(m => m.langSupport === "english-only");
+		const englishOnly = LOCAL_MODELS.filter((m) => m.langSupport === "english-only");
 		const device = mockDevice();
 		const recommended = autoRecommendModel(englishOnly, device, "sw"); // Swahili
 		expect(recommended).toBeUndefined();
@@ -206,7 +207,7 @@ describe("LOCAL_MODELS catalog", () => {
 	});
 
 	test("Whisper models use prefix-based file names", () => {
-		const whisperModels = LOCAL_MODELS.filter(m => m.sherpaModel.type === "whisper");
+		const whisperModels = LOCAL_MODELS.filter((m) => m.sherpaModel.type === "whisper");
 		for (const model of whisperModels) {
 			const files = model.sherpaModel.files;
 			// Whisper files should be prefixed: small-encoder.int8.onnx, not encoder.int8.onnx
@@ -216,7 +217,7 @@ describe("LOCAL_MODELS catalog", () => {
 	});
 
 	test("Moonshine v2 models use mergedDecoder (not 4-file v1 structure)", () => {
-		const v2Models = LOCAL_MODELS.filter(m => m.id.startsWith("moonshine-v2"));
+		const v2Models = LOCAL_MODELS.filter((m) => m.id.startsWith("moonshine-v2"));
 		for (const model of v2Models) {
 			const files = model.sherpaModel.files;
 			expect(files.mergedDecoder).toBeDefined();
@@ -227,9 +228,7 @@ describe("LOCAL_MODELS catalog", () => {
 	});
 
 	test("Moonshine v1 models use 4-file structure", () => {
-		const v1Models = LOCAL_MODELS.filter(m =>
-			m.sherpaModel.type === "moonshine" && !m.id.startsWith("moonshine-v2"),
-		);
+		const v1Models = LOCAL_MODELS.filter((m) => m.sherpaModel.type === "moonshine" && !m.id.startsWith("moonshine-v2"));
 		for (const model of v1Models) {
 			const files = model.sherpaModel.files;
 			expect(files.preprocessor).toBeDefined();
@@ -240,7 +239,7 @@ describe("LOCAL_MODELS catalog", () => {
 	});
 
 	test("Parakeet models use transducer type (not nemo_ctc)", () => {
-		const parakeetModels = LOCAL_MODELS.filter(m => m.id.startsWith("parakeet"));
+		const parakeetModels = LOCAL_MODELS.filter((m) => m.id.startsWith("parakeet"));
 		for (const model of parakeetModels) {
 			expect(model.sherpaModel.type).toBe("transducer");
 			expect(model.sherpaModel.files.encoder).toBeDefined();
@@ -250,7 +249,7 @@ describe("LOCAL_MODELS catalog", () => {
 	});
 
 	test("GigaAM uses nemo_ctc type", () => {
-		const gigaam = LOCAL_MODELS.find(m => m.id === "gigaam-v3")!;
+		const gigaam = LOCAL_MODELS.find((m) => m.id === "gigaam-v3")!;
 		expect(gigaam.sherpaModel.type).toBe("nemo_ctc");
 		expect(gigaam.sherpaModel.files.model).toBeDefined();
 	});

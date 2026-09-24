@@ -39,9 +39,7 @@ import { randomUUID } from "node:crypto";
  *   - { wav: Uint8Array }                     — pre-encoded WAV bytes
  *   - { samples: Float32Array; sampleRate }   — raw float PCM, encoded here
  */
-export type PlaybackSource =
-	| { wav: Uint8Array }
-	| { samples: Float32Array; sampleRate: number };
+export type PlaybackSource = { wav: Uint8Array } | { samples: Float32Array; sampleRate: number };
 
 export interface PlayOpts {
 	source: PlaybackSource;
@@ -71,16 +69,18 @@ export async function play(opts: PlayOpts): Promise<void> {
 		throw makeAbortError();
 	}
 
-	const wav = "wav" in source
-		? source.wav
-		: encodeWav(source.samples, source.sampleRate);
+	const wav = "wav" in source ? source.wav : encodeWav(source.samples, source.sampleRate);
 
 	const tmpFile = createTempWavPath();
 	let cleanupDone = false;
 	const cleanup = () => {
 		if (cleanupDone) return;
 		cleanupDone = true;
-		try { fs.unlinkSync(tmpFile); } catch { /* may already be gone */ }
+		try {
+			fs.unlinkSync(tmpFile);
+		} catch {
+			/* may already be gone */
+		}
 	};
 
 	// Single-ownership unlink: the `finally` below is the ONLY code path
@@ -160,10 +160,7 @@ export async function play(opts: PlayOpts): Promise<void> {
 						reject(new Error(`Audio player ${player.cmd} terminated by ${sig}`));
 					} else {
 						const tail = stderr.trim().slice(-200);
-						reject(new Error(
-							`Audio player ${player.cmd} exited with code ${code}` +
-							(tail ? ` (${tail})` : ""),
-						));
+						reject(new Error(`Audio player ${player.cmd} exited with code ${code}` + (tail ? ` (${tail})` : "")));
 					}
 				});
 			});
@@ -243,7 +240,9 @@ export function openPlaybackStream(opts: OpenPlaybackStreamOpts): PlaybackStream
 		try {
 			const fs2 = require("node:fs") as typeof import("node:fs");
 			fs2.appendFileSync("/tmp/pi-listen-stream.log", `[${new Date().toISOString()}] ${s}\n`);
-		} catch { /* best-effort */ }
+		} catch {
+			/* best-effort */
+		}
 	};
 	diagLog(`opened ${player.cmd} sampleRate=${sampleRate} pid=${proc.pid}`);
 	let totalBytesAccepted = 0;
@@ -263,41 +262,43 @@ export function openPlaybackStream(opts: OpenPlaybackStreamOpts): PlaybackStream
 	// `await stream.done()`) doesn't surface as an UnhandledPromiseRejection.
 	// The caller-facing `done()` returns the same promise; awaiters still
 	// see the rejection. (godspeed runtime/gemini-3.1-pro finding.)
-	const donePromise = attachSafetyCatch(new Promise<void>((resolve, reject) => {
-		let settled = false;
-		const settle = (action: () => void) => {
-			if (settled) return;
-			settled = true;
-			action();
-		};
-		proc.on("error", (err: NodeJS.ErrnoException) => {
-			settle(() => {
-				if (err.name === "AbortError" || signal?.aborted || cancelled) {
-					reject(makeAbortError());
-				} else {
-					reject(new Error(`Streaming player ${player.cmd} failed: ${err.message}`));
-				}
+	const donePromise = attachSafetyCatch(
+		new Promise<void>((resolve, reject) => {
+			let settled = false;
+			const settle = (action: () => void) => {
+				if (settled) return;
+				settled = true;
+				action();
+			};
+			proc.on("error", (err: NodeJS.ErrnoException) => {
+				settle(() => {
+					if (err.name === "AbortError" || signal?.aborted || cancelled) {
+						reject(makeAbortError());
+					} else {
+						reject(new Error(`Streaming player ${player.cmd} failed: ${err.message}`));
+					}
+				});
 			});
-		});
-		proc.on("close", (code, sig) => {
-			diagLog(`proc.close code=${code} sig=${sig} cancelled=${cancelled} aborted=${signal?.aborted}`);
-			settle(() => {
-				if (cancelled || signal?.aborted) {
-					reject(makeAbortError());
-				} else if (code === 0) {
-					resolve();
-				} else if (sig) {
-					reject(new Error(`Streaming player ${player.cmd} terminated by ${sig}`));
-				} else {
-					const tail = stderr.trim().slice(-200);
-					reject(new Error(`Streaming player ${player.cmd} exited with code ${code}${tail ? ` (${tail})` : ""}`));
-				}
+			proc.on("close", (code, sig) => {
+				diagLog(`proc.close code=${code} sig=${sig} cancelled=${cancelled} aborted=${signal?.aborted}`);
+				settle(() => {
+					if (cancelled || signal?.aborted) {
+						reject(makeAbortError());
+					} else if (code === 0) {
+						resolve();
+					} else if (sig) {
+						reject(new Error(`Streaming player ${player.cmd} terminated by ${sig}`));
+					} else {
+						const tail = stderr.trim().slice(-200);
+						reject(new Error(`Streaming player ${player.cmd} exited with code ${code}${tail ? ` (${tail})` : ""}`));
+					}
+				});
 			});
-		});
-		// EPIPE if player exits before we finish writing — common when the
-		// user aborts; settled by 'close' above.
-		proc.stdin?.on("error", () => {});
-	}));
+			// EPIPE if player exits before we finish writing — common when the
+			// user aborts; settled by 'close' above.
+			proc.stdin?.on("error", () => {});
+		})
+	);
 
 	// Serialize writes via a chained promise. Each writePcm awaits the
 	// previous write's drain (if backpressured) before issuing the next
@@ -315,7 +316,7 @@ export function openPlaybackStream(opts: OpenPlaybackStreamOpts): PlaybackStream
 	// CHUNK_BYTES-sized writes keeps sox fed in real time without
 	// overflowing — one chunk of audio per ~250ms of playback at
 	// 24kHz mono int16.
-	const CHUNK_BYTES = 12_000;     // ~250ms @ 24kHz, ~270ms @ 22kHz
+	const CHUNK_BYTES = 12_000; // ~250ms @ 24kHz, ~270ms @ 22kHz
 
 	const writeOne = async (view: Uint8Array): Promise<void> => {
 		if (!proc.stdin || proc.stdin.destroyed) {
@@ -342,9 +343,18 @@ export function openPlaybackStream(opts: OpenPlaybackStreamOpts): PlaybackStream
 						stdin.off("close", onClose);
 						stdin.off("error", onError);
 					};
-					const onDrain = () => { cleanup(); res(); };
-					const onClose = () => { cleanup(); res(); };
-					const onError = () => { cleanup(); res(); };
+					const onDrain = () => {
+						cleanup();
+						res();
+					};
+					const onClose = () => {
+						cleanup();
+						res();
+					};
+					const onError = () => {
+						cleanup();
+						res();
+					};
 					stdin.once("drain", onDrain);
 					stdin.once("close", onClose);
 					stdin.once("error", onError);
@@ -359,7 +369,11 @@ export function openPlaybackStream(opts: OpenPlaybackStreamOpts): PlaybackStream
 			const view = new Uint8Array(int16.buffer, int16.byteOffset, int16.byteLength);
 			// Chain: caller can either await this OR fire-and-forget; if
 			// they fire-and-forget, end() awaits the same tail.
-			writeTail = writeTail.then(() => writeOne(view)).catch(() => { /* EPIPE ok */ });
+			writeTail = writeTail
+				.then(() => writeOne(view))
+				.catch(() => {
+					/* EPIPE ok */
+				});
 			return writeTail;
 		},
 		async end(): Promise<void> {
@@ -367,7 +381,11 @@ export function openPlaybackStream(opts: OpenPlaybackStreamOpts): PlaybackStream
 			ended = true;
 			diagLog(`end() called — awaiting ${totalWrites} writes (${totalBytesAccepted} bytes)`);
 			// Drain all pending writes before signaling EOF.
-			try { await writeTail; } catch { /* swallowed */ }
+			try {
+				await writeTail;
+			} catch {
+				/* swallowed */
+			}
 			// Sox closes the audio device immediately on EOF, dropping
 			// any audio still in the OS hardware buffer (~1-2s on macOS
 			// CoreAudio). Append a tail of silence so the trailing real
@@ -377,16 +395,26 @@ export function openPlaybackStream(opts: OpenPlaybackStreamOpts): PlaybackStream
 			const silence = new Int16Array(sampleRate * SILENCE_TAIL_SECS);
 			try {
 				await writeOne(new Uint8Array(silence.buffer, silence.byteOffset, silence.byteLength));
-			} catch { /* EPIPE ok */ }
+			} catch {
+				/* EPIPE ok */
+			}
 			diagLog(`end() — silence tail written, calling stdin.end()`);
-			try { proc.stdin?.end(); } catch { /* already closed */ }
+			try {
+				proc.stdin?.end();
+			} catch {
+				/* already closed */
+			}
 		},
 		cancel(): void {
 			if (cancelled) return;
 			cancelled = true;
 			diagLog(`cancel() called after ${totalWrites} writes (${totalBytesAccepted} bytes)`);
-			try { proc.stdin?.destroy(); } catch {}
-			try { proc.kill("SIGTERM"); } catch {}
+			try {
+				proc.stdin?.destroy();
+			} catch {}
+			try {
+				proc.kill("SIGTERM");
+			} catch {}
 		},
 		done(): Promise<void> {
 			return donePromise;
@@ -396,11 +424,16 @@ export function openPlaybackStream(opts: OpenPlaybackStreamOpts): PlaybackStream
 
 /** Internal: prevent unhandled rejection when the caller never awaits done(). */
 function attachSafetyCatch<T>(p: Promise<T>): Promise<T> {
-	p.catch(() => { /* swallow — real awaiters see the rejection */ });
+	p.catch(() => {
+		/* swallow — real awaiters see the rejection */
+	});
 	return p;
 }
 
-interface StreamingPlayerSpec { cmd: string; args: string[]; }
+interface StreamingPlayerSpec {
+	cmd: string;
+	args: string[];
+}
 
 function pickStreamingPlayer(sampleRate: number): StreamingPlayerSpec | null {
 	// v7.1.3 — ffplay is the most-reliable streaming PCM consumer on
@@ -412,13 +445,18 @@ function pickStreamingPlayer(sampleRate: number): StreamingPlayerSpec | null {
 		return {
 			cmd: "ffplay",
 			args: [
-				"-nodisp",            // no video window
-				"-autoexit",          // exit when input EOFs
-				"-loglevel", "quiet",
-				"-f", "s16le",
-				"-ar", String(sampleRate),
-				"-ch_layout", "mono", // ffmpeg 8+ uses ch_layout instead of -ac
-				"-i", "pipe:0",
+				"-nodisp", // no video window
+				"-autoexit", // exit when input EOFs
+				"-loglevel",
+				"quiet",
+				"-f",
+				"s16le",
+				"-ar",
+				String(sampleRate),
+				"-ch_layout",
+				"mono", // ffmpeg 8+ uses ch_layout instead of -ac
+				"-i",
+				"pipe:0",
 			],
 		};
 	}
@@ -426,13 +464,7 @@ function pickStreamingPlayer(sampleRate: number): StreamingPlayerSpec | null {
 	if (process.platform === "linux" && binaryAvailable("paplay")) {
 		return {
 			cmd: "paplay",
-			args: [
-				"--raw",
-				`--rate=${sampleRate}`,
-				"--format=s16le",
-				"--channels=1",
-				"--client-name=pi-listen",
-			],
+			args: ["--raw", `--rate=${sampleRate}`, "--format=s16le", "--channels=1", "--client-name=pi-listen"],
 		};
 	}
 	// sox last-resort: cross-platform but has the macOS CoreAudio
@@ -440,16 +472,7 @@ function pickStreamingPlayer(sampleRate: number): StreamingPlayerSpec | null {
 	if (binaryAvailable("sox")) {
 		return {
 			cmd: "sox",
-			args: [
-				"-t", "raw",
-				"-r", String(sampleRate),
-				"-e", "signed-integer",
-				"-b", "16",
-				"-c", "1",
-				"-q",
-				"-",
-				"-d",
-			],
+			args: ["-t", "raw", "-r", String(sampleRate), "-e", "signed-integer", "-b", "16", "-c", "1", "-q", "-", "-d"],
 		};
 	}
 	return null;
@@ -521,17 +544,12 @@ function choosePlayer(): PlayerSpec {
 			// PowerShell metacharacters.
 			return {
 				cmd: "powershell",
-				args: () => [
-					"-NoProfile",
-					"-Command",
-					"$p = $env:PI_SPEAK_PATH; (New-Object Media.SoundPlayer $p).PlaySync()",
-				],
+				args: () => ["-NoProfile", "-Command", "$p = $env:PI_SPEAK_PATH; (New-Object Media.SoundPlayer $p).PlaySync()"],
 				env: (p) => ({ PI_SPEAK_PATH: p }),
 			};
 		default:
 			throw new Error(
-				`No audio player configured for platform: ${process.platform}. ` +
-				`Supported: darwin, linux, win32.`,
+				`No audio player configured for platform: ${process.platform}. ` + `Supported: darwin, linux, win32.`
 			);
 	}
 }
@@ -591,11 +609,11 @@ export function encodeWav(samples: Float32Array, sampleRate: number): Uint8Array
 	// (1,073,741,800 bytes) which is roughly 6 hours at 24 kHz mono.
 	// Anything longer is almost certainly a programmer error in chunking
 	// upstream — surface it loudly rather than emitting a corrupt header.
-	const MAX_DATA_BYTES = 0xFFFFFFFF - 36;
+	const MAX_DATA_BYTES = 0xffffffff - 36;
 	if (numSamples > MAX_DATA_BYTES / 2) {
 		throw new Error(
 			`encodeWav: ${numSamples} samples exceeds WAV uint32 limit. ` +
-			`Chunk the input upstream (e.g. via Intl.Segmenter sentence chunking).`,
+				`Chunk the input upstream (e.g. via Intl.Segmenter sentence chunking).`
 		);
 	}
 	const byteRate = sampleRate * 2; // mono * 16-bit (channels * bytesPerSample)
@@ -610,13 +628,13 @@ export function encodeWav(samples: Float32Array, sampleRate: number): Uint8Array
 
 	// "fmt " sub-chunk
 	writeAscii(view, 12, "fmt ");
-	view.setUint32(16, 16, true);          // PCM fmt chunk size
-	view.setUint16(20, 1, true);           // format = 1 (PCM)
-	view.setUint16(22, 1, true);           // channels = 1 (mono)
+	view.setUint32(16, 16, true); // PCM fmt chunk size
+	view.setUint16(20, 1, true); // format = 1 (PCM)
+	view.setUint16(22, 1, true); // channels = 1 (mono)
 	view.setUint32(24, sampleRate, true);
 	view.setUint32(28, byteRate, true);
-	view.setUint16(32, 2, true);           // block align = channels * bytes-per-sample
-	view.setUint16(34, 16, true);          // bits per sample
+	view.setUint16(32, 2, true); // block align = channels * bytes-per-sample
+	view.setUint16(34, 16, true); // bits per sample
 
 	// "data" sub-chunk
 	writeAscii(view, 36, "data");

@@ -58,12 +58,8 @@
  * Config in ~/.pi/agent/settings.json under "voice": { ... }
  */
 
-import type {
-	ExtensionAPI,
-	ExtensionContext,
-	ExtensionCommandContext,
-} from "@mariozechner/pi-coding-agent";
-import { isKeyRelease, isKeyRepeat, matchesKey, Key, type KeyId } from "@mariozechner/pi-tui";
+import type { ExtensionAPI, ExtensionContext, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
+import { isKeyRelease, isKeyRepeat, matchesKey, Key, type KeyId } from "@earendil-works/pi-tui";
 
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import * as fs from "node:fs";
@@ -78,19 +74,30 @@ import {
 	type VoiceConfig,
 	type VoiceSettingsScope,
 } from "./voice/config";
-import { finalizeOnboardingConfig, runVoiceOnboarding, pickLanguage, languageDisplayName, modelForLanguage } from "./voice/onboarding";
+import {
+	finalizeOnboardingConfig,
+	runVoiceOnboarding,
+	pickLanguage,
+	languageDisplayName,
+	modelForLanguage,
+} from "./voice/onboarding";
 import { makeWidgetRegistry, type WidgetRegistry } from "./voice/ui-widget-base";
 import { makeRenderTicker, type RenderTicker } from "./voice/ui-render-ticker";
 import { TtsInstallProgressWidget } from "./voice/tts-install-progress";
 import { TtsPlaybackIndicator } from "./voice/tts-playback-indicator";
 import { buildDeepgramWsUrl, resolveDeepgramApiKey, SAMPLE_RATE, CHANNELS } from "./voice/deepgram";
 import {
-	startLocalSession, stopLocalSession, abortLocalSession,
-	checkLocalServer, LOCAL_MODELS, DEFAULT_LOCAL_ENDPOINT,
-	getLanguagesForLocalModel, isLanguageSupportedByModel, localLanguageDisplayName,
+	startLocalSession,
+	stopLocalSession,
+	abortLocalSession,
+	checkLocalServer,
+	LOCAL_MODELS,
+	DEFAULT_LOCAL_ENDPOINT,
+	getLanguagesForLocalModel,
+	isLanguageSupportedByModel,
+	localLanguageDisplayName,
 	type LocalSession,
 } from "./voice/local";
-
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -119,26 +126,26 @@ const STREAM_FINALIZE_TIMEOUT_MS = 2500;
 // (a single tap on the spacebar at the end of a word is ~80ms), too long
 // feels laggy. Users can dial higher via /voice-hold-delay or settings.json.
 const HOLD_THRESHOLD_DEFAULT_MS = 700;
-const RELEASE_DETECT_MS = 500;    // Gap in key-repeat that means "released" (non-Kitty)
-                                   // macOS default InitialKeyRepeat is ~375ms, so 500ms
-                                   // ensures the first repeat arrives before we decide "tap"
-const REPEAT_CONFIRM_COUNT = 6;   // Need this many rapid repeat presses to confirm "holding"
-                                   // At ~30ms repeat rate, 6 presses ≈ 180ms of continuous holding
-                                   // This filters out brief pauses while typing
-const REPEAT_CONFIRM_MS = 700;    // Max gap between presses to count as rapid repeat
-                                  // macOS initial key-repeat delay is ~417-583ms depending on settings
-                                   // Must be > macOS InitialKeyRepeat (~375ms)
-const RECORDING_GRACE_MS = 800;   // After recording starts, ignore release for this long
-                                   // Covers async gap from holdActivationTimer → startVoiceRecording
+const RELEASE_DETECT_MS = 500; // Gap in key-repeat that means "released" (non-Kitty)
+// macOS default InitialKeyRepeat is ~375ms, so 500ms
+// ensures the first repeat arrives before we decide "tap"
+const REPEAT_CONFIRM_COUNT = 6; // Need this many rapid repeat presses to confirm "holding"
+// At ~30ms repeat rate, 6 presses ≈ 180ms of continuous holding
+// This filters out brief pauses while typing
+const REPEAT_CONFIRM_MS = 700; // Max gap between presses to count as rapid repeat
+// macOS initial key-repeat delay is ~417-583ms depending on settings
+// Must be > macOS InitialKeyRepeat (~375ms)
+const RECORDING_GRACE_MS = 800; // After recording starts, ignore release for this long
+// Covers async gap from holdActivationTimer → startVoiceRecording
 const RELEASE_DETECT_RECORDING_MS = 250; // During active recording, gap before we consider
-                                          // the key released (non-Kitty only). macOS Terminal
-                                          // key repeat fires every ~30-50ms. 250ms gap = released.
-const TYPING_COOLDOWN_MS = 400;   // If ANY non-space key was pressed within this window,
-                                   // ignore space holds (user is typing, not activating voice)
-const TAIL_RECORDING_MS = 1500;   // Keep recording for 1.5s after space release to catch
-                                   // trailing words. If user re-presses space within this
-                                   // window, cancel the delayed stop and keep recording.
-const CORRUPTION_GUARD_MS = 200;  // Min gap between stop and restart
+// the key released (non-Kitty only). macOS Terminal
+// key repeat fires every ~30-50ms. 250ms gap = released.
+const TYPING_COOLDOWN_MS = 400; // If ANY non-space key was pressed within this window,
+// ignore space holds (user is typing, not activating voice)
+const TAIL_RECORDING_MS = 1500; // Keep recording for 1.5s after space release to catch
+// trailing words. If user re-presses space within this
+// window, cancel the delayed stop and keep recording.
+const CORRUPTION_GUARD_MS = 200; // Min gap between stop and restart
 
 // Debug logging — set PI_VOICE_DEBUG=1 to enable
 const VOICE_DEBUG = !!process.env.PI_VOICE_DEBUG;
@@ -170,9 +177,10 @@ function updateAudioLevel(chunk: Buffer) {
 	// Power curve (^0.6) boosts quiet sounds for more visible reactivity
 	audioLevel = Math.min(1, Math.pow(Math.min(rms / 2500, 1), 0.6));
 	// Faster attack (0.35 old), slower decay — snappy peaks, smooth falloff
-	audioLevelSmoothed = audioLevel > audioLevelSmoothed
-		? audioLevelSmoothed * 0.35 + audioLevel * 0.65
-		: audioLevelSmoothed * 0.75 + audioLevel * 0.25;
+	audioLevelSmoothed =
+		audioLevel > audioLevelSmoothed
+			? audioLevelSmoothed * 0.35 + audioLevel * 0.65
+			: audioLevelSmoothed * 0.75 + audioLevel * 0.25;
 	// Shared state for other extensions (e.g. pi-pompom mouth animation).
 	// Using a namespaced globalThis object instead of pi.events because
 	// audio levels update at ~60Hz — event emission would be wasteful.
@@ -183,8 +191,10 @@ function updateAudioLevel(chunk: Buffer) {
 function voiceDebug(...args: unknown[]) {
 	if (!VOICE_DEBUG) return;
 	const ts = new Date().toISOString().split("T")[1];
-	const line = `[voice ${ts}] ${args.map(a => typeof a === "object" ? JSON.stringify(a) : String(a)).join(" ")}\n`;
-	try { fs.appendFileSync(VOICE_LOG_FILE, line); } catch {}
+	const line = `[voice ${ts}] ${args.map((a) => (typeof a === "object" ? JSON.stringify(a) : String(a))).join(" ")}\n`;
+	try {
+		fs.appendFileSync(VOICE_LOG_FILE, line);
+	} catch {}
 	process.stderr.write(line);
 }
 
@@ -205,7 +215,9 @@ function commandExists(cmd: string): boolean {
 function detectWindowsAudioDevice(): string | null {
 	try {
 		const result = spawnSync("ffmpeg", ["-f", "dshow", "-list_devices", "true", "-i", "dummy"], {
-			timeout: 3000, encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"],
+			timeout: 3000,
+			encoding: "utf-8",
+			stdio: ["pipe", "pipe", "pipe"],
 		});
 		// ffmpeg outputs device list to stderr
 		const output = result.stderr || "";
@@ -217,7 +229,11 @@ function detectWindowsAudioDevice(): string | null {
 	}
 }
 
-interface AudioCaptureTool { name: string; cmd: string; args: string[]; }
+interface AudioCaptureTool {
+	name: string;
+	cmd: string;
+	args: string[];
+}
 
 // Try available audio capture tools in order of preference
 let _cachedAudioTool: AudioCaptureTool | null | undefined;
@@ -231,13 +247,19 @@ function detectAudioCaptureTool(): AudioCaptureTool | null {
 			cmd: "rec",
 			args: [
 				"-q",
-				"--buffer", "4096",
-				"-c", String(CHANNELS),
-				"-b", "16",
-				"-e", "signed-integer",
-				"-t", "raw",
+				"--buffer",
+				"4096",
+				"-c",
+				String(CHANNELS),
+				"-b",
+				"16",
+				"-e",
+				"signed-integer",
+				"-t",
+				"raw",
 				"-",
-				"rate", String(SAMPLE_RATE),
+				"rate",
+				String(SAMPLE_RATE),
 			],
 		};
 		return _cachedAudioTool;
@@ -268,11 +290,16 @@ function detectAudioCaptureTool(): AudioCaptureTool | null {
 			cmd: "ffmpeg",
 			args: [
 				...inputArgs,
-				"-ac", String(CHANNELS),
-				"-ar", String(SAMPLE_RATE),
-				"-sample_fmt", "s16",
-				"-f", "s16le",
-				"-loglevel", "error",
+				"-ac",
+				String(CHANNELS),
+				"-ar",
+				String(SAMPLE_RATE),
+				"-sample_fmt",
+				"s16",
+				"-f",
+				"s16le",
+				"-loglevel",
+				"error",
 				"pipe:1",
 			],
 		};
@@ -284,13 +311,7 @@ function detectAudioCaptureTool(): AudioCaptureTool | null {
 		_cachedAudioTool = {
 			name: "arecord",
 			cmd: "arecord",
-			args: [
-				"-q",
-				"-f", "S16_LE",
-				"-r", String(SAMPLE_RATE),
-				"-c", String(CHANNELS),
-				"-t", "raw",
-			],
+			args: ["-q", "-f", "S16_LE", "-r", String(SAMPLE_RATE), "-c", String(CHANNELS), "-t", "raw"],
 		};
 		return _cachedAudioTool;
 	}
@@ -312,9 +333,9 @@ interface StreamingSession {
 	finalizeTimer: ReturnType<typeof setTimeout> | null;
 	closed: boolean;
 	stopRequested: boolean;
-	hadAudioData: boolean;       // Track if we received any audio data
-	hadSpeech: boolean;          // Track if Deepgram detected any speech
-	receivedMessage: boolean;    // Track if we got ANY message from Deepgram
+	hadAudioData: boolean; // Track if we received any audio data
+	hadSpeech: boolean; // Track if Deepgram detected any speech
+	receivedMessage: boolean; // Track if we got ANY message from Deepgram
 	onTranscript: (interim: string, finals: string[]) => void;
 	onDone: (fullText: string, meta: { hadAudio: boolean; hadSpeech: boolean }) => void;
 	onError: (err: string) => void;
@@ -329,7 +350,7 @@ function startStreamingSession(
 		onTranscript: (interim: string, finals: string[]) => void;
 		onDone: (fullText: string, meta: { hadAudio: boolean; hadSpeech: boolean }) => void;
 		onError: (err: string) => void;
-	},
+	}
 ): StreamingSession | null {
 	const apiKey = resolveDeepgramApiKey(config);
 	voiceDebug("startStreamingSession", { hasApiKey: !!apiKey });
@@ -360,7 +381,7 @@ function startStreamingSession(
 	const wsUrl = buildDeepgramWsUrl(config);
 	const ws = new WebSocket(wsUrl, {
 		headers: {
-			"Authorization": `Token ${apiKey}`,
+			Authorization: `Token ${apiKey}`,
 		},
 	} as any);
 
@@ -368,8 +389,12 @@ function startStreamingSession(
 	const wsConnectTimeout = setTimeout(() => {
 		if (ws.readyState !== WebSocket.OPEN) {
 			voiceDebug("WebSocket connection timeout (10s)");
-			try { ws.close(); } catch {}
-			try { recProc.kill("SIGTERM"); } catch {}
+			try {
+				ws.close();
+			} catch {}
+			try {
+				recProc.kill("SIGTERM");
+			} catch {}
 			callbacks.onError("Deepgram connection timed out (10s). Check your network.");
 		}
 	}, 10_000);
@@ -398,7 +423,9 @@ function startStreamingSession(
 	if (typeof (ws as any).on === "function") {
 		(ws as any).on("unexpected-response", (_req: any, res: any) => {
 			let body = "";
-			res.on("data", (d: Buffer) => { body += d.toString(); });
+			res.on("data", (d: Buffer) => {
+				body += d.toString();
+			});
 			res.on("end", () => {
 				voiceDebug("WebSocket unexpected-response", { status: res.statusCode, body });
 				if (!session.closed) {
@@ -411,18 +438,24 @@ function startStreamingSession(
 	ws.onopen = () => {
 		clearTimeout(wsConnectTimeout);
 		voiceDebug("WebSocket onopen → streaming audio");
-		try { ws.send(JSON.stringify({ type: "KeepAlive" })); } catch {}
+		try {
+			ws.send(JSON.stringify({ type: "KeepAlive" }));
+		} catch {}
 
 		session.keepAliveTimer = setInterval(() => {
 			if (ws.readyState === WebSocket.OPEN) {
-				try { ws.send(JSON.stringify({ type: "KeepAlive" })); } catch {}
+				try {
+					ws.send(JSON.stringify({ type: "KeepAlive" }));
+				} catch {}
 			}
 		}, KEEPALIVE_INTERVAL_MS);
 
 		recProc.stdout?.on("data", (chunk: Buffer) => {
 			if (ws.readyState === WebSocket.OPEN) {
 				session.hadAudioData = true;
-				try { ws.send(chunk); } catch {}
+				try {
+					ws.send(new Uint8Array(chunk));
+				} catch {}
 				// Feed audio data to level meter for reactive waveform
 				updateAudioLevel(chunk);
 				// Start stale-session watchdog on first audio chunk
@@ -520,7 +553,9 @@ function startStreamingSession(
 		// Only send CloseStream if the session isn't already being torn down
 		// (stopStreamingSession sends its own CloseStream before killing SoX)
 		if (!session.closed && !session.stopRequested && ws.readyState === WebSocket.OPEN) {
-			try { ws.send(JSON.stringify({ type: "CloseStream" })); } catch {}
+			try {
+				ws.send(JSON.stringify({ type: "CloseStream" }));
+			} catch {}
 		}
 	});
 
@@ -531,10 +566,14 @@ function stopStreamingSession(session: StreamingSession): void {
 	if (session.closed) return;
 	session.stopRequested = true;
 
-	try { session.recProcess.kill("SIGTERM"); } catch {}
+	try {
+		session.recProcess.kill("SIGTERM");
+	} catch {}
 
 	if (session.ws.readyState === WebSocket.OPEN) {
-		try { session.ws.send(JSON.stringify({ type: "CloseStream" })); } catch {}
+		try {
+			session.ws.send(JSON.stringify({ type: "CloseStream" }));
+		} catch {}
 	}
 
 	if (!session.finalizeTimer) {
@@ -553,7 +592,11 @@ function stopStreamingSession(session: StreamingSession): void {
 function finalizeSession(session: StreamingSession): void {
 	if (session.closed) return;
 	session.closed = true;
-	voiceDebug("finalizeSession", { hadAudio: session.hadAudioData, hadSpeech: session.hadSpeech, parts: session.finalizedParts.length });
+	voiceDebug("finalizeSession", {
+		hadAudio: session.hadAudioData,
+		hadSpeech: session.hadSpeech,
+		parts: session.finalizedParts.length,
+	});
 
 	if (session.staleSessionTimer) {
 		clearTimeout(session.staleSessionTimer);
@@ -568,8 +611,12 @@ function finalizeSession(session: StreamingSession): void {
 		session.keepAliveTimer = null;
 	}
 
-	try { session.ws.close(); } catch {}
-	try { session.recProcess.kill("SIGKILL"); } catch {}
+	try {
+		session.ws.close();
+	} catch {}
+	try {
+		session.recProcess.kill("SIGKILL");
+	} catch {}
 
 	const fullText = session.finalizedParts.join(" ").trim();
 	session.onDone(fullText, {
@@ -596,8 +643,12 @@ function failStreamingSession(session: StreamingSession, err: string): void {
 		session.keepAliveTimer = null;
 	}
 
-	try { session.ws.close(); } catch {}
-	try { session.recProcess.kill("SIGKILL"); } catch {}
+	try {
+		session.ws.close();
+	} catch {}
+	try {
+		session.recProcess.kill("SIGKILL");
+	} catch {}
 	session.onError(err);
 }
 
@@ -626,8 +677,12 @@ function abortSession(session: VoiceSession | null): void {
 		clearInterval(session.keepAliveTimer);
 		session.keepAliveTimer = null;
 	}
-	try { session.ws.close(); } catch {}
-	try { session.recProcess.kill("SIGKILL"); } catch {}
+	try {
+		session.ws.close();
+	} catch {}
+	try {
+		session.recProcess.kill("SIGKILL");
+	} catch {}
 }
 
 // ─── Extension ───────────────────────────────────────────────────────────────
@@ -673,15 +728,15 @@ export default function (pi: ExtensionAPI) {
 	const resolvedToggleShortcut = loadGlobalToggleShortcut();
 	const toggleShortcutLabel = resolvedToggleShortcut
 		.split("+")
-		.map((p) => p.length <= 1 ? p.toUpperCase() : p[0]!.toUpperCase() + p.slice(1))
+		.map((p) => (p.length <= 1 ? p.toUpperCase() : p[0]!.toUpperCase() + p.slice(1)))
 		.join("+");
 
 	// Streaming session state
 	let activeSession: VoiceSession | null = null;
-	let preRecordingSession: StreamingSession | null = null;  // Started during warmup, promoted on confirm (Deepgram only)
+	let preRecordingSession: StreamingSession | null = null; // Started during warmup, promoted on confirm (Deepgram only)
 
-	let lastStopTime = 0;    // For Escape-to-clear-editor within 30s of recording
-	let lastEscapeTime = 0;  // For double-escape to clear editor
+	let lastStopTime = 0; // For Escape-to-clear-editor within 30s of recording
+	let lastEscapeTime = 0; // For double-escape to clear editor
 	let recordingStartedAt = 0; // When recording actually started (for grace period)
 	let editorTextBeforeVoice = ""; // Snapshot of editor text before recording started
 
@@ -689,14 +744,14 @@ export default function (pi: ExtensionAPI) {
 	let kittyReleaseDetected = false;
 	let spaceDownTime: number | null = null;
 	let holdActivationTimer: ReturnType<typeof setTimeout> | null = null;
-	let spaceConsumed = false;        // True once threshold passed and recording started
+	let spaceConsumed = false; // True once threshold passed and recording started
 	let releaseDetectTimer: ReturnType<typeof setTimeout> | null = null;
 	let warmupWidgetTimer: ReturnType<typeof setInterval> | null = null;
-	let spacePressCount = 0;          // Count of rapid space presses (for non-Kitty hold detection)
-	let lastSpacePressTime = 0;       // Timestamp of last space press event
-	let holdConfirmed = false;        // True once we've confirmed user is holding (not tapping)
-	let errorCooldownUntil = 0;       // After an error, block re-activation until this timestamp
-	let lastNonSpaceKeyTime = 0;      // Timestamp of last non-space keypress (typing cooldown)
+	let spacePressCount = 0; // Count of rapid space presses (for non-Kitty hold detection)
+	let lastSpacePressTime = 0; // Timestamp of last space press event
+	let holdConfirmed = false; // True once we've confirmed user is holding (not tapping)
+	let errorCooldownUntil = 0; // After an error, block re-activation until this timestamp
+	let lastNonSpaceKeyTime = 0; // Timestamp of last non-space keypress (typing cooldown)
 	let tailRecordingTimer: ReturnType<typeof setTimeout> | null = null; // Delayed stop after release
 
 	// ─── Recording History ───────────────────────────────────────────────────
@@ -842,19 +897,38 @@ export default function (pi: ExtensionAPI) {
 		// during a download would leave the network/disk work running
 		// after the widget slot is cleared (Codex v6 finding #3).
 		for (const w of Array.from(activeInstallWidgets.values())) {
-			try { w.cancel(); } catch (err) { voiceDebug("install widget cancel threw during voiceCleanup", String(err)); }
+			try {
+				w.cancel();
+			} catch (err) {
+				voiceDebug("install widget cancel threw during voiceCleanup", String(err));
+			}
 		}
 		activeInstallWidgets.clear();
 		// Stop any active playback the same way.
-		try { activePlaybackIndicator?.stop(); } catch (err) { voiceDebug("playback stop threw during voiceCleanup", String(err)); }
+		try {
+			activePlaybackIndicator?.stop();
+		} catch (err) {
+			voiceDebug("playback stop threw during voiceCleanup", String(err));
+		}
 		activePlaybackIndicator = null;
 		// Drain registry — each widget self-clears its slot via dispose().
-		try { widgetRegistry?.disposeAll(); } catch (err) { voiceDebug("widgetRegistry.disposeAll threw", String(err)); }
-		try { renderTicker?.dispose(); } catch (err) { voiceDebug("renderTicker.dispose threw", String(err)); }
+		try {
+			widgetRegistry?.disposeAll();
+		} catch (err) {
+			voiceDebug("widgetRegistry.disposeAll threw", String(err));
+		}
+		try {
+			renderTicker?.dispose();
+		} catch (err) {
+			voiceDebug("renderTicker.dispose threw", String(err));
+		}
 		widgetRegistry = null;
 		renderTicker = null;
 
-		if (statusTimer) { clearInterval(statusTimer); statusTimer = null; }
+		if (statusTimer) {
+			clearInterval(statusTimer);
+			statusTimer = null;
+		}
 		cancelDelayedStop();
 		clearWarmupWidget();
 		clearRecordingAnimTimer();
@@ -876,7 +950,10 @@ export default function (pi: ExtensionAPI) {
 		recordingStart = 0;
 		recordingStartedAt = 0;
 		lastStopTime = 0;
-		if (terminalInputUnsub) { terminalInputUnsub(); terminalInputUnsub = null; }
+		if (terminalInputUnsub) {
+			terminalInputUnsub();
+			terminalInputUnsub = null;
+		}
 		hideWidget();
 		setVoiceState("idle");
 	}
@@ -886,7 +963,7 @@ export default function (pi: ExtensionAPI) {
 		nextConfig: VoiceConfig,
 		selectedScope: VoiceSettingsScope,
 		summaryLines: string[],
-		source: "first-run" | "setup-command",
+		source: "first-run" | "setup-command"
 	) {
 		const isLocal = nextConfig.backend === "local";
 		const hasKey = !!resolveDeepgramApiKey(nextConfig);
@@ -898,12 +975,10 @@ export default function (pi: ExtensionAPI) {
 		const statusHeader = validated
 			? "Voice setup complete."
 			: "Voice setup saved, but DEEPGRAM_API_KEY is still required.";
-		uiCtx.ui.notify([
-			statusHeader,
-			...summaryLines,
-			"",
-			`Saved to ${savedPath}`,
-		].join("\n"), validated ? "info" : "warning");
+		uiCtx.ui.notify(
+			[statusHeader, ...summaryLines, "", `Saved to ${savedPath}`].join("\n"),
+			validated ? "info" : "warning"
+		);
 	}
 
 	// ─── Warmup Widget ──────────────────────────────────────────────────────
@@ -964,7 +1039,7 @@ export default function (pi: ExtensionAPI) {
 			const wave1 = Math.sin(t * 4.5 + i * 0.45) * 0.35;
 			const wave2 = Math.sin(t * 7.2 + i * 0.7 + 2.0) * 0.15;
 			const center = 1.0 - Math.abs(pos - 0.5) * 1.0;
-			const base = 0.10 + energy * 0.90;
+			const base = 0.1 + energy * 0.9;
 			const value = Math.max(0, Math.min(1, (wave1 + wave2 + 0.5) * base * center));
 			arr.push(value);
 		}
@@ -984,51 +1059,54 @@ export default function (pi: ExtensionAPI) {
 			const elapsed = Date.now() - startTime;
 			const progress = Math.min(elapsed / getHoldThresholdMs(), 1);
 
-			ctx.ui.setWidget("voice-recording", (_tui, theme) => {
-				return {
-					invalidate() {},
-					render(width: number): string[] {
-						// v7.2 world-class — Same Floating Island chrome
-						// as the active recording widget, with the
-						// progress bar inside. Establishes visual
-						// continuity between warmup → recording (same
-						// island, content shifts, no jump).
-						const { island, auroraColor, titleBreathe } = require("./voice/ui-aura") as typeof import("./voice/ui-aura");
-						const dim = (s: string) => theme.fg("dim", s);
-						const muted = (s: string) => theme.fg("muted", s);
-						const accent = (s: string) => theme.fg("accent", s);
-						const islandW = Math.max(36, Math.min(46, width - 2));
+			ctx.ui.setWidget(
+				"voice-recording",
+				(_tui, theme) => {
+					return {
+						invalidate() {},
+						render(width: number): string[] {
+							// v7.2 world-class — Same Floating Island chrome
+							// as the active recording widget, with the
+							// progress bar inside. Establishes visual
+							// continuity between warmup → recording (same
+							// island, content shifts, no jump).
+							const { island, auroraColor, titleBreathe } =
+								require("./voice/ui-aura") as typeof import("./voice/ui-aura");
+							const dim = (s: string) => theme.fg("dim", s);
+							const muted = (s: string) => theme.fg("muted", s);
+							const accent = (s: string) => theme.fg("accent", s);
+							const islandW = Math.max(36, Math.min(46, width - 2));
 
-						// Aurora gradient progress: ▰ filled / ▱ empty
-						// with truecolor across the filled portion.
-						const innerW = islandW - 2;
-						const fixedW = 3 /* " ○ " */ + 1 /* trail */;
-						const meterCells = Math.max(12, innerW - fixedW);
-						const filled = Math.round(progress * meterCells);
-						let bar = "";
-						for (let i = 0; i < meterCells; i++) {
-							if (i < filled) {
-								// Color stop based on position along filled portion.
-								const t = filled === 0 ? 0 : i / Math.max(1, meterCells - 1);
-								bar += auroraColor(t) + "▰";
-							} else {
-								bar += dim("▱");
+							// Aurora gradient progress: ▰ filled / ▱ empty
+							// with truecolor across the filled portion.
+							const innerW = islandW - 2;
+							const fixedW = 3 /* " ○ " */ + 1; /* trail */
+							const meterCells = Math.max(12, innerW - fixedW);
+							const filled = Math.round(progress * meterCells);
+							let bar = "";
+							for (let i = 0; i < meterCells; i++) {
+								if (i < filled) {
+									// Color stop based on position along filled portion.
+									const t = filled === 0 ? 0 : i / Math.max(1, meterCells - 1);
+									bar += auroraColor(t) + "▰";
+								} else {
+									bar += dim("▱");
+								}
 							}
-						}
-						bar += "\x1b[0m";
+							bar += "\x1b[0m";
 
-						const dot = progress < 1 ? muted("○") : accent("●");
-						const content = ` ${dot} ${bar} `;
-						// Breathing title — same aurora-cycle as recording widget
-						// so the warmup → recording transition feels seamless.
-						const titleStyled = titleBreathe(Date.now()) + "\x1b[1mVoice Mode\x1b[0m";
-						const footer = progress < 1
-							? dim("hold to record")
-							: accent("ready");
-						return island({ width: islandW, title: titleStyled, content, footer, dim });
-					},
-				};
-			}, { placement: "belowEditor" });
+							const dot = progress < 1 ? muted("○") : accent("●");
+							const content = ` ${dot} ${bar} `;
+							// Breathing title — same aurora-cycle as recording widget
+							// so the warmup → recording transition feels seamless.
+							const titleStyled = titleBreathe(Date.now()) + "\x1b[1mVoice Mode\x1b[0m";
+							const footer = progress < 1 ? dim("hold to record") : accent("ready");
+							return island({ width: islandW, title: titleStyled, content, footer, dim });
+						},
+					};
+				},
+				{ placement: "belowEditor" }
+			);
 		};
 
 		renderWarmup();
@@ -1056,56 +1134,58 @@ export default function (pi: ExtensionAPI) {
 		if (!ctx?.hasUI) return;
 
 		// Minimal recording indicator below editor
-		ctx.ui.setWidget("voice-recording", (_tui, theme) => {
-			return {
-				invalidate() {},
-				render(width: number): string[] {
-					// v7.2 world-class — Floating Island + Liquid Braille +
-					// Aurora gradient + breathing title + activity chip
-					// + 300 ms fade-in transition from warmup.
-					const { island, titleBreathe, activityTag } = require("./voice/ui-aura") as typeof import("./voice/ui-aura");
-					const now = Date.now();
-					const elapsed = (now - recordingStart) / 1000;
-					const mins = Math.floor(elapsed / 60);
-					const secs = elapsed % 60;
-					const timeStr = mins > 0
-						? `${mins}:${String(Math.floor(secs)).padStart(2, "0")}`
-						: `${secs.toFixed(1)}s`;
-					const dim = (s: string) => theme.fg("dim", s);
-					const muted = (s: string) => theme.fg("muted", s);
-					const accent = (s: string) => theme.fg("accent", s);
+		ctx.ui.setWidget(
+			"voice-recording",
+			(_tui, theme) => {
+				return {
+					invalidate() {},
+					render(width: number): string[] {
+						// v7.2 world-class — Floating Island + Liquid Braille +
+						// Aurora gradient + breathing title + activity chip
+						// + 300 ms fade-in transition from warmup.
+						const { island, titleBreathe, activityTag } =
+							require("./voice/ui-aura") as typeof import("./voice/ui-aura");
+						const now = Date.now();
+						const elapsed = (now - recordingStart) / 1000;
+						const mins = Math.floor(elapsed / 60);
+						const secs = elapsed % 60;
+						const timeStr = mins > 0 ? `${mins}:${String(Math.floor(secs)).padStart(2, "0")}` : `${secs.toFixed(1)}s`;
+						const dim = (s: string) => theme.fg("dim", s);
+						const muted = (s: string) => theme.fg("muted", s);
+						const accent = (s: string) => theme.fg("accent", s);
 
-					// Activity chip — one-glance "is sound coming in?"
-					const chip = activityTag(audioLevelSmoothed, dim);
-					const chipPlain = chip.replace(/\x1b\[[\d;]*[A-Za-z]/g, "");
+						// Activity chip — one-glance "is sound coming in?"
+						const chip = activityTag(audioLevelSmoothed, dim);
+						const chipPlain = chip.replace(/\x1b\[[\d;]*[A-Za-z]/g, "");
 
-					// Compact 36-48 cols. Reserved cells:
-					//   " ● "(3) + wave + " · TIME "(timer+4) + "  CHIP "(chip+3) + " "(1)
-					const islandW = Math.max(36, Math.min(48, width - 2));
-					const innerW = islandW - 2;
-					const fixedW = 3 + (4 + timeStr.length) + (3 + chipPlain.length) + 1;
-					const waveCells = Math.max(8, innerW - fixedW);
+						// Compact 36-48 cols. Reserved cells:
+						//   " ● "(3) + wave + " · TIME "(timer+4) + "  CHIP "(chip+3) + " "(1)
+						const islandW = Math.max(36, Math.min(48, width - 2));
+						const innerW = islandW - 2;
+						const fixedW = 3 + (4 + timeStr.length) + (3 + chipPlain.length) + 1;
+						const waveCells = Math.max(8, innerW - fixedW);
 
-					// Fade-in over first 300 ms — wave amplitude
-					// scales 0→1 so the recording widget grows out
-					// of warmup rather than snapping in.
-					const sinceStart = Math.max(0, now - recordingStart);
-					const fade = Math.min(1, sinceStart / 300);
+						// Fade-in over first 300 ms — wave amplitude
+						// scales 0→1 so the recording widget grows out
+						// of warmup rather than snapping in.
+						const sinceStart = Math.max(0, now - recordingStart);
+						const fade = Math.min(1, sinceStart / 300);
 
-					const dot = theme.fg("error", getRecordDot());
-					const wave = buildAuroraWave(audioLevelSmoothed * fade, waveCells);
+						const dot = theme.fg("error", getRecordDot());
+						const wave = buildAuroraWave(audioLevelSmoothed * fade, waveCells);
 
-					// Breathing title — slow aurora-color cycle.
-					const titleStyled = titleBreathe(now) + "\x1b[1mVoice Input\x1b[0m";
+						// Breathing title — slow aurora-color cycle.
+						const titleStyled = titleBreathe(now) + "\x1b[1mVoice Input\x1b[0m";
 
-					const content = ` ${dot} ${wave} ${dim("·")} ${muted(timeStr)}  ${chip} `;
-					const footerStyled = `${dim("release")} ${accent("↑")}`;
-					return island({ width: islandW, title: titleStyled, content, footer: footerStyled, dim });
-				},
-			};
-		}, { placement: "belowEditor" });
+						const content = ` ${dot} ${wave} ${dim("·")} ${muted(timeStr)}  ${chip} `;
+						const footerStyled = `${dim("release")} ${accent("↑")}`;
+						return island({ width: islandW, title: titleStyled, content, footer: footerStyled, dim });
+					},
+				};
+			},
+			{ placement: "belowEditor" }
+		);
 	}
-
 
 	// ─── Live Transcript ────────────────────────────────────────────────────
 	// Instead of showing transcript in a widget, put it directly in the editor
@@ -1126,8 +1206,6 @@ export default function (pi: ExtensionAPI) {
 			const prefix = editorTextBeforeVoice ? editorTextBeforeVoice + " " : "";
 			ctx.ui.setEditorText(prefix + displayText);
 		}
-
-
 	}
 
 	// ─── Voice: Start / Stop ─────────────────────────────────────────────────
@@ -1143,31 +1221,31 @@ export default function (pi: ExtensionAPI) {
 		abortActiveSpeak();
 
 		try {
-		// ── SESSION CORRUPTION GUARD ──
-		// If we're still finalizing from a previous recording, abort it first.
-		// This prevents the "slow connection overlaps new recording" bug.
-		if (voiceState === "finalizing" || voiceState === "recording") {
-			abortSession(activeSession);
-			activeSession = null;
-			clearRecordingAnimTimer();
-			clearWarmupWidget();
-			hideWidget();
-			setVoiceState("idle");
-			// Brief pause to let resources release
-			await new Promise((r) => setTimeout(r, CORRUPTION_GUARD_MS));
-		}
+			// ── SESSION CORRUPTION GUARD ──
+			// If we're still finalizing from a previous recording, abort it first.
+			// This prevents the "slow connection overlaps new recording" bug.
+			if (voiceState === "finalizing" || voiceState === "recording") {
+				abortSession(activeSession);
+				activeSession = null;
+				clearRecordingAnimTimer();
+				clearWarmupWidget();
+				hideWidget();
+				setVoiceState("idle");
+				// Brief pause to let resources release
+				await new Promise((r) => setTimeout(r, CORRUPTION_GUARD_MS));
+			}
 
-		// ── STALE TRANSCRIPT CLEANUP ──
-		// Don't hideWidget() here — the warmup widget is still showing and
-		// showRecordingWidget() will seamlessly replace it using the same
-		// widget ID. Hiding it first causes a visible gap (jitter).
+			// ── STALE TRANSCRIPT CLEANUP ──
+			// Don't hideWidget() here — the warmup widget is still showing and
+			// showRecordingWidget() will seamlessly replace it using the same
+			// widget ID. Hiding it first causes a visible gap (jitter).
 
-		recordingStart = Date.now();
+			recordingStart = Date.now();
 
-		// Snapshot editor text before voice overwrites it with live transcript
-		editorTextBeforeVoice = ctx?.hasUI ? (ctx.ui.getEditorText() || "") : "";
+			// Snapshot editor text before voice overwrites it with live transcript
+			editorTextBeforeVoice = ctx?.hasUI ? ctx.ui.getEditorText() || "" : "";
 
-		return startStreamingRecording();
+			return startStreamingRecording();
 		} finally {
 			_startingRecording = false;
 		}
@@ -1177,9 +1255,9 @@ export default function (pi: ExtensionAPI) {
 	function startPreRecording() {
 		abortActiveSpeak();
 		if (preRecordingSession) return; // Already started
-		if (config.backend === "local") return;      // No pre-recording for local batch mode
+		if (config.backend === "local") return; // No pre-recording for local batch mode
 		if (!resolveDeepgramApiKey(config)) return; // No key — skip silently
-		if (!detectAudioCaptureTool()) return;       // No audio tool — skip silently
+		if (!detectAudioCaptureTool()) return; // No audio tool — skip silently
 
 		voiceDebug("startPreRecording → capturing audio during warmup");
 
@@ -1214,7 +1292,10 @@ export default function (pi: ExtensionAPI) {
 	}
 
 	async function startStreamingRecording(): Promise<boolean> {
-		voiceDebug("startStreamingRecording called", { hasKey: !!resolveDeepgramApiKey(config), hasPreRecording: !!preRecordingSession });
+		voiceDebug("startStreamingRecording called", {
+			hasKey: !!resolveDeepgramApiKey(config),
+			hasPreRecording: !!preRecordingSession,
+		});
 		setVoiceState("recording");
 
 		// ── Callbacks for the active recording session ──
@@ -1228,7 +1309,10 @@ export default function (pi: ExtensionAPI) {
 				voiceDebug("onDone callback", { fullText: fullText.slice(0, 100), meta, voiceState, spaceConsumed });
 				activeSession = null;
 				clearRecordingAnimTimer();
-				if (statusTimer) { clearInterval(statusTimer); statusTimer = null; }
+				if (statusTimer) {
+					clearInterval(statusTimer);
+					statusTimer = null;
+				}
 				lastStopTime = Date.now();
 
 				if (!fullText.trim()) {
@@ -1286,68 +1370,69 @@ export default function (pi: ExtensionAPI) {
 						if (agentBusy) {
 							voiceDebug("autoSubmitOnSpeak: agent busy — leaving text in editor");
 							try {
-								ctx.ui.notify(
-									"Agent is busy — voice text held in editor. Press [↵] to send when ready.",
-									"info",
-								);
-							} catch { /* notify may fail silently */ }
+								ctx.ui.notify("Agent is busy — voice text held in editor. Press [↵] to send when ready.", "info");
+							} catch {
+								/* notify may fail silently */
+							}
 							// Skip dispatch but DON'T early-return —
 							// the rest of the onDone handler still
 							// needs to run state cleanup
 							// (resetHoldState / setVoiceState("idle")).
 						} else {
-						// `sendUserMessage` lives on the `pi` ExtensionAPI
-						// surface, NOT on `ctx`. Always triggers a turn.
-						// `deliverAs: "followUp"` queues mid-stream
-						// messages instead of throwing "Agent is already
-						// processing".
-						//
-						// v7.2.2 (godspeed architect finding) — only
-						// clear the editor AFTER send confirms. If
-						// send rejects synchronously OR returns a
-						// rejected Promise, the user's dictated text
-						// stays visible so they can re-send.
-						const send = (pi as any).sendUserMessage as ((text: string, opts?: any) => unknown) | undefined;
-						if (typeof send === "function") {
-							voiceDebug("autoSubmitOnSpeak: dispatching", { len: finalText.length });
-							// godspeed architect finding — only clear if the
-							// editor STILL contains exactly the dispatched
-							// transcript. If the user typed more chars or
-							// edited it while send was pending, leave their
-							// edits alone.
-							const dispatchedText = finalText;
-							const clearAfterSuccess = () => {
-								try {
-									const cur = ctx?.ui.getEditorText?.() ?? "";
-									if (cur === dispatchedText) {
-										ctx?.ui.setEditorText("");
+							// `sendUserMessage` lives on the `pi` ExtensionAPI
+							// surface, NOT on `ctx`. Always triggers a turn.
+							// `deliverAs: "followUp"` queues mid-stream
+							// messages instead of throwing "Agent is already
+							// processing".
+							//
+							// v7.2.2 (godspeed architect finding) — only
+							// clear the editor AFTER send confirms. If
+							// send rejects synchronously OR returns a
+							// rejected Promise, the user's dictated text
+							// stays visible so they can re-send.
+							const send = (pi as any).sendUserMessage as ((text: string, opts?: any) => unknown) | undefined;
+							if (typeof send === "function") {
+								voiceDebug("autoSubmitOnSpeak: dispatching", { len: finalText.length });
+								// godspeed architect finding — only clear if the
+								// editor STILL contains exactly the dispatched
+								// transcript. If the user typed more chars or
+								// edited it while send was pending, leave their
+								// edits alone.
+								const dispatchedText = finalText;
+								const clearAfterSuccess = () => {
+									try {
+										const cur = ctx?.ui.getEditorText?.() ?? "";
+										if (cur === dispatchedText) {
+											ctx?.ui.setEditorText("");
+										}
+									} catch {
+										/* ui may be gone */
 									}
-								} catch { /* ui may be gone */ }
-								editorTextBeforeVoice = "";
-							};
-							try {
-								const r = send(finalText, { deliverAs: "followUp" });
-								if (r && typeof (r as Promise<unknown>).then === "function") {
-									(r as Promise<unknown>).then(clearAfterSuccess).catch((err) => {
-										voiceDebug("autoSubmitOnSpeak: sendUserMessage rejected", String(err));
-										// Editor stays populated — user can re-press [enter].
-									});
-								} else {
-									// Sync return (or undefined) — assume success.
-									clearAfterSuccess();
+									editorTextBeforeVoice = "";
+								};
+								try {
+									const r = send(finalText, { deliverAs: "followUp" });
+									if (r && typeof (r as Promise<unknown>).then === "function") {
+										(r as Promise<unknown>).then(clearAfterSuccess).catch((err) => {
+											voiceDebug("autoSubmitOnSpeak: sendUserMessage rejected", String(err));
+											// Editor stays populated — user can re-press [enter].
+										});
+									} else {
+										// Sync return (or undefined) — assume success.
+										clearAfterSuccess();
+									}
+								} catch (err) {
+									voiceDebug("autoSubmitOnSpeak: sendUserMessage threw sync", String(err));
+									// Editor stays populated.
 								}
-							} catch (err) {
-								voiceDebug("autoSubmitOnSpeak: sendUserMessage threw sync", String(err));
-								// Editor stays populated.
+							} else {
+								voiceDebug("autoSubmitOnSpeak: pi.sendUserMessage not available on this Pi version");
+								ctx.ui.notify(
+									"Auto-submit ON but unavailable on this Pi version (need pi.sendUserMessage). " +
+										"Press [enter] to send, or update Pi.",
+									"warning"
+								);
 							}
-						} else {
-							voiceDebug("autoSubmitOnSpeak: pi.sendUserMessage not available on this Pi version");
-							ctx.ui.notify(
-								"Auto-submit ON but unavailable on this Pi version (need pi.sendUserMessage). " +
-								"Press [enter] to send, or update Pi.",
-								"warning",
-							);
-						}
 						} // end else (agent not busy)
 					}
 
@@ -1362,7 +1447,10 @@ export default function (pi: ExtensionAPI) {
 			onError: (err: string) => {
 				activeSession = null;
 				clearRecordingAnimTimer();
-				if (statusTimer) { clearInterval(statusTimer); statusTimer = null; }
+				if (statusTimer) {
+					clearInterval(statusTimer);
+					statusTimer = null;
+				}
 				hideWidget();
 
 				// ── STOP THE LOOP ──
@@ -1392,7 +1480,8 @@ export default function (pi: ExtensionAPI) {
 			const recProc = spawn(audioTool.cmd, audioTool.args, { stdio: ["pipe", "pipe", "pipe"] });
 			recProc.stderr?.on("data", (d: Buffer) => {
 				const msg = d.toString().trim();
-				if (msg.includes("buffer overrun") || msg.includes("Discarding") || msg.includes("Last message repeated")) return;
+				if (msg.includes("buffer overrun") || msg.includes("Discarding") || msg.includes("Last message repeated"))
+					return;
 				voiceDebug(`${audioTool.name} stderr:`, msg);
 			});
 			session = startLocalSession(recProc, recordingCallbacks);
@@ -1465,7 +1554,10 @@ export default function (pi: ExtensionAPI) {
 		cancelDelayedStop(); // Safety: clear any pending delayed stop
 		voiceDebug("stopVoiceRecording called", { voiceState, hasActiveSession: !!activeSession });
 		if (voiceState !== "recording" || !ctx) return;
-		if (statusTimer) { clearInterval(statusTimer); statusTimer = null; }
+		if (statusTimer) {
+			clearInterval(statusTimer);
+			statusTimer = null;
+		}
 
 		if (activeSession) {
 			setVoiceState("finalizing");
@@ -1473,7 +1565,10 @@ export default function (pi: ExtensionAPI) {
 			hideWidget();
 			if (activeSession.backend === "local") {
 				// Local: show which model is transcribing + estimated time
-				const modelName = LOCAL_MODELS.find(m => m.id === (config.localModel || "whisper-small"))?.name || config.localModel || "local model";
+				const modelName =
+					LOCAL_MODELS.find((m) => m.id === (config.localModel || "whisper-small"))?.name ||
+					config.localModel ||
+					"local model";
 				ctx?.ui.notify(`Transcribing with ${modelName}…`, "info");
 				await stopLocalSession(activeSession, config);
 			} else {
@@ -1517,7 +1612,14 @@ export default function (pi: ExtensionAPI) {
 
 	function onSpaceReleaseDetected() {
 		releaseDetectTimer = null;
-		voiceDebug("onSpaceReleaseDetected", { voiceState, holdConfirmed, spaceConsumed, spaceDownTime, spacePressCount, timeSinceRecStart: spaceConsumed ? Date.now() - recordingStartedAt : null });
+		voiceDebug("onSpaceReleaseDetected", {
+			voiceState,
+			holdConfirmed,
+			spaceConsumed,
+			spaceDownTime,
+			spacePressCount,
+			timeSinceRecStart: spaceConsumed ? Date.now() - recordingStartedAt : null,
+		});
 
 		// If we never confirmed this was a hold (< REPEAT_CONFIRM_COUNT rapid presses),
 		// then it was a TAP → space already passed through naturally (not consumed)
@@ -1570,9 +1672,7 @@ export default function (pi: ExtensionAPI) {
 		if (voiceState === "warmup" || voiceState === "recording" || spaceDownTime || spaceConsumed || holdConfirmed) {
 			// Use longer timeout during active recording — key repeats can be
 			// irregular when the system is under load (Deepgram streaming, etc.)
-			const timeout = (voiceState === "recording" || spaceConsumed)
-				? RELEASE_DETECT_RECORDING_MS
-				: RELEASE_DETECT_MS;
+			const timeout = voiceState === "recording" || spaceConsumed ? RELEASE_DETECT_RECORDING_MS : RELEASE_DETECT_MS;
 			voiceDebug("resetReleaseDetect", { timeout, voiceState, spaceConsumed });
 			releaseDetectTimer = setTimeout(onSpaceReleaseDetected, timeout);
 		}
@@ -1581,7 +1681,10 @@ export default function (pi: ExtensionAPI) {
 	function setupHoldToTalk() {
 		if (!ctx?.hasUI) return;
 
-		if (terminalInputUnsub) { terminalInputUnsub(); terminalInputUnsub = null; }
+		if (terminalInputUnsub) {
+			terminalInputUnsub();
+			terminalInputUnsub = null;
+		}
 
 		terminalInputUnsub = ctx.ui.onTerminalInput((data: string) => {
 			if (!config.enabled) return undefined;
@@ -1597,7 +1700,10 @@ export default function (pi: ExtensionAPI) {
 					const ids = Array.from(activeInstallWidgets.keys());
 					const lastId = ids[ids.length - 1]!;
 					const w = activeInstallWidgets.get(lastId);
-					if (w) { w.cancel(); return { consume: true }; }
+					if (w) {
+						w.cancel();
+						return { consume: true };
+					}
 				}
 				if (activePlaybackIndicator) {
 					activePlaybackIndicator.stop();
@@ -1636,8 +1742,12 @@ export default function (pi: ExtensionAPI) {
 				// Apple-style: if a non-space key was pressed recently, this space
 				// is part of typing (e.g., "hello world"), not a voice activation.
 				// Only applies to NEW activations — don't interrupt active recording.
-				if (voiceState === "idle" && !spaceConsumed &&
-					lastNonSpaceKeyTime > 0 && (Date.now() - lastNonSpaceKeyTime) < TYPING_COOLDOWN_MS) {
+				if (
+					voiceState === "idle" &&
+					!spaceConsumed &&
+					lastNonSpaceKeyTime > 0 &&
+					Date.now() - lastNonSpaceKeyTime < TYPING_COOLDOWN_MS
+				) {
 					return undefined;
 				}
 
@@ -1745,16 +1855,18 @@ export default function (pi: ExtensionAPI) {
 									// to prevent false stop. Next repeat re-arms it.
 									clearReleaseTimer();
 									voiceDebug("holdActivationTimer fired → starting recording (Kitty repeat path)");
-									startVoiceRecording().then((ok) => {
-										if (!ok) {
-											resetHoldState();
+									startVoiceRecording()
+										.then((ok) => {
+											if (!ok) {
+												resetHoldState();
+												setVoiceState("idle");
+											}
+										})
+										.catch((err) => {
+											voiceDebug("startVoiceRecording THREW", { error: String(err) });
+											resetHoldState({ cooldown: 5000 });
 											setVoiceState("idle");
-										}
-									}).catch((err) => {
-										voiceDebug("startVoiceRecording THREW", { error: String(err) });
-										resetHoldState({ cooldown: 5000 });
-										setVoiceState("idle");
-									});
+										});
 								} else {
 									spaceDownTime = null;
 									spaceConsumed = false;
@@ -1856,16 +1968,18 @@ export default function (pi: ExtensionAPI) {
 								spaceConsumed = true;
 								recordingStartedAt = Date.now();
 								voiceDebug("holdActivationTimer fired → starting recording (Kitty path)");
-								startVoiceRecording().then((ok) => {
-									if (!ok) {
-										resetHoldState();
+								startVoiceRecording()
+									.then((ok) => {
+										if (!ok) {
+											resetHoldState();
+											setVoiceState("idle");
+										}
+									})
+									.catch((err) => {
+										voiceDebug("startVoiceRecording THREW", { error: String(err) });
+										resetHoldState({ cooldown: 5000 });
 										setVoiceState("idle");
-									}
-								}).catch((err) => {
-									voiceDebug("startVoiceRecording THREW", { error: String(err) });
-									resetHoldState({ cooldown: 5000 });
-									setVoiceState("idle");
-								});
+									});
 							} else {
 								spaceDownTime = null;
 								spaceConsumed = false;
@@ -1915,20 +2029,22 @@ export default function (pi: ExtensionAPI) {
 									// a gap where the release timer fires falsely.
 									clearReleaseTimer();
 									voiceDebug("holdActivationTimer fired → starting recording (non-Kitty)");
-									startVoiceRecording().then((ok) => {
-										if (!ok) {
-											resetHoldState();
+									startVoiceRecording()
+										.then((ok) => {
+											if (!ok) {
+												resetHoldState();
+												setVoiceState("idle");
+											}
+											// Do NOT re-arm release detect here!
+											// The next SPACE key-repeat event will do it.
+											// Re-arming here causes false stops because
+											// the timer fires during the async gap.
+										})
+										.catch((err) => {
+											voiceDebug("startVoiceRecording THREW", { error: String(err) });
+											resetHoldState({ cooldown: 5000 });
 											setVoiceState("idle");
-										}
-										// Do NOT re-arm release detect here!
-										// The next SPACE key-repeat event will do it.
-										// Re-arming here causes false stops because
-										// the timer fires during the async gap.
-									}).catch((err) => {
-										voiceDebug("startVoiceRecording THREW", { error: String(err) });
-										resetHoldState({ cooldown: 5000 });
-										setVoiceState("idle");
-									});
+										});
 								} else {
 									spaceDownTime = null;
 									spaceConsumed = false;
@@ -2007,7 +2123,10 @@ export default function (pi: ExtensionAPI) {
 					clearRecordingAnimTimer();
 					clearWarmupWidget();
 					hideWidget();
-					if (statusTimer) { clearInterval(statusTimer); statusTimer = null; }
+					if (statusTimer) {
+						clearInterval(statusTimer);
+						statusTimer = null;
+					}
 					// Restore editor text to what it was before recording
 					if (ctx?.hasUI) ctx.ui.setEditorText(editorTextBeforeVoice);
 					resetHoldState();
@@ -2020,7 +2139,7 @@ export default function (pi: ExtensionAPI) {
 				// In idle: double-escape (two presses within 500ms) clears editor
 				if (voiceState === "idle") {
 					const now = Date.now();
-					if (lastEscapeTime > 0 && (now - lastEscapeTime) < 500) {
+					if (lastEscapeTime > 0 && now - lastEscapeTime < 500) {
 						if (ctx?.hasUI) {
 							const currentText = ctx.ui.getEditorText() || "";
 							if (currentText.trim()) {
@@ -2032,14 +2151,11 @@ export default function (pi: ExtensionAPI) {
 					}
 					lastEscapeTime = now;
 				}
-
-
 			}
 
 			return undefined;
 		});
 	}
-
 
 	// ─── Shortcuts ───────────────────────────────────────────────────────────
 
@@ -2104,7 +2220,9 @@ export default function (pi: ExtensionAPI) {
 		// inside voiceCleanup (e.g. a child process kill EPERM under load) must
 		// not abort handler execution and leave ctx unassigned.
 		if (!isStartup) {
-			try { voiceCleanup(); } catch (err) {
+			try {
+				voiceCleanup();
+			} catch (err) {
 				voiceDebug("voiceCleanup threw during session_start", { error: String(err) });
 			}
 		}
@@ -2161,7 +2279,7 @@ export default function (pi: ExtensionAPI) {
 			setupHoldToTalk();
 			if (!isStartup) return;
 			const backendLabel = hasLocalModel
-				? `Local model: ${LOCAL_MODELS.find(m => m.id === config.localModel)?.name || config.localModel} (offline, batch mode)`
+				? `Local model: ${LOCAL_MODELS.find((m) => m.id === config.localModel)?.name || config.localModel} (offline, batch mode)`
 				: "Deepgram Nova-3 (cloud, live streaming)";
 			const lines = [
 				"pi-listen ready!",
@@ -2201,7 +2319,9 @@ export default function (pi: ExtensionAPI) {
 		// versions whose replacement path may not await. The try/catch is so a
 		// throw inside voiceCleanup (e.g. a child process kill EPERM under load)
 		// can't leak ctx or skip the recognizer cache clear.
-		try { voiceCleanup(); } catch (err) {
+		try {
+			voiceCleanup();
+		} catch (err) {
 			voiceDebug("voiceCleanup threw during shutdown", { error: String(err) });
 		}
 		ctx = null;
@@ -2230,7 +2350,7 @@ export default function (pi: ExtensionAPI) {
 	// /new, /resume, /fork. That event was removed in 0.65.0 in favor of the
 	// session_shutdown → session_start (with reason) flow handled above.
 	// We don't register a shim here because package.json:peerDependencies
-	// requires "@mariozechner/pi-coding-agent": ">=0.65.0", so a host without
+	// requires "@earendil-works/pi-coding-agent": "*", so a host without
 	// the new flow can't install this extension in the first place.
 
 	// ─── Auto-speak (TTS after assistant turn ends) ─────────────────────
@@ -2255,8 +2375,12 @@ export default function (pi: ExtensionAPI) {
 	// followUp messages that pile onto the failing turn — feels like
 	// the voice extension is "looping" because the agent never recovers.
 	let agentBusy = false;
-	pi.on("agent_start", async () => { agentBusy = true; });
-	pi.on("agent_end", async () => { agentBusy = false; });
+	pi.on("agent_start", async () => {
+		agentBusy = true;
+	});
+	pi.on("agent_end", async () => {
+		agentBusy = false;
+	});
 
 	// v7.2.1 — streaming auto-speak. Instead of waiting for `turn_end`
 	// (which only fires AFTER the full response is generated), subscribe
@@ -2276,8 +2400,8 @@ export default function (pi: ExtensionAPI) {
 	// don't cross-talk. Map keyed by message id.
 
 	interface MessageStreamState {
-		spokenLen: number;          // chars of accumulated text already queued for speech
-		pending: Promise<void>;     // chain of in-flight speak() calls — serialize per message
+		spokenLen: number; // chars of accumulated text already queued for speech
+		pending: Promise<void>; // chain of in-flight speak() calls — serialize per message
 	}
 	const messageStreams = new Map<string, MessageStreamState>();
 
@@ -2286,8 +2410,8 @@ export default function (pi: ExtensionAPI) {
 	function extractAccumulatedText(message: any): string {
 		if (!message || !Array.isArray(message.content)) return "";
 		return (message.content as any[])
-			.filter(c => c?.type === "text" && typeof c.text === "string")
-			.map(c => c.text as string)
+			.filter((c) => c?.type === "text" && typeof c.text === "string")
+			.map((c) => c.text as string)
 			.join("");
 	}
 
@@ -2390,7 +2514,9 @@ export default function (pi: ExtensionAPI) {
 		try {
 			const fs2 = require("node:fs") as typeof import("node:fs");
 			fs2.appendFileSync("/tmp/pi-listen-stream.log", `[${new Date().toISOString()}] ${s}\n`);
-		} catch { /* best-effort */ }
+		} catch {
+			/* best-effort */
+		}
 	};
 	let mu_count = 0;
 	pi.on("message_update", async (event) => {
@@ -2444,7 +2570,11 @@ export default function (pi: ExtensionAPI) {
 		const prepared = prepareForSpeech(text, { maxChars: 2000, stripCodeBlocks: true, collapseLinks: true });
 		if (prepared.skipped) return;
 		lastAutoSpeakAt = now;
-		try { if (ctx) await runSpeak(ctx, prepared.text); } catch { /* non-blocking */ }
+		try {
+			if (ctx) await runSpeak(ctx, prepared.text);
+		} catch {
+			/* non-blocking */
+		}
 	});
 
 	// ─── /voice command ──────────────────────────────────────────────────────
@@ -2459,23 +2589,27 @@ export default function (pi: ExtensionAPI) {
 				config.enabled = true;
 				updateVoiceStatus();
 				setupHoldToTalk();
-				const backendInfo = config.backend === "local"
-					? `Voice enabled (local model: ${config.localModel || "whisper-small"}).`
-					: "Voice enabled (Deepgram streaming).";
-				cmdCtx.ui.notify([
-					backendInfo,
-					"",
-					"  Hold SPACE → release to transcribe",
-					`  ${toggleShortcutLabel} → toggle recording on/off`,
-					"  Quick SPACE tap → types a space (no voice)",
-					"  Escape × 2 → clear editor",
-					"",
-					"  /voice-settings → open settings panel",
-					"  /voice dictate  → continuous mode (no hold)",
-					"  /voice test     → verify setup",
-					"",
-					"  Say 'undo', 'clear', 'new line', 'period' during dictation",
-				].join("\n"), "info");
+				const backendInfo =
+					config.backend === "local"
+						? `Voice enabled (local model: ${config.localModel || "whisper-small"}).`
+						: "Voice enabled (Deepgram streaming).";
+				cmdCtx.ui.notify(
+					[
+						backendInfo,
+						"",
+						"  Hold SPACE → release to transcribe",
+						`  ${toggleShortcutLabel} → toggle recording on/off`,
+						"  Quick SPACE tap → types a space (no voice)",
+						"  Escape × 2 → clear editor",
+						"",
+						"  /voice-settings → open settings panel",
+						"  /voice dictate  → continuous mode (no hold)",
+						"  /voice test     → verify setup",
+						"",
+						"  Say 'undo', 'clear', 'new line', 'period' during dictation",
+					].join("\n"),
+					"info"
+				);
 				return;
 			}
 
@@ -2522,16 +2656,19 @@ export default function (pi: ExtensionAPI) {
 					return;
 				}
 				dictationMode = true;
-				editorTextBeforeVoice = ctx?.hasUI ? (ctx.ui.getEditorText() || "") : "";
+				editorTextBeforeVoice = ctx?.hasUI ? ctx.ui.getEditorText() || "" : "";
 				const ok = await startVoiceRecording();
 				if (ok) {
-					cmdCtx.ui.notify([
-						"🎤 Continuous dictation mode active.",
-						"",
-						"  Speak freely — no need to hold SPACE.",
-						"  /voice stop → finalize and stop",
-						`  ${toggleShortcutLabel} → also stops dictation`,
-					].join("\n"), "info");
+					cmdCtx.ui.notify(
+						[
+							"🎤 Continuous dictation mode active.",
+							"",
+							"  Speak freely — no need to hold SPACE.",
+							"  /voice stop → finalize and stop",
+							`  ${toggleShortcutLabel} → also stops dictation`,
+						].join("\n"),
+						"info"
+					);
 				} else {
 					dictationMode = false;
 					cmdCtx.ui.notify("Failed to start dictation.", "error");
@@ -2599,7 +2736,9 @@ export default function (pi: ExtensionAPI) {
 					const testFile = path.join(os.tmpdir(), "pi-voice-test.wav");
 					let testProc;
 					if (tool.name === "sox") {
-						testProc = spawn("rec", ["-q", "-r", "16000", "-c", "1", "-b", "16", "-d", "1", testFile], { stdio: "pipe" });
+						testProc = spawn("rec", ["-q", "-r", "16000", "-c", "1", "-b", "16", "-d", "1", testFile], {
+							stdio: "pipe",
+						});
 					} else if (tool.name === "ffmpeg") {
 						const isMac = process.platform === "darwin";
 						const isLinux = process.platform === "linux";
@@ -2608,24 +2747,44 @@ export default function (pi: ExtensionAPI) {
 						else if (isLinux) testInputArgs = ["-f", "pulse", "-i", "default"];
 						else {
 							const dshowDev = detectWindowsAudioDevice();
-							testInputArgs = dshowDev ? ["-f", "dshow", "-i", `audio=${dshowDev}`] : ["-f", "dshow", "-i", "audio=Microphone"];
+							testInputArgs = dshowDev
+								? ["-f", "dshow", "-i", `audio=${dshowDev}`]
+								: ["-f", "dshow", "-i", "audio=Microphone"];
 						}
 						const inputArgs = testInputArgs;
-						testProc = spawn("ffmpeg", [...inputArgs, "-t", "1", "-ar", "16000", "-ac", "1", "-y", "-loglevel", "error", testFile], { stdio: "pipe" });
+						testProc = spawn(
+							"ffmpeg",
+							[...inputArgs, "-t", "1", "-ar", "16000", "-ac", "1", "-y", "-loglevel", "error", testFile],
+							{ stdio: "pipe" }
+						);
 					} else {
-						testProc = spawn("arecord", ["-q", "-f", "S16_LE", "-r", "16000", "-c", "1", "-d", "1", testFile], { stdio: "pipe" });
+						testProc = spawn("arecord", ["-q", "-f", "S16_LE", "-r", "16000", "-c", "1", "-d", "1", testFile], {
+							stdio: "pipe",
+						});
 					}
 					testProc.on("error", () => {});
 					await new Promise<void>((resolve) => {
 						let resolved = false;
-						const done = () => { if (!resolved) { resolved = true; resolve(); } };
+						const done = () => {
+							if (!resolved) {
+								resolved = true;
+								resolve();
+							}
+						};
 						testProc.on("close", done);
-						setTimeout(() => { try { testProc.kill(); } catch {} done(); }, 3000);
+						setTimeout(() => {
+							try {
+								testProc.kill();
+							} catch {}
+							done();
+						}, 3000);
 					});
 					if (fs.existsSync(testFile)) {
 						const size = fs.statSync(testFile).size;
 						lines.push(`    mic capture:       OK (${size} bytes via ${tool.name})`);
-						try { fs.unlinkSync(testFile); } catch {}
+						try {
+							fs.unlinkSync(testFile);
+						} catch {}
 					} else {
 						lines.push(`    mic capture:       FAILED — ${tool.name} ran but no audio captured`);
 					}
@@ -2660,7 +2819,7 @@ export default function (pi: ExtensionAPI) {
 					try {
 						const res = await fetch("https://api.deepgram.com/v1/projects", {
 							method: "GET",
-							headers: { "Authorization": `Token ${dgKey}` },
+							headers: { Authorization: `Token ${dgKey}` },
 							signal: AbortSignal.timeout(5000),
 						});
 						if (res.ok) {
@@ -2710,7 +2869,7 @@ export default function (pi: ExtensionAPI) {
 					if (!dgKey) {
 						lines.push("  Setup needed:");
 						lines.push("    1. Get a free key → https://dpgr.am/pi-voice ($200 free credit)");
-						lines.push("    2. export DEEPGRAM_API_KEY=\"your-key\" (add to ~/.zshrc)");
+						lines.push('    2. export DEEPGRAM_API_KEY="your-key" (add to ~/.zshrc)');
 						lines.push("    3. Or run /voice-settings to configure");
 					} else if (!tool) {
 						lines.push("  Setup needed — install any one of:");
@@ -2740,11 +2899,13 @@ export default function (pi: ExtensionAPI) {
 				return;
 			}
 
-
 			// Default: toggle
 			config.enabled = !config.enabled;
-			if (!config.enabled) { voiceCleanup(); }
-			else { setupHoldToTalk(); }
+			if (!config.enabled) {
+				voiceCleanup();
+			} else {
+				setupHoldToTalk();
+			}
 			updateVoiceStatus();
 			cmdCtx.ui.notify(`Voice ${config.enabled ? "enabled" : "disabled"}.`, "info");
 		},
@@ -2773,20 +2934,14 @@ export default function (pi: ExtensionAPI) {
 
 	async function openHelpOverlay(cmdCtx: ExtensionCommandContext): Promise<void> {
 		if (!cmdCtx.hasUI) {
-			cmdCtx.ui.notify(
-				"pi-listen: hold space=record · /voice-speak <text> · /voice-settings · /voice-help",
-				"info",
-			);
+			cmdCtx.ui.notify("pi-listen: hold space=record · /voice-speak <text> · /voice-settings · /voice-help", "info");
 			return;
 		}
 		const { HelpOverlay } = await import("./voice/ui-help-overlay");
-		await cmdCtx.ui.custom<void>(
-			(_tui, theme, _kb, done) => new HelpOverlay({ theme }, done),
-			{
-				overlay: true,
-				overlayOptions: { width: "70%", minWidth: 60, maxHeight: "80%", anchor: "center" },
-			},
-		);
+		await cmdCtx.ui.custom<void>((_tui, theme, _kb, done) => new HelpOverlay({ theme }, done), {
+			overlay: true,
+			overlayOptions: { width: "70%", minWidth: 60, maxHeight: "80%", anchor: "center" },
+		});
 	}
 
 	// ─── Settings panel (shared handler) ────────────────────────────────────
@@ -2816,9 +2971,13 @@ export default function (pi: ExtensionAPI) {
 			isSherpaAvailable,
 			formatDeviceSummary,
 			saveConfig: (cfg: VoiceConfig, scope: VoiceSettingsScope, cwd: string) => saveConfig(cfg, scope, cwd),
-			clearRecognizerCache: () => { try { clearRecognizerCache(); } catch {} },
+			clearRecognizerCache: () => {
+				try {
+					clearRecognizerCache();
+				} catch {}
+			},
 			resolveApiKey: () => resolveDeepgramApiKey(config) ?? undefined,
-			deepgramLanguages: LANGUAGES.map(l => ({ name: l.name, code: l.code, popular: l.popular })),
+			deepgramLanguages: LANGUAGES.map((l) => ({ name: l.name, code: l.code, popular: l.popular })),
 		};
 
 		let panel!: InstanceType<typeof VoiceSettingsPanel>;
@@ -2836,7 +2995,7 @@ export default function (pi: ExtensionAPI) {
 					maxHeight: "80%",
 					anchor: "center",
 				},
-			},
+			}
 		);
 
 		// Post-close: handle the speak-test action by re-using the
@@ -2864,17 +3023,19 @@ export default function (pi: ExtensionAPI) {
 			// notifications were already emitted by the helper itself.
 			try {
 				await runInstallWithWidget(cmdCtx, model.id, model.name, model.sizeBytes ?? 0, ensureTtsModelInstalled);
-			} catch { /* notify already emitted in runInstallWithWidget */ }
+			} catch {
+				/* notify already emitted in runInstallWithWidget */
+			}
 			return;
 		}
 
 		// Post-close: handle download action with full pre-checks + progress
 		if (result?.type === "download" && result.modelId) {
-			const model = LOCAL_MODELS.find(m => m.id === result.modelId);
+			const model = LOCAL_MODELS.find((m) => m.id === result.modelId);
 			if (model) {
-				const {
-					checkDownloadPrereqs, createProgressTracker, verifyDownload, formatBytes,
-				} = await import("./voice/model-download");
+				const { checkDownloadPrereqs, createProgressTracker, verifyDownload, formatBytes } = await import(
+					"./voice/model-download"
+				);
 				const { initSherpa, isSherpaAvailable, getSherpaError } = await import("./voice/sherpa-engine");
 
 				// ── Step 1: Check sherpa-onnx dependency ──
@@ -2892,7 +3053,7 @@ export default function (pi: ExtensionAPI) {
 								"  2. Check platform compatibility (macOS/Linux x64/arm64)",
 								"  3. Or switch to Deepgram (cloud) backend in /voice-settings",
 							].join("\n"),
-							"error",
+							"error"
 						);
 						return;
 					}
@@ -2906,11 +3067,11 @@ export default function (pi: ExtensionAPI) {
 						[
 							`Cannot download ${model.name}:`,
 							"",
-							...preCheck.issues.map(i => `  • ${i}`),
+							...preCheck.issues.map((i) => `  • ${i}`),
 							"",
 							"Resolve the above and try again via /voice-models.",
 						].join("\n"),
-						"error",
+						"error"
 					);
 					return;
 				}
@@ -2920,15 +3081,10 @@ export default function (pi: ExtensionAPI) {
 				cmdCtx.ui.notify(`Starting download: ${model.name} (${model.size})…`, "info");
 
 				try {
-					await ensureModelDownloaded(
-						model.id,
-						model.sherpaModel.downloadUrls,
-						model.sizeBytes,
-						(raw) => {
-							const rich = tracker(raw);
-							if (rich) cmdCtx.ui.notify(rich.line, "info");
-						},
-					);
+					await ensureModelDownloaded(model.id, model.sherpaModel.downloadUrls, model.sizeBytes, (raw) => {
+						const rich = tracker(raw);
+						if (rich) cmdCtx.ui.notify(rich.line, "info");
+					});
 				} catch (err: any) {
 					const msg = err?.message || String(err);
 					const lines = [`Download failed: ${model.name}`];
@@ -2954,25 +3110,25 @@ export default function (pi: ExtensionAPI) {
 						[
 							`${model.name} downloaded but verification failed:`,
 							"",
-							...verification.issues.map(i => `  • ${i}`),
+							...verification.issues.map((i) => `  • ${i}`),
 							"",
 							"Try: /voice-models → Downloaded tab → delete and re-download.",
 						].join("\n"),
-						"warning",
+						"warning"
 					);
 					return;
 				}
 
-				cmdCtx.ui.notify(
-					`${model.name} downloaded and verified (${model.size}). Ready to use.`,
-					"info",
-				);
+				cmdCtx.ui.notify(`${model.name} downloaded and verified (${model.size}). Ready to use.`, "info");
 			}
 		}
 
 		// Sync voice state after panel changes
-		if (config.enabled) { setupHoldToTalk(); }
-		else { voiceCleanup(); }
+		if (config.enabled) {
+			setupHoldToTalk();
+		} else {
+			voiceCleanup();
+		}
 		updateVoiceStatus();
 	}
 
@@ -2986,7 +3142,9 @@ export default function (pi: ExtensionAPI) {
 
 	function abortActiveSpeak(): boolean {
 		if (!activeSpeak) return false;
-		try { activeSpeak.abort(); } catch {}
+		try {
+			activeSpeak.abort();
+		} catch {}
 		activeSpeak = null;
 		return true;
 	}
@@ -3007,13 +3165,13 @@ export default function (pi: ExtensionAPI) {
 		totalBytesEstimate: number,
 		ensureTtsModelInstalled: (
 			id: string,
-			opts: { signal?: AbortSignal; onProgress?: (info: any) => void },
+			opts: { signal?: AbortSignal; onProgress?: (info: any) => void }
 		) => Promise<unknown>,
 		// godspeed architect finding: accept caller signal so
 		// /voice-speak-stop or TTS-disable propagates into the install.
 		// Caller's signal cascades: aborting it triggers our own
 		// AbortController and tears down the widget cleanly.
-		callerSignal?: AbortSignal,
+		callerSignal?: AbortSignal
 	): Promise<void> {
 		if (!cmdCtx.hasUI) {
 			// Headless / scripted mode — fall back to a single notify so
@@ -3034,7 +3192,11 @@ export default function (pi: ExtensionAPI) {
 					cmdCtx.ui.notify(`Install failed: ${err?.message ?? err}`, "error");
 				}
 				if (err && typeof err === "object") {
-					try { (err as any).__alreadyNotified = true; } catch { /* frozen errors */ }
+					try {
+						(err as any).__alreadyNotified = true;
+					} catch {
+						/* frozen errors */
+					}
 				}
 				throw err;
 			}
@@ -3049,9 +3211,15 @@ export default function (pi: ExtensionAPI) {
 		let callerAbortListener: (() => void) | null = null;
 		if (callerSignal) {
 			if (callerSignal.aborted) {
-				try { controller.abort(); } catch {}
+				try {
+					controller.abort();
+				} catch {}
 			} else {
-				callerAbortListener = () => { try { controller.abort(); } catch {} };
+				callerAbortListener = () => {
+					try {
+						controller.abort();
+					} catch {}
+				};
 				callerSignal.addEventListener("abort", callerAbortListener);
 			}
 		}
@@ -3089,7 +3257,11 @@ export default function (pi: ExtensionAPI) {
 				cmdCtx.ui.notify(`Install failed: ${err?.message ?? err}`, "error");
 			}
 			if (err && typeof err === "object") {
-				try { (err as any).__alreadyNotified = true; } catch { /* frozen errors */ }
+				try {
+					(err as any).__alreadyNotified = true;
+				} catch {
+					/* frozen errors */
+				}
 			}
 			throw err;
 		} finally {
@@ -3103,12 +3275,18 @@ export default function (pi: ExtensionAPI) {
 			}
 			// Always remove the caller-signal listener.
 			if (callerAbortListener && callerSignal) {
-				try { callerSignal.removeEventListener("abort", callerAbortListener); } catch {}
+				try {
+					callerSignal.removeEventListener("abort", callerAbortListener);
+				} catch {}
 			}
 		}
 	}
 
-	async function runSpeak(cmdCtx: ExtensionCommandContext | ExtensionContext, text: string, opts: { forceEnabled?: boolean } = {}): Promise<void> {
+	async function runSpeak(
+		cmdCtx: ExtensionCommandContext | ExtensionContext,
+		text: string,
+		opts: { forceEnabled?: boolean } = {}
+	): Promise<void> {
 		// `forceEnabled` lets /voice-speak-test bypass the gate without
 		// mutating shared config. The previous mutate-snapshot-restore
 		// pattern raced against /voice-speak-toggle and could clobber the
@@ -3130,7 +3308,9 @@ export default function (pi: ExtensionAPI) {
 
 		try {
 			const { speak } = await import("./voice/speak");
-			const { getInstalledTtsModelDir, ensureTtsModelInstalled, getTtsModel } = await import("./voice/tts-local-models");
+			const { getInstalledTtsModelDir, ensureTtsModelInstalled, getTtsModel } = await import(
+				"./voice/tts-local-models"
+			);
 
 			// On the local backend, fetch the model on-demand if missing.
 			// Deepgram backend skips this branch entirely. v7.1: surface
@@ -3142,7 +3322,14 @@ export default function (pi: ExtensionAPI) {
 					getInstalledTtsModelDir(modelId);
 				} catch {
 					const model = getTtsModel(modelId);
-					await runInstallWithWidget(cmdCtx, modelId, model.name, model.sizeBytes ?? 0, ensureTtsModelInstalled, controller.signal);
+					await runInstallWithWidget(
+						cmdCtx,
+						modelId,
+						model.name,
+						model.sizeBytes ?? 0,
+						ensureTtsModelInstalled,
+						controller.signal
+					);
 				}
 			}
 
@@ -3305,7 +3492,7 @@ export default function (pi: ExtensionAPI) {
 						{
 							overlay: true,
 							overlayOptions: { width: "70%", minWidth: 60, maxHeight: "60%", anchor: "center" },
-						},
+						}
 					);
 					if (result?.kind === "test") {
 						await runSpeak(cmdCtx, "The quick brown fox jumps over the lazy dog.", { forceEnabled: true });
@@ -3329,7 +3516,9 @@ export default function (pi: ExtensionAPI) {
 						cwd: currentCwd,
 						saveConfig: (cfg, scope, cwd) => saveConfig(cfg, scope, cwd),
 					});
-				} catch { /* onboarding hint is best-effort */ }
+				} catch {
+					/* onboarding hint is best-effort */
+				}
 			}
 		},
 	});
@@ -3350,8 +3539,7 @@ export default function (pi: ExtensionAPI) {
 		description: "Show TTS configuration: backend, model, voice, install state",
 		handler: async (_args, cmdCtx) => {
 			ctx = cmdCtx;
-			const { getTtsModel, isTtsModelInstalled, TTS_LOCAL_MODELS } =
-				await import("./voice/tts-local-models");
+			const { getTtsModel, isTtsModelInstalled, TTS_LOCAL_MODELS } = await import("./voice/tts-local-models");
 			const { DEEPGRAM_TTS_VOICES } = await import("./voice/tts-deepgram");
 			const { resolveDeepgramApiKey } = await import("./voice/deepgram");
 
@@ -3367,14 +3555,18 @@ export default function (pi: ExtensionAPI) {
 			if (isLocal) {
 				const modelId = config.ttsLocalModel ?? "kitten-nano-en-v0_2";
 				let model;
-				try { model = getTtsModel(modelId); } catch { model = undefined; }
+				try {
+					model = getTtsModel(modelId);
+				} catch {
+					model = undefined;
+				}
 				const installed = isTtsModelInstalled(modelId);
 				lines.push("  Local backend:");
 				lines.push(`    Model:      ${modelId}${model ? ` (${model.name}, ${model.size})` : " — unknown id"}`);
 				lines.push(`    Installed:  ${installed ? "yes" : "NO — first speak will download"}`);
 				if (model) {
 					const sid = typeof config.ttsLocalVoiceId === "number" ? config.ttsLocalVoiceId : model.defaultSid;
-					const voice = model.voices.find(v => v.sid === sid);
+					const voice = model.voices.find((v) => v.sid === sid);
 					lines.push(`    Voice sid:  ${sid}${voice ? ` (${voice.name})` : ""}`);
 					lines.push(`    Languages:  ${model.languages.join(", ")}`);
 					lines.push(`    Sample rate: ${model.sampleRate} Hz`);
@@ -3383,7 +3575,7 @@ export default function (pi: ExtensionAPI) {
 				lines.push(`  Catalog:      ${TTS_LOCAL_MODELS.length} models available — /voice-speak-models to browse`);
 			} else {
 				const voiceId = config.ttsDeepgramVoiceId ?? "aura-asteria-en";
-				const voice = DEEPGRAM_TTS_VOICES.find(v => v.id === voiceId);
+				const voice = DEEPGRAM_TTS_VOICES.find((v) => v.id === voiceId);
 				const apiKey = resolveDeepgramApiKey(config);
 				lines.push("  Deepgram backend:");
 				lines.push(`    Voice:      ${voiceId}${voice ? ` (${voice.name})` : ""}`);
@@ -3417,5 +3609,4 @@ export default function (pi: ExtensionAPI) {
 		description: "Manage local voice models (opens settings panel)",
 		handler: async (_args, cmdCtx) => openSettingsPanel(cmdCtx, 1),
 	});
-
 }

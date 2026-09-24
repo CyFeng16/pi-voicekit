@@ -280,17 +280,42 @@ export function expandAbbreviations(text: string): string {
 }
 
 const ONES = ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine"];
-const TEENS = ["ten", "eleven", "twelve", "thirteen", "fourteen", "fifteen", "sixteen", "seventeen", "eighteen", "nineteen"];
+const TEENS = [
+	"ten",
+	"eleven",
+	"twelve",
+	"thirteen",
+	"fourteen",
+	"fifteen",
+	"sixteen",
+	"seventeen",
+	"eighteen",
+	"nineteen",
+];
 const TENS = ["", "", "twenty", "thirty", "forty", "fifty", "sixty", "seventy", "eighty", "ninety"];
 
 function numberToWords(n: number): string {
 	if (n < 0 || n > 9_999_999 || !Number.isInteger(n)) return String(n);
 	if (n === 0) return "zero";
 	const parts: string[] = [];
-	if (n >= 1_000_000) { parts.push(numberToWords(Math.floor(n / 1_000_000)), "million"); n %= 1_000_000; }
-	if (n >= 1_000) { parts.push(numberToWords(Math.floor(n / 1_000)), "thousand"); n %= 1_000; }
-	if (n >= 100) { parts.push(ONES[Math.floor(n / 100)]!, "hundred"); n %= 100; }
-	if (n >= 20) { parts.push(TENS[Math.floor(n / 10)]!); n %= 10; if (n > 0) parts[parts.length - 1] += "-" + ONES[n]!; n = 0; }
+	if (n >= 1_000_000) {
+		parts.push(numberToWords(Math.floor(n / 1_000_000)), "million");
+		n %= 1_000_000;
+	}
+	if (n >= 1_000) {
+		parts.push(numberToWords(Math.floor(n / 1_000)), "thousand");
+		n %= 1_000;
+	}
+	if (n >= 100) {
+		parts.push(ONES[Math.floor(n / 100)]!, "hundred");
+		n %= 100;
+	}
+	if (n >= 20) {
+		parts.push(TENS[Math.floor(n / 10)]!);
+		n %= 10;
+		if (n > 0) parts[parts.length - 1] += "-" + ONES[n]!;
+		n = 0;
+	}
 	if (n >= 10) parts.push(TEENS[n - 10]!);
 	else if (n > 0) parts.push(ONES[n]!);
 	return parts.join(" ");

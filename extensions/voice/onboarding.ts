@@ -1,11 +1,22 @@
-import type { ExtensionCommandContext, ExtensionContext } from "@mariozechner/pi-coding-agent";
+import type { ExtensionCommandContext, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { VoiceBackend, VoiceConfig, VoiceSettingsScope } from "./config";
 import {
-	LOCAL_MODELS, DEFAULT_LOCAL_MODEL, DEFAULT_LOCAL_ENDPOINT,
-	checkLocalServer, getLanguagesForLocalModel,
-	type LocalLangEntry, type LocalModelInfo,
+	LOCAL_MODELS,
+	DEFAULT_LOCAL_MODEL,
+	DEFAULT_LOCAL_ENDPOINT,
+	checkLocalServer,
+	getLanguagesForLocalModel,
+	type LocalLangEntry,
+	type LocalModelInfo,
 } from "./local";
-import { detectDevice, autoRecommendModel, getModelFitness, formatDeviceSummary, localeToLanguageCode, type ModelFitness } from "./device";
+import {
+	detectDevice,
+	autoRecommendModel,
+	getModelFitness,
+	formatDeviceSummary,
+	localeToLanguageCode,
+	type ModelFitness,
+} from "./device";
 
 type VoiceUiContext = ExtensionContext | ExtensionCommandContext;
 
@@ -29,7 +40,12 @@ export interface FirstRunDecision {
 // ─── Nova-3 supported languages for live streaming ──────────────────────
 // All verified for streaming support. "multi" removed — not supported for live.
 
-export interface LangEntry { name: string; code: string; popular?: boolean; model?: string; }
+export interface LangEntry {
+	name: string;
+	code: string;
+	popular?: boolean;
+	model?: string;
+}
 
 export const LANGUAGES: LangEntry[] = [
 	// Top popular — shown first in picker
@@ -106,7 +122,7 @@ function formatLangOption(l: LangEntry): string {
 
 /** Get the best model for a language code. Nova-2 for Chinese, Nova-3 for everything else. */
 export function modelForLanguage(code: string): string {
-	const entry = LANGUAGES.find(l => l.code === code);
+	const entry = LANGUAGES.find((l) => l.code === code);
 	return entry?.model || "nova-3";
 }
 
@@ -118,7 +134,7 @@ export function extractLanguageCode(selection: string): string {
 
 /** Find display name for a language code */
 export function languageDisplayName(code: string): string {
-	const entry = LANGUAGES.find(l => l.code === code);
+	const entry = LANGUAGES.find((l) => l.code === code);
 	return entry ? `${entry.name} (${entry.code})` : code;
 }
 
@@ -127,18 +143,18 @@ export function languageDisplayName(code: string): string {
 export async function pickLanguage(
 	ctx: VoiceUiContext,
 	currentCode: string,
-	overrideLanguages?: LocalLangEntry[],
+	overrideLanguages?: LocalLangEntry[]
 ): Promise<string | undefined> {
-	const { Container, Input, Spacer, Text, fuzzyFilter, getKeybindings } = await import("@mariozechner/pi-tui");
+	const { Container, Input, Spacer, Text, fuzzyFilter, getKeybindings } = await import("@earendil-works/pi-tui");
 
 	const langList: LangEntry[] = overrideLanguages
-		? overrideLanguages.map(l => ({ name: l.name, code: l.code, popular: l.popular }))
+		? overrideLanguages.map((l) => ({ name: l.name, code: l.code, popular: l.popular }))
 		: LANGUAGES;
 	const current = overrideLanguages
-		? (langList.find(l => l.code === currentCode)?.name ?? currentCode)
+		? (langList.find((l) => l.code === currentCode)?.name ?? currentCode)
 		: languageDisplayName(currentCode);
-	const popular = langList.filter(l => l.popular);
-	const allItems = langList.map(l => ({ ...l, label: formatLangOption(l) }));
+	const popular = langList.filter((l) => l.popular);
+	const allItems = langList.map((l) => ({ ...l, label: formatLangOption(l) }));
 
 	return ctx.ui.custom<string | undefined>((tui, theme, _keybindings, done) => {
 		const container = new Container();
@@ -219,7 +235,9 @@ export async function pickLanguage(
 		// Build UI
 		container.addChild(new Spacer(1));
 		container.addChild(new Text(theme.fg("accent", `Voice language (current: ${current})`), 1, 0));
-		container.addChild(new Text(theme.fg("muted", "Type to search, ↑↓ to navigate, Enter to select, Esc to cancel"), 1, 0));
+		container.addChild(
+			new Text(theme.fg("muted", "Type to search, ↑↓ to navigate, Enter to select, Esc to cancel"), 1, 0)
+		);
 		container.addChild(new Spacer(1));
 		container.addChild(searchInput);
 		container.addChild(new Spacer(1));
@@ -252,7 +270,9 @@ export async function pickLanguage(
 		// Focusable for IME
 		Object.defineProperty(container, "focused", {
 			get: () => (searchInput as any).focused,
-			set: (v: boolean) => { (searchInput as any).focused = v; },
+			set: (v: boolean) => {
+				(searchInput as any).focused = v;
+			},
 		});
 
 		return container;
@@ -261,7 +281,7 @@ export async function pickLanguage(
 
 export function finalizeOnboardingConfig(
 	config: VoiceConfig,
-	options: { validated: boolean; source: "first-run" | "setup-command" },
+	options: { validated: boolean; source: "first-run" | "setup-command" }
 ): VoiceConfig {
 	if (options.validated) {
 		const timestamp = new Date().toISOString();
@@ -294,10 +314,7 @@ export function finalizeOnboardingConfig(
 }
 
 export async function promptFirstRunOnboarding(ctx: VoiceUiContext): Promise<FirstRunDecision> {
-	const choice = await ctx.ui.select("Set up pi-voice now?", [
-		"Start voice setup",
-		"Remind me later",
-	]);
+	const choice = await ctx.ui.select("Set up pi-voice now?", ["Start voice setup", "Remind me later"]);
 
 	return { action: choice === "Start voice setup" ? "start" : "later" };
 }
@@ -309,12 +326,12 @@ export async function promptFirstRunOnboarding(ctx: VoiceUiContext): Promise<Fir
 export async function pickLocalModel(
 	ctx: VoiceUiContext,
 	currentModelId: string | undefined,
-	language: string,
+	language: string
 ): Promise<LocalModelInfo | undefined> {
-	const { Container, Input, Spacer, Text, fuzzyFilter, getKeybindings } = await import("@mariozechner/pi-tui");
+	const { Container, Input, Spacer, Text, fuzzyFilter, getKeybindings } = await import("@earendil-works/pi-tui");
 
 	const device = detectDevice();
-	const allItems = LOCAL_MODELS.map(m => {
+	const allItems = LOCAL_MODELS.map((m) => {
 		const fitness = getModelFitness(m, device);
 		const badge = fitnessLabel(fitness);
 		return {
@@ -382,7 +399,9 @@ export async function pickLocalModel(
 		// Build UI
 		container.addChild(new Spacer(1));
 		container.addChild(new Text(theme.fg("accent", `Choose local model (${formatDeviceSummary(device)})`), 1, 0));
-		container.addChild(new Text(theme.fg("muted", "Type to search, ↑↓ to navigate, Enter to select, Esc to cancel"), 1, 0));
+		container.addChild(
+			new Text(theme.fg("muted", "Type to search, ↑↓ to navigate, Enter to select, Esc to cancel"), 1, 0)
+		);
 		container.addChild(new Spacer(1));
 		container.addChild(searchInput);
 		container.addChild(new Spacer(1));
@@ -403,7 +422,7 @@ export async function pickLocalModel(
 				updateList();
 			} else if (kb.matches(keyData, "tui.select.confirm") || keyData === "\n") {
 				const item = filtered[selectedIndex];
-				done(item ? LOCAL_MODELS.find(m => m.id === item.id) : undefined);
+				done(item ? LOCAL_MODELS.find((m) => m.id === item.id) : undefined);
 			} else if (kb.matches(keyData, "tui.select.cancel")) {
 				done(undefined);
 			} else {
@@ -414,7 +433,9 @@ export async function pickLocalModel(
 
 		Object.defineProperty(container, "focused", {
 			get: () => (searchInput as any).focused,
-			set: (v: boolean) => { (searchInput as any).focused = v; },
+			set: (v: boolean) => {
+				(searchInput as any).focused = v;
+			},
 		});
 
 		return container;
@@ -424,38 +445,43 @@ export async function pickLocalModel(
 /** Fitness label for display */
 function fitnessLabel(fitness: ModelFitness): string {
 	switch (fitness) {
-		case "recommended": return "[recommended]";
-		case "compatible": return "[compatible]";
-		case "warning": return "[may be slow]";
-		case "incompatible": return "[too large]";
+		case "recommended":
+			return "[recommended]";
+		case "compatible":
+			return "[compatible]";
+		case "warning":
+			return "[may be slow]";
+		case "incompatible":
+			return "[too large]";
 	}
 }
 
 /** Fitness badge with theme colors */
 function fitnessThemeBadge(fitness: ModelFitness, theme: any): string {
 	switch (fitness) {
-		case "recommended": return theme.fg("success", "[recommended]");
-		case "compatible": return theme.fg("accent", "[compatible]");
-		case "warning": return theme.fg("warning", "[may be slow]");
-		case "incompatible": return theme.fg("error", "[too large]");
+		case "recommended":
+			return theme.fg("success", "[recommended]");
+		case "compatible":
+			return theme.fg("accent", "[compatible]");
+		case "warning":
+			return theme.fg("warning", "[may be slow]");
+		case "incompatible":
+			return theme.fg("error", "[too large]");
 	}
 }
 
 export async function runVoiceOnboarding(
 	ctx: VoiceUiContext,
 	currentConfig: VoiceConfig,
-	options?: { isFirstRun?: boolean },
+	options?: { isFirstRun?: boolean }
 ): Promise<OnboardingResult | undefined> {
 	const isFirstRun = options?.isFirstRun ?? !currentConfig.onboarding.completed;
 
 	// ─── Choose backend ──────────────────────────────────────
-	const backendChoice = await ctx.ui.select(
-		"Choose transcription backend:",
-		[
-			"Deepgram — cloud, live streaming as you speak, $200 free credit",
-			"Local model — fully offline, no API key, transcribes after recording",
-		],
-	);
+	const backendChoice = await ctx.ui.select("Choose transcription backend:", [
+		"Deepgram — cloud, live streaming as you speak, $200 free credit",
+		"Local model — fully offline, no API key, transcribes after recording",
+	]);
 	if (!backendChoice) return undefined;
 	const selectedBackend: VoiceBackend = backendChoice.includes("Local") ? "local" : "deepgram";
 
@@ -474,14 +500,11 @@ export async function runVoiceOnboarding(
 
 		if (recommended) {
 			const fitness = getModelFitness(recommended, device);
-			const setupChoice = await ctx.ui.select(
-				`Detected: ${deviceSummary}`,
-				[
-					`Install ${recommended.name} (${recommended.size}) ${fitnessLabel(fitness)} — recommended`,
-					"Choose a different model",
-					"Advanced: use external server",
-				],
-			);
+			const setupChoice = await ctx.ui.select(`Detected: ${deviceSummary}`, [
+				`Install ${recommended.name} (${recommended.size}) ${fitnessLabel(fitness)} — recommended`,
+				"Choose a different model",
+				"Advanced: use external server",
+			]);
 			if (!setupChoice) return undefined;
 
 			if (setupChoice.startsWith("Install")) {
@@ -496,7 +519,7 @@ export async function runVoiceOnboarding(
 						"Note: Local models transcribe after you finish recording (batch mode).",
 						"For live streaming as you speak, use Deepgram instead.",
 					].join("\n"),
-					"info",
+					"info"
 				);
 			} else if (setupChoice.startsWith("Choose")) {
 				// Full model list with fuzzy search
@@ -511,7 +534,7 @@ export async function runVoiceOnboarding(
 				if (localEndpoint === undefined) return undefined;
 
 				// Still pick a model for server
-				const modelOptions = LOCAL_MODELS.map(m => `${m.name} — ${m.size} (${m.notes})`);
+				const modelOptions = LOCAL_MODELS.map((m) => `${m.name} — ${m.size} (${m.notes})`);
 				const modelChoice = await ctx.ui.select("Choose model (for server):", modelOptions);
 				if (!modelChoice) return undefined;
 				const modelIndex = modelOptions.indexOf(modelChoice);
@@ -529,13 +552,10 @@ export async function runVoiceOnboarding(
 		const hasDeepgramKey = Boolean(process.env.DEEPGRAM_API_KEY || currentConfig.deepgramApiKey);
 
 		if (!hasDeepgramKey) {
-			const keyAction = await ctx.ui.select(
-				"Deepgram API key not found. What would you like to do?",
-				[
-					"Paste API key now",
-					"I'll set it up later (ask pi to help or export DEEPGRAM_API_KEY=...)",
-				],
-			);
+			const keyAction = await ctx.ui.select("Deepgram API key not found. What would you like to do?", [
+				"Paste API key now",
+				"I'll set it up later (ask pi to help or export DEEPGRAM_API_KEY=...)",
+			]);
 			if (!keyAction) return undefined;
 
 			if (keyAction.startsWith("Paste")) {
@@ -547,7 +567,7 @@ export async function runVoiceOnboarding(
 						"",
 						"Paste your key below:",
 					].join("\n"),
-					"info",
+					"info"
 				);
 				const apiKey = await ctx.ui.input("DEEPGRAM_API_KEY");
 				if (apiKey && apiKey.trim().length > 10) {
@@ -577,20 +597,22 @@ export async function runVoiceOnboarding(
 						}
 						// Ensure restrictive permissions on secrets files
 						if (isNewFile) {
-							try { fs.chmodSync(targetFile, 0o600); } catch {}
+							try {
+								fs.chmodSync(targetFile, 0o600);
+							} catch {}
 						}
 
 						process.env.DEEPGRAM_API_KEY = trimmedKey;
 
 						ctx.ui.notify(
 							`API key saved to ${targetFile}\nActive in this session. New terminals will pick it up automatically.`,
-							"info",
+							"info"
 						);
 					}
 				} else if (apiKey !== undefined && apiKey !== null) {
 					ctx.ui.notify(
-						"Key looks too short — skipped. You can set it later:\n  export DEEPGRAM_API_KEY=\"your-key\"",
-						"warning",
+						'Key looks too short — skipped. You can set it later:\n  export DEEPGRAM_API_KEY="your-key"',
+						"warning"
 					);
 				}
 			} else {
@@ -598,10 +620,10 @@ export async function runVoiceOnboarding(
 					[
 						"No problem! When you're ready:",
 						"  1. Get a key → https://dpgr.am/pi-voice ($200 free credits)",
-						"  2. Run: export DEEPGRAM_API_KEY=\"your-key\"",
-						"  3. Or ask pi: \"help me set up my Deepgram API key\"",
+						'  2. Run: export DEEPGRAM_API_KEY="your-key"',
+						'  3. Or ask pi: "help me set up my Deepgram API key"',
 					].join("\n"),
-					"info",
+					"info"
 				);
 			}
 		}
@@ -621,10 +643,13 @@ export async function runVoiceOnboarding(
 				// Auto-detect from system locale, let user confirm or change
 				const device = detectDevice();
 				const detectedLang = localeToLanguageCode(device.systemLocale);
-				const detectedEntry = languages.find(l => l.code === detectedLang);
+				const detectedEntry = languages.find((l) => l.code === detectedLang);
 				if (detectedEntry) {
 					langCode = detectedLang;
-					ctx.ui.notify(`Language auto-detected: ${detectedEntry.name} (${detectedEntry.code}). Change in /voice-settings.`, "info");
+					ctx.ui.notify(
+						`Language auto-detected: ${detectedEntry.name} (${detectedEntry.code}). Change in /voice-settings.`,
+						"info"
+					);
 				} else {
 					const picked = await pickLanguage(ctx, currentConfig.language, languages);
 					if (!picked) return undefined;
@@ -647,10 +672,11 @@ export async function runVoiceOnboarding(
 	if (!scopeChoice) return undefined;
 	const selectedScope: VoiceSettingsScope = scopeChoice.startsWith("Project") ? "project" : "global";
 
-	const selectedModel = LOCAL_MODELS.find(m => m.id === localModel);
-	const backendLabel = selectedBackend === "local"
-		? `Local — ${selectedModel?.name || localModel}${localEndpoint ? ` at ${localEndpoint}` : " (in-process)"}`
-		: "Deepgram Nova-3 (streaming)";
+	const selectedModel = LOCAL_MODELS.find((m) => m.id === localModel);
+	const backendLabel =
+		selectedBackend === "local"
+			? `Local — ${selectedModel?.name || localModel}${localEndpoint ? ` at ${localEndpoint}` : " (in-process)"}`
+			: "Deepgram Nova-3 (streaming)";
 
 	const summaryLines = [
 		`Backend: ${backendLabel}`,
@@ -693,7 +719,7 @@ async function promptServerEndpoint(ctx: VoiceUiContext): Promise<string | undef
 			"Compatible servers: whisper.cpp, faster-whisper-server, transcribe-rs",
 			"Must implement POST /v1/audio/transcriptions (OpenAI-compatible).",
 		].join("\n"),
-		"info",
+		"info"
 	);
 
 	const customEndpoint = await ctx.ui.input(`Server URL (Enter for ${DEFAULT_LOCAL_ENDPOINT})`);
@@ -703,7 +729,7 @@ async function promptServerEndpoint(ctx: VoiceUiContext): Promise<string | undef
 	if (!serverCheck.ok) {
 		ctx.ui.notify(
 			`Server not reachable at ${endpoint}\n${serverCheck.error || ""}\nVoice will work once the server is running.`,
-			"warning",
+			"warning"
 		);
 	} else {
 		ctx.ui.notify(`Server detected at ${endpoint}`, "info");

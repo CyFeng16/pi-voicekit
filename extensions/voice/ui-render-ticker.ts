@@ -34,8 +34,12 @@ const VOICE_LOG_FILE = path.join(os.tmpdir(), "pi-voice-debug.log");
 function debug(...args: unknown[]) {
 	if (!VOICE_DEBUG) return;
 	const ts = new Date().toISOString().split("T")[1];
-	const line = `[voice-ticker ${ts}] ${args.map(a => (typeof a === "object" ? JSON.stringify(a) : String(a))).join(" ")}\n`;
-	try { fs.appendFileSync(VOICE_LOG_FILE, line); } catch { /* best-effort */ }
+	const line = `[voice-ticker ${ts}] ${args.map((a) => (typeof a === "object" ? JSON.stringify(a) : String(a))).join(" ")}\n`;
+	try {
+		fs.appendFileSync(VOICE_LOG_FILE, line);
+	} catch {
+		/* best-effort */
+	}
 }
 
 /** Tick frequency — 10 Hz keeps animation smooth without burning CPU. */
@@ -151,7 +155,11 @@ class RenderTickerImpl implements RenderTicker {
 			this.entries.delete(entry);
 			// Eviction dispose() — Gemini v3 #2: try/catch around
 			// dispose itself so a broken widget can't crash the ticker.
-			try { entry.sub.dispose?.(); } catch (err) { debug("eviction dispose threw", entry.sub.label ?? "(unlabeled)", String(err)); }
+			try {
+				entry.sub.dispose?.();
+			} catch (err) {
+				debug("eviction dispose threw", entry.sub.label ?? "(unlabeled)", String(err));
+			}
 		}
 		if (this.entries.size === 0) this.stopTimer();
 	}

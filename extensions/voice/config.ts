@@ -149,7 +149,9 @@ export function readJsonFile(filePath: string): Record<string, unknown> {
 		if (!fs.existsSync(filePath)) return {};
 		return JSON.parse(fs.readFileSync(filePath, "utf8"));
 	} catch (err) {
-		process.stderr.write(`[pi-voice] Warning: failed to read ${filePath}: ${err instanceof Error ? err.message : err}\n`);
+		process.stderr.write(
+			`[pi-voice] Warning: failed to read ${filePath}: ${err instanceof Error ? err.message : err}\n`
+		);
 		return {};
 	}
 }
@@ -194,9 +196,10 @@ function migrateConfig(rawVoice: any, source: VoiceConfigSource): VoiceConfig {
 		backend: rawVoice.backend === "local" ? "local" : undefined,
 		localModel: typeof rawVoice.localModel === "string" ? rawVoice.localModel : undefined,
 		localEndpoint: typeof rawVoice.localEndpoint === "string" ? rawVoice.localEndpoint : undefined,
-		toggleShortcut: source !== "project" && typeof rawVoice.toggleShortcut === "string"
-			? rawVoice.toggleShortcut
-			: DEFAULT_CONFIG.toggleShortcut,
+		toggleShortcut:
+			source !== "project" && typeof rawVoice.toggleShortcut === "string"
+				? rawVoice.toggleShortcut
+				: DEFAULT_CONFIG.toggleShortcut,
 		// TTS fields — type-validated; mismatched persisted values fall
 		// back to safe defaults so a hand-edited config can't poison the
 		// engine. Notably: ttsLocalVoiceId rejects strings (would crash
@@ -204,37 +207,38 @@ function migrateConfig(rawVoice: any, source: VoiceConfigSource): VoiceConfig {
 		// (would 4xx at the Deepgram REST layer).
 		ttsEnabled: typeof rawVoice.ttsEnabled === "boolean" ? rawVoice.ttsEnabled : DEFAULT_CONFIG.ttsEnabled,
 		ttsBackend: rawVoice.ttsBackend === "deepgram" ? "deepgram" : DEFAULT_CONFIG.ttsBackend,
-		ttsLocalModel: typeof rawVoice.ttsLocalModel === "string" && rawVoice.ttsLocalModel
-			? rawVoice.ttsLocalModel
-			: DEFAULT_CONFIG.ttsLocalModel,
-		ttsLocalVoiceId: typeof rawVoice.ttsLocalVoiceId === "number" && Number.isFinite(rawVoice.ttsLocalVoiceId)
-			? rawVoice.ttsLocalVoiceId
-			: DEFAULT_CONFIG.ttsLocalVoiceId,
-		ttsDeepgramVoiceId: typeof rawVoice.ttsDeepgramVoiceId === "string" && rawVoice.ttsDeepgramVoiceId
-			? rawVoice.ttsDeepgramVoiceId
-			: DEFAULT_CONFIG.ttsDeepgramVoiceId,
-		ttsSpeed: typeof rawVoice.ttsSpeed === "number" && Number.isFinite(rawVoice.ttsSpeed)
-			? Math.max(0.5, Math.min(2.0, rawVoice.ttsSpeed))
-			: DEFAULT_CONFIG.ttsSpeed,
+		ttsLocalModel:
+			typeof rawVoice.ttsLocalModel === "string" && rawVoice.ttsLocalModel
+				? rawVoice.ttsLocalModel
+				: DEFAULT_CONFIG.ttsLocalModel,
+		ttsLocalVoiceId:
+			typeof rawVoice.ttsLocalVoiceId === "number" && Number.isFinite(rawVoice.ttsLocalVoiceId)
+				? rawVoice.ttsLocalVoiceId
+				: DEFAULT_CONFIG.ttsLocalVoiceId,
+		ttsDeepgramVoiceId:
+			typeof rawVoice.ttsDeepgramVoiceId === "string" && rawVoice.ttsDeepgramVoiceId
+				? rawVoice.ttsDeepgramVoiceId
+				: DEFAULT_CONFIG.ttsDeepgramVoiceId,
+		ttsSpeed:
+			typeof rawVoice.ttsSpeed === "number" && Number.isFinite(rawVoice.ttsSpeed)
+				? Math.max(0.5, Math.min(2.0, rawVoice.ttsSpeed))
+				: DEFAULT_CONFIG.ttsSpeed,
 		ttsAutoSpeak: typeof rawVoice.ttsAutoSpeak === "boolean" ? rawVoice.ttsAutoSpeak : DEFAULT_CONFIG.ttsAutoSpeak,
-		autoSubmitOnSpeak: typeof rawVoice.autoSubmitOnSpeak === "boolean"
-			? rawVoice.autoSubmitOnSpeak
-			: DEFAULT_CONFIG.autoSubmitOnSpeak,
-		holdThresholdMs: typeof rawVoice.holdThresholdMs === "number"
-			&& Number.isFinite(rawVoice.holdThresholdMs)
-			&& rawVoice.holdThresholdMs >= 200
-			&& rawVoice.holdThresholdMs <= 3000
-			? rawVoice.holdThresholdMs
-			: DEFAULT_CONFIG.holdThresholdMs,
-		ttsLanguage: typeof rawVoice.ttsLanguage === "string" && rawVoice.ttsLanguage
-			? rawVoice.ttsLanguage
-			: undefined,
-		ttsDeepgramStreaming: typeof rawVoice.ttsDeepgramStreaming === "boolean"
-			? rawVoice.ttsDeepgramStreaming
-			: DEFAULT_CONFIG.ttsDeepgramStreaming,
-		ttsOnboardingShown: typeof rawVoice.ttsOnboardingShown === "boolean"
-			? rawVoice.ttsOnboardingShown
-			: false,
+		autoSubmitOnSpeak:
+			typeof rawVoice.autoSubmitOnSpeak === "boolean" ? rawVoice.autoSubmitOnSpeak : DEFAULT_CONFIG.autoSubmitOnSpeak,
+		holdThresholdMs:
+			typeof rawVoice.holdThresholdMs === "number" &&
+			Number.isFinite(rawVoice.holdThresholdMs) &&
+			rawVoice.holdThresholdMs >= 200 &&
+			rawVoice.holdThresholdMs <= 3000
+				? rawVoice.holdThresholdMs
+				: DEFAULT_CONFIG.holdThresholdMs,
+		ttsLanguage: typeof rawVoice.ttsLanguage === "string" && rawVoice.ttsLanguage ? rawVoice.ttsLanguage : undefined,
+		ttsDeepgramStreaming:
+			typeof rawVoice.ttsDeepgramStreaming === "boolean"
+				? rawVoice.ttsDeepgramStreaming
+				: DEFAULT_CONFIG.ttsDeepgramStreaming,
+		ttsOnboardingShown: typeof rawVoice.ttsOnboardingShown === "boolean" ? rawVoice.ttsOnboardingShown : false,
 		onboarding: normalizeOnboarding(rawVoice.onboarding, fallbackCompleted),
 	};
 }
@@ -298,7 +302,9 @@ export function loadGlobalToggleShortcut(options: ConfigPathOptions = {}): strin
 		if (globalVoice && typeof globalVoice === "object" && typeof (globalVoice as any).toggleShortcut === "string") {
 			const candidate = (globalVoice as any).toggleShortcut;
 			if (isValidShortcut(candidate)) return candidate;
-			process.stderr.write(`[pi-voice] Warning: invalid toggleShortcut "${candidate}" in settings, using default "${fallback}"\n`);
+			process.stderr.write(
+				`[pi-voice] Warning: invalid toggleShortcut "${candidate}" in settings, using default "${fallback}"\n`
+			);
 		}
 	} catch {
 		// Fall through to default
@@ -343,9 +349,10 @@ function serializeConfig(config: VoiceConfig, scope: VoiceSettingsScope): VoiceC
 		// Never persist API keys into project-scoped config — prevents accidental repo commits
 		deepgramApiKey: scope === "project" ? undefined : config.deepgramApiKey,
 		// Only allow loopback endpoints in project config — prevents mic audio exfiltration
-		localEndpoint: (scope === "project" && config.localEndpoint && !isLoopbackEndpoint(config.localEndpoint))
-			? undefined
-			: config.localEndpoint,
+		localEndpoint:
+			scope === "project" && config.localEndpoint && !isLoopbackEndpoint(config.localEndpoint)
+				? undefined
+				: config.localEndpoint,
 		// Shortcut registration is static at extension load time — project-scoped overrides cannot apply
 		toggleShortcut: scope === "project" ? undefined : config.toggleShortcut,
 		onboarding: {
@@ -359,7 +366,7 @@ export function saveConfig(
 	config: VoiceConfig,
 	scope: VoiceSettingsScope,
 	cwd: string,
-	options: ConfigPathOptions = {},
+	options: ConfigPathOptions = {}
 ): string {
 	const settingsPath = scope === "project" ? getProjectSettingsPath(cwd) : getGlobalSettingsPath(options);
 	const settings = readJsonFile(settingsPath);
@@ -371,7 +378,9 @@ export function saveConfig(
 		fs.writeFileSync(tmpPath, JSON.stringify(settings, null, 2) + "\n");
 		fs.renameSync(tmpPath, settingsPath);
 	} finally {
-		try { if (fs.existsSync(tmpPath)) fs.unlinkSync(tmpPath); } catch {}
+		try {
+			if (fs.existsSync(tmpPath)) fs.unlinkSync(tmpPath);
+		} catch {}
 	}
 	return settingsPath;
 }

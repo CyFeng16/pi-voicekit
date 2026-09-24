@@ -44,8 +44,12 @@ const VOICE_LOG_FILE = path.join(os.tmpdir(), "pi-voice-debug.log");
 function debug(...args: unknown[]) {
 	if (!VOICE_DEBUG) return;
 	const ts = new Date().toISOString().split("T")[1];
-	const line = `[voice-ui ${ts}] ${args.map(a => (typeof a === "object" ? JSON.stringify(a) : String(a))).join(" ")}\n`;
-	try { fs.appendFileSync(VOICE_LOG_FILE, line); } catch { /* best-effort */ }
+	const line = `[voice-ui ${ts}] ${args.map((a) => (typeof a === "object" ? JSON.stringify(a) : String(a))).join(" ")}\n`;
+	try {
+		fs.appendFileSync(VOICE_LOG_FILE, line);
+	} catch {
+		/* best-effort */
+	}
 }
 
 /** A widget that owns one slot key and can be torn down. */
@@ -101,7 +105,11 @@ class WidgetRegistryImpl implements WidgetRegistry {
 			// Synchronous dispose of incumbent before swap — same-key
 			// handover never races. Wrap in try/catch so a throwing
 			// incumbent cannot prevent the new widget from registering.
-			try { existing.dispose(); } catch (err) { debug("register: incumbent dispose threw", w.key, String(err)); }
+			try {
+				existing.dispose();
+			} catch (err) {
+				debug("register: incumbent dispose threw", w.key, String(err));
+			}
 		}
 		this.entries.set(w.key, w);
 	}
@@ -118,7 +126,11 @@ class WidgetRegistryImpl implements WidgetRegistry {
 		// no widget is skipped during the cascade.
 		const snapshot = Array.from(this.entries.values());
 		for (const w of snapshot) {
-			try { w.dispose(); } catch (err) { debug("disposeAll: dispose threw", w.key, String(err)); }
+			try {
+				w.dispose();
+			} catch (err) {
+				debug("disposeAll: dispose threw", w.key, String(err));
+			}
 		}
 		// Defensive: any widget that didn't unregister itself (buggy
 		// dispose) is force-evicted so a later disposeAll() is truly idempotent.
@@ -182,10 +194,26 @@ export abstract class BaseDisposableWidget implements DisposableWidget {
 	dispose(): void {
 		if (this.disposed) return;
 		this.disposed = true;
-		try { this.unsubTicker?.(); } catch (err) { debug("dispose: unsubTicker threw", this.key, String(err)); }
+		try {
+			this.unsubTicker?.();
+		} catch (err) {
+			debug("dispose: unsubTicker threw", this.key, String(err));
+		}
 		this.unsubTicker = null;
-		try { this.onDispose(); } catch (err) { debug("dispose: onDispose threw", this.key, String(err)); }
-		try { this.clearSlot(); } catch (err) { debug("dispose: clearSlot threw", this.key, String(err)); }
-		try { this.registry.unregister(this.key, this); } catch (err) { debug("dispose: unregister threw", this.key, String(err)); }
+		try {
+			this.onDispose();
+		} catch (err) {
+			debug("dispose: onDispose threw", this.key, String(err));
+		}
+		try {
+			this.clearSlot();
+		} catch (err) {
+			debug("dispose: clearSlot threw", this.key, String(err));
+		}
+		try {
+			this.registry.unregister(this.key, this);
+		} catch (err) {
+			debug("dispose: unregister threw", this.key, String(err));
+		}
 	}
 }

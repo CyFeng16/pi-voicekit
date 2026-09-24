@@ -9,7 +9,10 @@ import {
 
 class CountingWidget implements DisposableWidget {
 	disposeCount = 0;
-	constructor(public readonly key: string, private readonly onDispose?: () => void) {}
+	constructor(
+		public readonly key: string,
+		private readonly onDispose?: () => void
+	) {}
 	dispose(): void {
 		this.disposeCount++;
 		this.onDispose?.();
@@ -128,13 +131,16 @@ describe("WidgetRegistry — disposeAll (Gemini v3 + v4)", () => {
 		const r: WidgetRegistry = makeWidgetRegistry();
 		class SelfUnregister implements DisposableWidget {
 			disposed = false;
-			constructor(public readonly key: string, private readonly reg: WidgetRegistry) {}
+			constructor(
+				public readonly key: string,
+				private readonly reg: WidgetRegistry
+			) {}
 			dispose(): void {
 				this.disposed = true;
 				this.reg.unregister(this.key, this);
 			}
 		}
-		const widgets = ["a", "b", "c", "d", "e"].map(k => new SelfUnregister(k, r));
+		const widgets = ["a", "b", "c", "d", "e"].map((k) => new SelfUnregister(k, r));
 		for (const w of widgets) r.register(w);
 		expect(r.size()).toBe(5);
 		r.disposeAll();
@@ -158,22 +164,28 @@ describe("BaseDisposableWidget — §1 ordering", () => {
 		const events: string[] = [];
 		class W extends BaseDisposableWidget {
 			readonly key = "w";
-			protected onDispose() { events.push("onDispose"); }
+			protected onDispose() {
+				events.push("onDispose");
+			}
 		}
 		const w = new W(r, () => events.push("clearSlot"));
 		r.register(w);
 		w.dispose();
 		w.dispose(); // no-op
-		expect(events.filter(e => e === "onDispose").length).toBe(1);
-		expect(events.filter(e => e === "clearSlot").length).toBe(1);
+		expect(events.filter((e) => e === "onDispose").length).toBe(1);
+		expect(events.filter((e) => e === "clearSlot").length).toBe(1);
 	});
 	test("ordering: idempotency check → flag → unsubTicker → onDispose → clearSlot → unregister", () => {
 		const r = makeWidgetRegistry();
 		const log: string[] = [];
 		class W extends BaseDisposableWidget {
 			readonly key = "w";
-			protected onDispose() { log.push("onDispose"); }
-			callMe() { this.unsubTicker = () => log.push("unsubTicker"); }
+			protected onDispose() {
+				log.push("onDispose");
+			}
+			callMe() {
+				this.unsubTicker = () => log.push("unsubTicker");
+			}
 		}
 		const w = new W(r, () => log.push("clearSlot"));
 		w.callMe();
@@ -187,7 +199,9 @@ describe("BaseDisposableWidget — §1 ordering", () => {
 		const events: string[] = [];
 		class W extends BaseDisposableWidget {
 			readonly key = "w";
-			protected onDispose() { events.push("onDispose"); }
+			protected onDispose() {
+				events.push("onDispose");
+			}
 			lateProgress() {
 				if (this.disposed) {
 					events.push("lateProgress-skipped");
@@ -201,11 +215,6 @@ describe("BaseDisposableWidget — §1 ordering", () => {
 		w.lateProgress();
 		w.dispose();
 		w.lateProgress(); // arrives after dispose
-		expect(events).toEqual([
-			"lateProgress-rendered",
-			"onDispose",
-			"clearSlot",
-			"lateProgress-skipped",
-		]);
+		expect(events).toEqual(["lateProgress-rendered", "onDispose", "clearSlot", "lateProgress-skipped"]);
 	});
 });

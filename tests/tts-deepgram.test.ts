@@ -11,7 +11,9 @@ import {
 describe("buildDeepgramSpeakUrl", () => {
 	test("builds the expected URL shape", () => {
 		const url = buildDeepgramSpeakUrl("aura-asteria-en", 24000);
-		expect(url).toBe("https://api.deepgram.com/v1/speak?model=aura-asteria-en&encoding=linear16&sample_rate=24000&container=wav");
+		expect(url).toBe(
+			"https://api.deepgram.com/v1/speak?model=aura-asteria-en&encoding=linear16&sample_rate=24000&container=wav"
+		);
 	});
 
 	test("includes the requested sample rate", () => {
@@ -30,7 +32,7 @@ describe("buildDeepgramSpeakUrl", () => {
 
 describe("DEEPGRAM_TTS_VOICES catalog", () => {
 	test("default voice exists", () => {
-		expect(DEEPGRAM_TTS_VOICES.find(v => v.id === DEFAULT_DEEPGRAM_TTS_VOICE)).toBeDefined();
+		expect(DEEPGRAM_TTS_VOICES.find((v) => v.id === DEFAULT_DEEPGRAM_TTS_VOICE)).toBeDefined();
 	});
 
 	test("every voice has language and gender", () => {

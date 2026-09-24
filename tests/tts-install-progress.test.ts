@@ -1,5 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { TtsInstallProgressWidget, renderInstallLine, type InstallWidgetUI } from "../extensions/voice/tts-install-progress";
+import {
+	TtsInstallProgressWidget,
+	renderInstallLine,
+	type InstallWidgetUI,
+} from "../extensions/voice/tts-install-progress";
 import { makeWidgetRegistry, installWidgetKey } from "../extensions/voice/ui-widget-base";
 import { makeRenderTicker } from "../extensions/voice/ui-render-ticker";
 
@@ -28,8 +32,13 @@ describe("TtsInstallProgressWidget — registration + initial frame", () => {
 		const ticker = makeRenderTicker();
 		const ctrl = new AbortController();
 		const w = new TtsInstallProgressWidget({
-			ui, modelId: "kitten-x", modelName: "Kitten Nano", totalBytesEstimate: 1_000_000,
-			registry: reg, ticker, controller: ctrl,
+			ui,
+			modelId: "kitten-x",
+			modelName: "Kitten Nano",
+			totalBytesEstimate: 1_000_000,
+			registry: reg,
+			ticker,
+			controller: ctrl,
 		});
 		expect(w.key).toBe(installWidgetKey("kitten-x"));
 		expect(reg.size()).toBe(1);
@@ -48,8 +57,13 @@ describe("TtsInstallProgressWidget — onProgress + dispose lifecycle", () => {
 		const ticker = makeRenderTicker();
 		const ctrl = new AbortController();
 		const w = new TtsInstallProgressWidget({
-			ui, modelId: "k", modelName: "K", totalBytesEstimate: 100,
-			registry: reg, ticker, controller: ctrl,
+			ui,
+			modelId: "k",
+			modelName: "K",
+			totalBytesEstimate: 100,
+			registry: reg,
+			ticker,
+			controller: ctrl,
 		});
 		w.onProgress({ phase: "download", bytes: 50, totalBytes: 100 });
 		w.onProgress({ phase: "done" });
@@ -63,8 +77,13 @@ describe("TtsInstallProgressWidget — onProgress + dispose lifecycle", () => {
 		const reg = makeWidgetRegistry();
 		const ticker = makeRenderTicker();
 		const w = new TtsInstallProgressWidget({
-			ui, modelId: "k", modelName: "K", totalBytesEstimate: 100,
-			registry: reg, ticker, controller: new AbortController(),
+			ui,
+			modelId: "k",
+			modelName: "K",
+			totalBytesEstimate: 100,
+			registry: reg,
+			ticker,
+			controller: new AbortController(),
 		});
 		w.dispose();
 		const before = ui.clearedKeys.length;
@@ -78,8 +97,13 @@ describe("TtsInstallProgressWidget — onProgress + dispose lifecycle", () => {
 		const reg = makeWidgetRegistry();
 		const ticker = makeRenderTicker();
 		const w = new TtsInstallProgressWidget({
-			ui, modelId: "k", modelName: "K", totalBytesEstimate: 100,
-			registry: reg, ticker, controller: new AbortController(),
+			ui,
+			modelId: "k",
+			modelName: "K",
+			totalBytesEstimate: 100,
+			registry: reg,
+			ticker,
+			controller: new AbortController(),
 		});
 		w.dispose();
 		w.dispose();
@@ -96,8 +120,13 @@ describe("TtsInstallProgressWidget — cancel()", () => {
 		const ticker = makeRenderTicker();
 		const ctrl = new AbortController();
 		const w = new TtsInstallProgressWidget({
-			ui, modelId: "k", modelName: "K", totalBytesEstimate: 100,
-			registry: reg, ticker, controller: ctrl,
+			ui,
+			modelId: "k",
+			modelName: "K",
+			totalBytesEstimate: 100,
+			registry: reg,
+			ticker,
+			controller: ctrl,
 		});
 		w.cancel();
 		expect(ctrl.signal.aborted).toBe(true);
@@ -111,8 +140,13 @@ describe("TtsInstallProgressWidget — cancel()", () => {
 		const ticker = makeRenderTicker();
 		const ctrl = new AbortController();
 		const w = new TtsInstallProgressWidget({
-			ui, modelId: "k", modelName: "K", totalBytesEstimate: 100,
-			registry: reg, ticker, controller: ctrl,
+			ui,
+			modelId: "k",
+			modelName: "K",
+			totalBytesEstimate: 100,
+			registry: reg,
+			ticker,
+			controller: ctrl,
 		});
 		w.dispose();
 		w.cancel();
@@ -122,15 +156,24 @@ describe("TtsInstallProgressWidget — cancel()", () => {
 });
 
 describe("renderInstallLine — pure render", () => {
-	const fmtBytes = (n: number) => (n < 1024 * 1024 ? `${(n / 1024).toFixed(1)} KB` : `${(n / 1024 / 1024).toFixed(1)} MB`);
+	const fmtBytes = (n: number) =>
+		n < 1024 * 1024 ? `${(n / 1024).toFixed(1)} KB` : `${(n / 1024 / 1024).toFixed(1)} MB`;
 	const fmtEta = (s: number) => (s < 60 ? `${s}s` : `${Math.floor(s / 60)}m${String(s % 60).padStart(2, "0")}s`);
 	const noTheme = { fg: (_role: string, s: string) => s };
 
 	test("download phase renders bar + percent + size", () => {
 		const lines = renderInstallLine({
-			theme: noTheme, width: 80, phase: "download", bytes: 500_000, totalBytes: 1_000_000,
-			spinner: "◐", speed: 200_000, eta: 3, modelName: "Kitten Nano",
-			formatBytes: fmtBytes, formatEta: fmtEta,
+			theme: noTheme,
+			width: 80,
+			phase: "download",
+			bytes: 500_000,
+			totalBytes: 1_000_000,
+			spinner: "◐",
+			speed: 200_000,
+			eta: 3,
+			modelName: "Kitten Nano",
+			formatBytes: fmtBytes,
+			formatEta: fmtEta,
 		});
 		expect(lines).toHaveLength(1);
 		expect(lines[0]).toContain("Kitten Nano");
@@ -141,9 +184,17 @@ describe("renderInstallLine — pure render", () => {
 	});
 	test("extract phase shows spinner + status word, no bar", () => {
 		const lines = renderInstallLine({
-			theme: noTheme, width: 80, phase: "extract", bytes: 0, totalBytes: 0,
-			spinner: "◓", speed: null, eta: null, modelName: "Kokoro",
-			formatBytes: fmtBytes, formatEta: fmtEta,
+			theme: noTheme,
+			width: 80,
+			phase: "extract",
+			bytes: 0,
+			totalBytes: 0,
+			spinner: "◓",
+			speed: null,
+			eta: null,
+			modelName: "Kokoro",
+			formatBytes: fmtBytes,
+			formatEta: fmtEta,
 		});
 		expect(lines).toHaveLength(1);
 		expect(lines[0]).toContain("◓");
@@ -153,9 +204,17 @@ describe("renderInstallLine — pure render", () => {
 	});
 	test("narrow widths drop ETA / speed gracefully", () => {
 		const lines = renderInstallLine({
-			theme: noTheme, width: 60, phase: "download", bytes: 100, totalBytes: 1000,
-			spinner: "◐", speed: 50, eta: 18, modelName: "M",
-			formatBytes: fmtBytes, formatEta: fmtEta,
+			theme: noTheme,
+			width: 60,
+			phase: "download",
+			bytes: 100,
+			totalBytes: 1000,
+			spinner: "◐",
+			speed: 50,
+			eta: 18,
+			modelName: "M",
+			formatBytes: fmtBytes,
+			formatEta: fmtEta,
 		});
 		expect(lines[0]).not.toContain("ETA");
 	});

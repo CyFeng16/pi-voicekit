@@ -36,7 +36,7 @@ export const ICON = {
 	activeMarker: "›",
 	chevronRight: "›",
 	chevronLeft: "‹",
-	cursorBar: "│",         // v7.2: thin left bar for selected picker rows
+	cursorBar: "│", // v7.2: thin left bar for selected picker rows
 
 	// Arrows
 	arrowRight: "→",
@@ -64,7 +64,7 @@ export const ICON = {
 	// "moving" feel during indeterminate progress.
 	barThinFilled: "━",
 	barThinEmpty: "─",
-	barThinCap: "╾",        // leading-edge cap for moving progress
+	barThinCap: "╾", // leading-edge cap for moving progress
 
 	// Box drawing (U+2500-257F) for borders / separators
 	boxH: "─",

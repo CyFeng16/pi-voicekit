@@ -18,8 +18,8 @@
  *     is far below the cost of stale frames
  */
 
-import { matchesKey, Key, truncateToWidth } from "@mariozechner/pi-tui";
-import type { Theme, ThemeColor } from "@mariozechner/pi-coding-agent";
+import { matchesKey, Key, truncateToWidth } from "@earendil-works/pi-tui";
+import type { Theme, ThemeColor } from "@earendil-works/pi-coding-agent";
 import type { VoiceConfig, VoiceSettingsScope } from "./config";
 import { LOCAL_MODELS, getLanguagesForLocalModel, type LocalModelInfo } from "./local";
 import type { DeviceProfile, ModelFitness } from "./device";
@@ -30,10 +30,7 @@ import {
 	type TtsLocalModelInfo,
 	type TtsVoice,
 } from "./tts-local-models";
-import {
-	DEEPGRAM_TTS_VOICES,
-	filterDeepgramVoicesByLanguage,
-} from "./tts-deepgram";
+import { DEEPGRAM_TTS_VOICES, filterDeepgramVoicesByLanguage } from "./tts-deepgram";
 import { PickerChassis, type PickerRow } from "./ui-picker";
 import { ICON } from "./ui-icons";
 import { localeLabel, formatRomanizedLabel } from "./ui-locale-labels";
@@ -47,9 +44,9 @@ import { visualWidth, isPanelTooNarrow, widthTier } from "./ui-width";
  * filter time, but we also skip empty groups upfront).
  */
 function buildTtsModelPickerRows(catalog: ReadonlyArray<TtsLocalModelInfo>): PickerRow<TtsLocalModelInfo>[] {
-	const recommended = catalog.filter(m => m.preferred === true);
-	const perLanguage = catalog.filter(m => !m.preferred && m.tier === "edge");
-	const heavy = catalog.filter(m => m.tier !== "edge");
+	const recommended = catalog.filter((m) => m.preferred === true);
+	const perLanguage = catalog.filter((m) => !m.preferred && m.tier === "edge");
+	const heavy = catalog.filter((m) => m.tier !== "edge");
 	const out: PickerRow<TtsLocalModelInfo>[] = [];
 	const pushGroup = (heading: string, rows: TtsLocalModelInfo[]) => {
 		if (rows.length === 0) return;
@@ -157,7 +154,10 @@ export class VoiceSettingsPanel {
 	private deletePendingExpiresAt = 0;
 	private static readonly DELETE_CONFIRM_MS = 1500;
 
-	constructor(private p: PanelDeps, initialTab?: number) {
+	constructor(
+		private p: PanelDeps,
+		initialTab?: number
+	) {
 		if (initialTab !== undefined && initialTab >= 0 && initialTab < TAB_IDS.length) {
 			this.tab = initialTab;
 		}
@@ -175,13 +175,13 @@ export class VoiceSettingsPanel {
 		if (theme) return theme.fg(role, s);
 		return `\x1b[${ansiFallback}m${s}\x1b[39m`;
 	}
-	private dim = (s: string) => this.p.theme ? this.p.theme.fg("dim", s) : `\x1b[2m${s}\x1b[22m`;
+	private dim = (s: string) => (this.p.theme ? this.p.theme.fg("dim", s) : `\x1b[2m${s}\x1b[22m`);
 	private bold = (s: string) => `\x1b[1m${s}\x1b[22m`;
 	private accent = (s: string) => this.c("accent", "36", s);
 	private success = (s: string) => this.c("success", "32", s);
 	private warning = (s: string) => this.c("warning", "33", s);
 	private error = (s: string) => this.c("error", "31", s);
-	private muted = (s: string) => this.p.theme ? this.p.theme.fg("muted", s) : `\x1b[2m${s}\x1b[22m`;
+	private muted = (s: string) => (this.p.theme ? this.p.theme.fg("muted", s) : `\x1b[2m${s}\x1b[22m`);
 
 	// ─── Component interface ──────────────────────────────────────────────
 
@@ -349,7 +349,9 @@ export class VoiceSettingsPanel {
 	 * invalidate() to force a re-render. Renders are cheap and have no cache,
 	 * so this is a no-op.
 	 */
-	invalidate(): void { /* render is uncached */ }
+	invalidate(): void {
+		/* render is uncached */
+	}
 
 	// ─── v7.1 §12 — Two-row status header ─────────────────────────────────
 
@@ -377,18 +379,22 @@ export class VoiceSettingsPanel {
 		const sttDetail = sttOn
 			? `${sttBackend}${config.backend === "local" && config.localModel ? `/${this.shortenId(config.localModel)}` : ""}`
 			: "off";
-		const ttsModelId = ttsOn && (config.ttsBackend ?? "local") === "local"
-			? this.shortenId(config.ttsLocalModel ?? "")
-			: ttsOn && (config.ttsBackend ?? "local") === "deepgram"
-				? this.shortenId(String(config.ttsDeepgramVoiceId ?? ""))
-				: "";
+		const ttsModelId =
+			ttsOn && (config.ttsBackend ?? "local") === "local"
+				? this.shortenId(config.ttsLocalModel ?? "")
+				: ttsOn && (config.ttsBackend ?? "local") === "deepgram"
+					? this.shortenId(String(config.ttsDeepgramVoiceId ?? ""))
+					: "";
 		const ttsDetail = ttsOn ? `${ttsBackend}${ttsModelId ? `/${ttsModelId}` : ""}` : "off";
 		return `${sttBadge} ${this.dim(sttDetail)}${sep}${ttsBadge} ${this.dim(ttsDetail)}${sep}${this.dim(`Lang ${lang}`)}`;
 	}
 
 	private shortenId(id: string): string {
 		// Strip common prefixes for readable status row entries.
-		return id.replace(/^vits-piper-/, "piper-").replace(/-int8|-q8/, "").slice(0, 22);
+		return id
+			.replace(/^vits-piper-/, "piper-")
+			.replace(/-int8|-q8/, "")
+			.slice(0, 22);
 	}
 
 	// ─── Tab bar ──────────────────────────────────────────────────────────
@@ -414,19 +420,17 @@ export class VoiceSettingsPanel {
 		const rows: { label: string; value: string; hint?: string }[] = [
 			{
 				label: "Backend",
-				value: isLocal
-					? this.success("Local (offline, batch)")
-					: this.accent("Deepgram (cloud, live streaming)"),
+				value: isLocal ? this.success("Local (offline, batch)") : this.accent("Deepgram (cloud, live streaming)"),
 				hint: "toggle",
 			},
 			{
 				label: isLocal ? "Model" : "API Key",
 				value: isLocal
-					? (LOCAL_MODELS.find(m => m.id === config.localModel)?.name || config.localModel || "—")
+					? LOCAL_MODELS.find((m) => m.id === config.localModel)?.name || config.localModel || "—"
 					: (() => {
-						const key = this.p.resolveApiKey();
-						return key ? this.success(`set (${key.slice(0, 8)}…)`) : this.error("NOT SET");
-					})(),
+							const key = this.p.resolveApiKey();
+							return key ? this.success(`set (${key.slice(0, 8)}…)`) : this.error("NOT SET");
+						})(),
 				hint: isLocal ? "choose ›" : undefined,
 			},
 			{
@@ -436,9 +440,14 @@ export class VoiceSettingsPanel {
 			},
 			{
 				label: "Scope",
-				value: config.scope === "project"
-					? (useShort ? "Project" : "Project (this repo)")
-					: (useShort ? "Global" : "Global (all projects)"),
+				value:
+					config.scope === "project"
+						? useShort
+							? "Project"
+							: "Project (this repo)"
+						: useShort
+							? "Global"
+							: "Global (all projects)",
 				hint: "toggle",
 			},
 			{
@@ -452,9 +461,10 @@ export class VoiceSettingsPanel {
 				// instead of being placed in the editor for the user
 				// to press [enter].
 				label: "Auto-send",
-				value: config.autoSubmitOnSpeak === true
-					? this.success("ON — STT speaks the message immediately")
-					: this.dim("OFF — STT fills the editor (press ↵ to send)"),
+				value:
+					config.autoSubmitOnSpeak === true
+						? this.success("ON — STT speaks the message immediately")
+						: this.dim("OFF — STT fills the editor (press ↵ to send)"),
 				hint: "toggle",
 			},
 		];
@@ -466,7 +476,7 @@ export class VoiceSettingsPanel {
 			const isSelected = i === this.row;
 			const prefix = isSelected ? `${this.accent(ICON.cursorBar)}  ` : `   `;
 			const label = isSelected ? r.label.padEnd(labelW) : this.dim(r.label.padEnd(labelW));
-			const hint = (isSelected && r.hint) ? this.dim(` [↵ ${r.hint}]`) : "";
+			const hint = isSelected && r.hint ? this.dim(` [↵ ${r.hint}]`) : "";
 			lines.push(`${prefix}${label}${r.value}${hint}`);
 		}
 
@@ -480,7 +490,7 @@ export class VoiceSettingsPanel {
 	private renderModels(_w: number, iw: number): string[] {
 		const lines: string[] = [];
 		const currentId = this.p.config.localModel || "parakeet-v3";
-		const downloadedMap = new Map(this.p.getDownloadedModels().map(d => [d.id, d.sizeMB]));
+		const downloadedMap = new Map(this.p.getDownloadedModels().map((d) => [d.id, d.sizeMB]));
 
 		// Search bar
 		const cursor = this.modelSearch ? this.modelSearch : this.dim("type to search…");
@@ -544,7 +554,9 @@ export class VoiceSettingsPanel {
 					? this.success("ready")
 					: this.dim(formatFitness(m.fitness));
 
-			lines.push(`${prefix}${isSelected ? this.accent(m.name) + namePad : m.name + namePad} ${size}  ${langHint} ${status}`);
+			lines.push(
+				`${prefix}${isSelected ? this.accent(m.name) + namePad : m.name + namePad} ${size}  ${langHint} ${status}`
+			);
 
 			// Expanded detail under the selected row only — accuracy/speed
 			// bars + freeform notes. Avoids the previous redundancy of
@@ -565,7 +577,9 @@ export class VoiceSettingsPanel {
 		lines.push("");
 		const selectedRow = this.getRowAt(this.row);
 		const enterHint = selectedRow
-			? (downloadedMap.has(selectedRow.id) ? "activate" : `download (${selectedRow.size}) + activate`)
+			? downloadedMap.has(selectedRow.id)
+				? "activate"
+				: `download (${selectedRow.size}) + activate`
 			: "select";
 		lines.push(this.dim(`  ↵ ${enterHint}  ←→/Tab tabs  ↑↓ navigate  esc close`));
 		return lines;
@@ -578,7 +592,7 @@ export class VoiceSettingsPanel {
 		const dl = this.getDownloaded();
 		const currentId = this.p.config.localModel || "parakeet-v3";
 		const handy = scanHandyModels();
-		const handyNotImported = handy.filter(h => !h.imported);
+		const handyNotImported = handy.filter((h) => !h.imported);
 
 		// Auto-expire pending delete confirmation. Re-rendering with an old
 		// pending state is a no-op — the renderer just won't show the badge.
@@ -604,9 +618,7 @@ export class VoiceSettingsPanel {
 					const name = isSelected ? this.accent(d.name) : d.name;
 					const size = this.dim(` — ${d.sizeMB} MB`);
 					const status = isCurrent ? this.success(" active") : "";
-					const deleteBadge = isDeletePending
-						? "  " + this.warning("press x again to delete")
-						: "";
+					const deleteBadge = isDeletePending ? "  " + this.warning("press x again to delete") : "";
 					lines.push(`${prefix}${name}${size}${status}${deleteBadge}`);
 				}
 				lines.push(this.dim(`    Total: ${totalMB} MB on disk`));
@@ -674,9 +686,7 @@ export class VoiceSettingsPanel {
 			},
 			{
 				label: "Backend",
-				value: isLocal
-					? this.success("Local (offline, sherpa-onnx)")
-					: this.accent("Deepgram (cloud REST)"),
+				value: isLocal ? this.success("Local (offline, sherpa-onnx)") : this.accent("Deepgram (cloud REST)"),
 				hint: "toggle",
 			},
 			{
@@ -710,7 +720,7 @@ export class VoiceSettingsPanel {
 			const isSelected = i === this.row;
 			const prefix = isSelected ? `${this.accent(ICON.cursorBar)}  ` : `   `;
 			const label = isSelected ? r.label.padEnd(labelW) : this.dim(r.label.padEnd(labelW));
-			const hint = (isSelected && r.hint) ? this.dim(` [↵ ${r.hint}]`) : "";
+			const hint = isSelected && r.hint ? this.dim(` [↵ ${r.hint}]`) : "";
 			lines.push(`${prefix}${label}${r.value}${hint}`);
 		}
 
@@ -727,9 +737,9 @@ export class VoiceSettingsPanel {
 			const modelId = config.ttsLocalModel ?? "kitten-nano-en-v0_2";
 			const sid = typeof config.ttsLocalVoiceId === "number" ? config.ttsLocalVoiceId : 0;
 			// Lazy lookup — keep status compact, full label is in the rows below.
-			const model = TTS_LOCAL_MODELS_REF.find(m => m.id === modelId);
+			const model = TTS_LOCAL_MODELS_REF.find((m) => m.id === modelId);
 			const shortName = model?.name ?? modelId;
-			const voice = model?.voices.find(v => v.sid === sid);
+			const voice = model?.voices.find((v) => v.sid === sid);
 			return voice ? `${shortName} · ${voice.name}` : `${shortName} · sid ${sid}`;
 		}
 		return config.ttsDeepgramVoiceId ?? "aura-asteria-en";
@@ -737,7 +747,7 @@ export class VoiceSettingsPanel {
 
 	private formatLocalModelLabel(id: string | undefined): string {
 		const modelId = id ?? "kitten-nano-en-v0_2";
-		const model = TTS_LOCAL_MODELS_REF.find(m => m.id === modelId);
+		const model = TTS_LOCAL_MODELS_REF.find((m) => m.id === modelId);
 		if (!model) return modelId;
 		const installed = TTS_INSTALLED_CHECK_REF(modelId);
 		const installedTag = installed ? this.success(" ✓") : this.warning(" ⬇ download on select");
@@ -749,8 +759,8 @@ export class VoiceSettingsPanel {
 		if (isLocal) {
 			const modelId = config.ttsLocalModel ?? "kitten-nano-en-v0_2";
 			const sid = typeof config.ttsLocalVoiceId === "number" ? config.ttsLocalVoiceId : 0;
-			const model = TTS_LOCAL_MODELS_REF.find(m => m.id === modelId);
-			const voice = model?.voices.find(v => v.sid === sid);
+			const model = TTS_LOCAL_MODELS_REF.find((m) => m.id === modelId);
+			const voice = model?.voices.find((v) => v.sid === sid);
 			return voice ? `${voice.name} (sid ${sid})` : `sid ${sid}`;
 		}
 		return config.ttsDeepgramVoiceId ?? "aura-asteria-en";
@@ -764,8 +774,10 @@ export class VoiceSettingsPanel {
 		const labelW = 14;
 
 		const gpuLabel = device.gpu.hasNvidia
-			? (device.gpu.gpuName || "NVIDIA")
-			: device.gpu.hasMetal ? "Apple Silicon (Metal)" : "none";
+			? device.gpu.gpuName || "NVIDIA"
+			: device.gpu.hasMetal
+				? "Apple Silicon (Metal)"
+				: "none";
 
 		// Hardware
 		lines.push(this.dim("    Hardware"));
@@ -788,19 +800,22 @@ export class VoiceSettingsPanel {
 		lines.push("");
 		lines.push(this.dim("    Dependencies"));
 		const sherpaOk = this.p.isSherpaAvailable();
-		lines.push(`    ${"sherpa-onnx".padEnd(labelW)}${sherpaOk ? this.success("ready") : this.success("standby — loads on first recording")}`);
+		lines.push(
+			`    ${"sherpa-onnx".padEnd(labelW)}${sherpaOk ? this.success("ready") : this.success("standby — loads on first recording")}`
+		);
 
 		// Disk space — show "fits largest model" computation so users can
 		// gauge whether a download is feasible without checking model sizes.
 		const freeSpace = getFreeDiskSpace(getModelsDir());
-		const largest = LOCAL_MODELS.reduce((a, b) => a.sizeBytes > b.sizeBytes ? a : b);
+		const largest = LOCAL_MODELS.reduce((a, b) => (a.sizeBytes > b.sizeBytes ? a : b));
 		const fitsLargest = freeSpace !== null && freeSpace >= largest.sizeBytes;
 		const diskLabel = freeSpace !== null ? formatBytes(freeSpace) + " free" : "unknown";
 		const diskWarn = freeSpace !== null && freeSpace < 500 * 1024 * 1024; // <500MB
-		const fitsHint = freeSpace !== null
-			? ` (largest model needs ${formatBytes(largest.sizeBytes)}${fitsLargest ? " ✓" : " ✗"})`
-			: "";
-		lines.push(`    ${"Disk space".padEnd(labelW)}${diskWarn ? this.warning(diskLabel + " (low)") : diskLabel}${this.dim(fitsHint)}`);
+		const fitsHint =
+			freeSpace !== null ? ` (largest model needs ${formatBytes(largest.sizeBytes)}${fitsLargest ? " ✓" : " ✗"})` : "";
+		lines.push(
+			`    ${"Disk space".padEnd(labelW)}${diskWarn ? this.warning(diskLabel + " (low)") : diskLabel}${this.dim(fitsHint)}`
+		);
 
 		// Downloaded models total
 		const downloaded = this.p.getDownloadedModels();
@@ -870,13 +885,11 @@ export class VoiceSettingsPanel {
 			const lang = this.langFiltered[this.langRow];
 			if (lang) {
 				this.p.config.language = lang.code;
-				this.p.saveConfig(
-					this.p.config,
-					this.p.config.scope === "project" ? "project" : "global",
-					this.p.cwd,
-				);
+				this.p.saveConfig(this.p.config, this.p.config.scope === "project" ? "project" : "global", this.p.cwd);
 				if (this.p.config.backend === "local") {
-					try { this.p.clearRecognizerCache(); } catch {}
+					try {
+						this.p.clearRecognizerCache();
+					} catch {}
 				}
 			}
 			this.sub = "main";
@@ -933,7 +946,7 @@ export class VoiceSettingsPanel {
 			const model = this.getRowAt(this.row);
 			if (model) {
 				this.activateModel(model.id);
-				const downloaded = new Set(this.p.getDownloadedModels().map(d => d.id));
+				const downloaded = new Set(this.p.getDownloadedModels().map((d) => d.id));
 				if (!downloaded.has(model.id)) {
 					this.onClose?.({ type: "download", modelId: model.id });
 					return;
@@ -945,7 +958,7 @@ export class VoiceSettingsPanel {
 				const item = dl[this.row];
 				if (item) this.activateModel(item.id);
 			} else {
-				const handyNotImported = scanHandyModels().filter(h => !h.imported);
+				const handyNotImported = scanHandyModels().filter((h) => !h.imported);
 				const handyIdx = this.row - dl.length;
 				const h = handyNotImported[handyIdx];
 				if (h) {
@@ -972,15 +985,17 @@ export class VoiceSettingsPanel {
 				case 3: // Voice picker
 					this.openTtsVoicePicker();
 					break;
-				case 4: { // Speed cycle
+				case 4: {
+					// Speed cycle
 					const ladder = [0.75, 1.0, 1.25, 1.5, 2.0, 0.5];
 					const current = config.ttsSpeed ?? 1.0;
-					const idx = ladder.findIndex(v => Math.abs(v - current) < 0.01);
+					const idx = ladder.findIndex((v) => Math.abs(v - current) < 0.01);
 					config.ttsSpeed = ladder[(idx + 1) % ladder.length];
 					this.save();
 					break;
 				}
-				case 5: { // Test — emit a special panel-close action so the
+				case 5: {
+					// Test — emit a special panel-close action so the
 					// caller (voice.ts:openSettingsPanel) can route it to
 					// /voice-speak-test without us depending on the
 					// command registry from inside the panel.
@@ -1007,7 +1022,9 @@ export class VoiceSettingsPanel {
 			const wasActive = this.p.config.localModel === item.id;
 			this.p.deleteModel(item.id);
 			if (wasActive) {
-				try { this.p.clearRecognizerCache(); } catch {}
+				try {
+					this.p.clearRecognizerCache();
+				} catch {}
 				const remaining = this.p.getDownloadedModels();
 				this.p.config.localModel = remaining.length > 0 ? remaining[0]!.id : undefined;
 				this.save();
@@ -1025,7 +1042,9 @@ export class VoiceSettingsPanel {
 	private activateModel(modelId: string): void {
 		const { config } = this.p;
 		if (config.localModel !== modelId) {
-			try { this.p.clearRecognizerCache(); } catch {}
+			try {
+				this.p.clearRecognizerCache();
+			} catch {}
 		}
 		config.localModel = modelId;
 		config.backend = "local";
@@ -1046,7 +1065,7 @@ export class VoiceSettingsPanel {
 		this.langSearch = "";
 		this.langFiltered = this.langList;
 		this.langRow = 0;
-		const idx = this.langList.findIndex(l => l.code === config.language);
+		const idx = this.langList.findIndex((l) => l.code === config.language);
 		if (idx >= 0) this.langRow = idx;
 		this.sub = "lang-picker";
 	}
@@ -1071,7 +1090,7 @@ export class VoiceSettingsPanel {
 		const chassis = this.getTtsModelChassis();
 		chassis.clearSearch();
 		const currentId = this.p.config.ttsLocalModel ?? "kitten-nano-en-v0_2";
-		const current = TTS_LOCAL_MODELS_REF.find(m => m.id === currentId);
+		const current = TTS_LOCAL_MODELS_REF.find((m) => m.id === currentId);
 		if (current) chassis.selectValue(current);
 		this.sub = "tts-model-picker";
 	}
@@ -1114,15 +1133,13 @@ export class VoiceSettingsPanel {
 			// v7.2 — selected row has a thin accent left bar; non-selected
 			// rows are dim. HIG "deference": chrome is subtle, content
 			// hierarchy comes through dim/full-saturation contrast.
-			const prefix = isSelected
-				? `${this.accent(ICON.cursorBar)}  `
-				: `   `;
+			const prefix = isSelected ? `${this.accent(ICON.cursorBar)}  ` : `   `;
 			const name = isSelected ? this.accent(m.name) : this.dim(m.name);
 			const namePad = m.name.length < nameW ? " ".repeat(nameW - m.name.length) : "";
 			const size = this.dim(m.size.padStart(8));
-			const langs = this.dim(m.languages.length > 1
-				? `${m.languages.length} langs`.padEnd(13)
-				: m.languages[0]!.padEnd(13));
+			const langs = this.dim(
+				m.languages.length > 1 ? `${m.languages.length} langs`.padEnd(13) : m.languages[0]!.padEnd(13)
+			);
 			// v7.2 — colored-dot status badges. Replaces plain "active"/
 			// "ready"/"download" words with `● active` / `● ready` /
 			// `○ download` / `✗ broken` patterns. Charm/gum convention.
@@ -1230,7 +1247,7 @@ export class VoiceSettingsPanel {
 		const isLocal = (config.ttsBackend ?? "local") === "local";
 		if (isLocal) {
 			const modelId = config.ttsLocalModel ?? "kitten-nano-en-v0_2";
-			const model = TTS_LOCAL_MODELS_REF.find(m => m.id === modelId);
+			const model = TTS_LOCAL_MODELS_REF.find((m) => m.id === modelId);
 			if (!model) return [];
 			// v7.1: thread the model's primary language so the picker
 			// can render native-script labels via `localeLabel()`.
@@ -1246,14 +1263,14 @@ export class VoiceSettingsPanel {
 		const lang = config.ttsLanguage || config.language || "en";
 		const filtered = filterDeepgramVoicesByLanguage(lang);
 		const list = filtered.length > 0 ? filtered : DEEPGRAM_TTS_VOICES;
-		return list.map(v => ({ id: v.id, label: v.name, meta: v.gender, language: v.language }));
+		return list.map((v) => ({ id: v.id, label: v.name, meta: v.gender, language: v.language }));
 	}
 
 	private getFilteredTtsVoices(): { id: string | number; label: string; meta?: string; language?: string }[] {
 		const all = this.getCurrentVoiceCatalog();
 		const q = this.ttsVoiceSearch.trim().toLowerCase();
 		if (!q) return all;
-		return all.filter(v => `${v.label} ${v.meta ?? ""} ${v.id} ${v.language ?? ""}`.toLowerCase().includes(q));
+		return all.filter((v) => `${v.label} ${v.meta ?? ""} ${v.id} ${v.language ?? ""}`.toLowerCase().includes(q));
 	}
 
 	private openTtsVoicePicker(): void {
@@ -1262,9 +1279,11 @@ export class VoiceSettingsPanel {
 		const { config } = this.p;
 		const isLocal = (config.ttsBackend ?? "local") === "local";
 		const currentId: string | number = isLocal
-			? (typeof config.ttsLocalVoiceId === "number" ? config.ttsLocalVoiceId : 0)
+			? typeof config.ttsLocalVoiceId === "number"
+				? config.ttsLocalVoiceId
+				: 0
 			: (config.ttsDeepgramVoiceId ?? "aura-asteria-en");
-		const idx = all.findIndex(v => v.id === currentId);
+		const idx = all.findIndex((v) => v.id === currentId);
 		this.ttsVoiceRow = idx >= 0 ? idx : 0;
 		this.sub = "tts-voice-picker";
 	}
@@ -1275,7 +1294,9 @@ export class VoiceSettingsPanel {
 		const { config } = this.p;
 		const isLocal = (config.ttsBackend ?? "local") === "local";
 		const currentId: string | number = isLocal
-			? (typeof config.ttsLocalVoiceId === "number" ? config.ttsLocalVoiceId : 0)
+			? typeof config.ttsLocalVoiceId === "number"
+				? config.ttsLocalVoiceId
+				: 0
 			: (config.ttsDeepgramVoiceId ?? "aura-asteria-en");
 
 		lines.push(`  ${this.bold(isLocal ? "Pick local voice" : "Pick Deepgram voice")}`);
@@ -1369,15 +1390,19 @@ export class VoiceSettingsPanel {
 
 	private getRowCount(tabId: TabId): number {
 		switch (tabId) {
-			case "general": return 6;
-			case "models": return this.modelSelectableIdx.length;
+			case "general":
+				return 6;
+			case "models":
+				return this.modelSelectableIdx.length;
 			case "downloaded": {
 				const dl = this.getDownloaded().length;
-				const handy = scanHandyModels().filter(h => !h.imported).length;
+				const handy = scanHandyModels().filter((h) => !h.imported).length;
 				return dl + handy;
 			}
-			case "speak": return 6;
-			case "device": return 0;
+			case "speak":
+				return 6;
+			case "device":
+				return 0;
 		}
 	}
 
@@ -1394,7 +1419,7 @@ export class VoiceSettingsPanel {
 	 * empty groups are dropped so the user never sees an orphaned heading.
 	 */
 	private rebuildModels(): void {
-		const enriched: ModelRow[] = LOCAL_MODELS.map(m => ({
+		const enriched: ModelRow[] = LOCAL_MODELS.map((m) => ({
 			...m,
 			fitness: this.p.getModelFitness(m, this.p.device) as ModelFitness,
 		}));
@@ -1410,7 +1435,7 @@ export class VoiceSettingsPanel {
 
 		for (const group of this.modelGroups) {
 			const rows = q
-				? group.rows.filter(m => `${m.name} ${m.id} ${m.notes} ${m.langSupport}`.toLowerCase().includes(q))
+				? group.rows.filter((m) => `${m.name} ${m.id} ${m.notes} ${m.langSupport}`.toLowerCase().includes(q))
 				: group.rows;
 			if (rows.length === 0) continue;
 			flat.push({ kind: "heading", group });
@@ -1430,18 +1455,16 @@ export class VoiceSettingsPanel {
 			this.langFiltered = this.langList;
 		} else {
 			const q = this.langSearch.toLowerCase();
-			this.langFiltered = this.langList.filter(l =>
-				`${l.name} ${l.code}`.toLowerCase().includes(q),
-			);
+			this.langFiltered = this.langList.filter((l) => `${l.name} ${l.code}`.toLowerCase().includes(q));
 		}
 		this.langRow = Math.min(this.langRow, Math.max(0, this.langFiltered.length - 1));
 	}
 
 	private getDownloaded(): { id: string; name: string; sizeMB: number; isCurrent: boolean }[] {
 		const currentId = this.p.config.localModel || "parakeet-v3";
-		return this.p.getDownloadedModels().map(d => ({
+		return this.p.getDownloadedModels().map((d) => ({
 			...d,
-			name: LOCAL_MODELS.find(m => m.id === d.id)?.name || d.id,
+			name: LOCAL_MODELS.find((m) => m.id === d.id)?.name || d.id,
 			isCurrent: d.id === currentId,
 		}));
 	}
@@ -1453,7 +1476,7 @@ export class VoiceSettingsPanel {
 			const { languages } = getLanguagesForLocalModel(m.id);
 			allLangs.push(...languages);
 		}
-		const entry = allLangs.find(l => l.code === code);
+		const entry = allLangs.find((l) => l.code === code);
 		return entry ? `${entry.name} (${code})` : code;
 	}
 
@@ -1474,18 +1497,30 @@ export class VoiceSettingsPanel {
  */
 function formatLangHint(m: LocalModelInfo): string {
 	switch (m.langSupport) {
-		case "whisper": return "57 langs";
-		case "english-only": return "English";
-		case "parakeet-multi": return "25 langs";
-		case "sensevoice": return "zh/en/ja/ko";
-		case "russian-only": return "Russian";
-		case "single-ar": return "Arabic";
-		case "single-zh": return "Chinese";
-		case "single-ja": return "Japanese";
-		case "single-ko": return "Korean";
-		case "single-uk": return "Ukrainian";
-		case "single-vi": return "Vietnamese";
-		case "single-es": return "Spanish";
+		case "whisper":
+			return "57 langs";
+		case "english-only":
+			return "English";
+		case "parakeet-multi":
+			return "25 langs";
+		case "sensevoice":
+			return "zh/en/ja/ko";
+		case "russian-only":
+			return "Russian";
+		case "single-ar":
+			return "Arabic";
+		case "single-zh":
+			return "Chinese";
+		case "single-ja":
+			return "Japanese";
+		case "single-ko":
+			return "Korean";
+		case "single-uk":
+			return "Ukrainian";
+		case "single-vi":
+			return "Vietnamese";
+		case "single-es":
+			return "Spanish";
 	}
 	return "";
 }
@@ -1493,10 +1528,14 @@ function formatLangHint(m: LocalModelInfo): string {
 /** Short fitness label shown in the rightmost cell on the Models tab. */
 function formatFitness(f: ModelFitness): string {
 	switch (f) {
-		case "recommended": return "recommended";
-		case "compatible": return "compatible";
-		case "warning": return "may be slow";
-		case "incompatible": return "too large";
+		case "recommended":
+			return "recommended";
+		case "compatible":
+			return "compatible";
+		case "warning":
+			return "may be slow";
+		case "incompatible":
+			return "too large";
 	}
 }
 
@@ -1515,14 +1554,12 @@ function formatFitness(f: ModelFitness): string {
 function groupModels(rows: ModelRow[]): ModelGroup[] {
 	const byFamily = (predicate: (r: ModelRow) => boolean) => rows.filter(predicate);
 
-	const topPicks = rows.filter(r => r.fitness === "recommended").slice(0, 4);
-	const parakeet = byFamily(r => r.id.startsWith("parakeet-"));
-	const whisper = byFamily(r => r.id.startsWith("whisper-"));
-	const moonshine = byFamily(r => r.id.startsWith("moonshine-"));
-	const specialist = byFamily(r =>
-		!r.id.startsWith("parakeet-") &&
-		!r.id.startsWith("whisper-") &&
-		!r.id.startsWith("moonshine-"),
+	const topPicks = rows.filter((r) => r.fitness === "recommended").slice(0, 4);
+	const parakeet = byFamily((r) => r.id.startsWith("parakeet-"));
+	const whisper = byFamily((r) => r.id.startsWith("whisper-"));
+	const moonshine = byFamily((r) => r.id.startsWith("moonshine-"));
+	const specialist = byFamily(
+		(r) => !r.id.startsWith("parakeet-") && !r.id.startsWith("whisper-") && !r.id.startsWith("moonshine-")
 	);
 
 	const groups: ModelGroup[] = [];

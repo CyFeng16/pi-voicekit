@@ -38,7 +38,7 @@ export interface InstallWidgetUI {
 	setWidget(
 		key: string,
 		content: ((tui: any, theme: any) => { invalidate(): void; render(width: number): string[] }) | undefined,
-		options?: { placement?: "aboveEditor" | "belowEditor" },
+		options?: { placement?: "aboveEditor" | "belowEditor" }
 	): void;
 }
 
@@ -98,7 +98,11 @@ export class TtsInstallProgressWidget extends BaseDisposableWidget {
 	/** Abort the install (calls controller.abort) and dispose the widget. */
 	cancel(): void {
 		if (this.disposed) return;
-		try { this.controller.abort(); } catch { /* abort never throws but be defensive */ }
+		try {
+			this.controller.abort();
+		} catch {
+			/* abort never throws but be defensive */
+		}
 		this.dispose();
 	}
 
@@ -165,10 +169,22 @@ export class TtsInstallProgressWidget extends BaseDisposableWidget {
 			(_tui: any, theme: any) => ({
 				invalidate() {},
 				render: (width: number): string[] => {
-					return renderInstallLine({ theme, width, phase, bytes, totalBytes, spinner, speed, eta, modelName, formatBytes: (n: number) => this.formatBytes(n), formatEta: (s: number) => this.formatEta(s) });
+					return renderInstallLine({
+						theme,
+						width,
+						phase,
+						bytes,
+						totalBytes,
+						spinner,
+						speed,
+						eta,
+						modelName,
+						formatBytes: (n: number) => this.formatBytes(n),
+						formatEta: (s: number) => this.formatEta(s),
+					});
 				},
 			}),
-			{ placement: "belowEditor" },
+			{ placement: "belowEditor" }
 		);
 	}
 }
@@ -208,9 +224,7 @@ export function renderInstallLine(input: RenderInput): string[] {
 	// Reserve room for: " <name>  <pct>%  <bytes/total>  <speed>  <eta>"
 	const nameMax = Math.min(visualWidth(modelName), Math.floor(width * 0.28));
 	const truncatedName = truncateToVisualWidth(modelName, nameMax);
-	const sizeStr = totalBytes > 0
-		? `${formatBytes(bytes)} / ${formatBytes(totalBytes)}`
-		: formatBytes(bytes);
+	const sizeStr = totalBytes > 0 ? `${formatBytes(bytes)} / ${formatBytes(totalBytes)}` : formatBytes(bytes);
 	const speedStr = speed != null ? `${formatBytes(speed)}/s` : "";
 	const etaStr = eta != null ? `ETA ${formatEta(eta)}` : "";
 

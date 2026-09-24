@@ -91,7 +91,7 @@ export class PickerChassis<T> {
 		if (isEmpty && this.preSearchValue != null) {
 			// Restore cursor to previously-active value if still present.
 			const filtered = this.filteredSelectable();
-			const idx = filtered.findIndex(r => r.value === this.preSearchValue);
+			const idx = filtered.findIndex((r) => r.value === this.preSearchValue);
 			if (idx >= 0) this.cursor = idx;
 			this.preSearchValue = null;
 		}
@@ -125,7 +125,7 @@ export class PickerChassis<T> {
 	/** Move cursor to the first selectable whose `value === target`. */
 	selectValue(target: T): void {
 		const filtered = this.filteredSelectable();
-		const idx = filtered.findIndex(r => r.value === target);
+		const idx = filtered.findIndex((r) => r.value === target);
 		if (idx >= 0) this.cursor = idx;
 	}
 
@@ -144,7 +144,7 @@ export class PickerChassis<T> {
 		}
 		const sel = Math.min(this.cursor, selectable.length - 1);
 		const selectedValue = selectable[sel]!.value;
-		const cursorRowIndex = filteredAll.findIndex(r => r.kind === "data" && r.value === selectedValue);
+		const cursorRowIndex = filteredAll.findIndex((r) => r.kind === "data" && r.value === selectedValue);
 
 		// Center the viewport on the cursor.
 		const total = filteredAll.length;

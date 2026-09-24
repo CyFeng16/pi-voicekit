@@ -111,7 +111,7 @@ export function deleteModel(modelId: string): boolean {
 export async function downloadModel(
 	config: ModelDownloadConfig,
 	onProgress?: (progress: DownloadProgress) => void,
-	signal?: AbortSignal,
+	signal?: AbortSignal
 ): Promise<string> {
 	const dir = getModelDir(config.modelId);
 	fs.mkdirSync(dir, { recursive: true });
@@ -180,8 +180,14 @@ export async function downloadModel(
 				// Handle backpressure to avoid unbounded memory on slow disks
 				if (!writeStream.write(value)) {
 					await new Promise<void>((resolve, reject) => {
-						const onDrain = () => { writeStream.removeListener("error", onError); resolve(); };
-						const onError = (err: Error) => { writeStream.removeListener("drain", onDrain); reject(err); };
+						const onDrain = () => {
+							writeStream.removeListener("error", onError);
+							resolve();
+						};
+						const onError = (err: Error) => {
+							writeStream.removeListener("drain", onDrain);
+							reject(err);
+						};
 						writeStream.once("drain", onDrain);
 						writeStream.once("error", onError);
 					});
@@ -227,7 +233,7 @@ export async function ensureModelDownloaded(
 	expectedFiles: Record<string, string>,
 	totalSizeBytes: number,
 	onProgress?: (progress: DownloadProgress) => void,
-	signal?: AbortSignal,
+	signal?: AbortSignal
 ): Promise<string> {
 	if (isModelDownloaded(modelId, expectedFiles)) {
 		return getModelDir(modelId);
@@ -238,11 +244,9 @@ export async function ensureModelDownloaded(
 		return _inFlight.get(modelId)!;
 	}
 
-	const promise = downloadModel(
-		{ modelId, files: expectedFiles, totalSizeBytes },
-		onProgress,
-		signal,
-	).finally(() => _inFlight.delete(modelId));
+	const promise = downloadModel({ modelId, files: expectedFiles, totalSizeBytes }, onProgress, signal).finally(() =>
+		_inFlight.delete(modelId)
+	);
 
 	_inFlight.set(modelId, promise);
 	return promise;
@@ -266,7 +270,7 @@ export interface PreCheckResult {
  */
 export async function checkDownloadPrereqs(
 	downloadUrls: Record<string, string>,
-	totalSizeBytes: number,
+	totalSizeBytes: number
 ): Promise<PreCheckResult> {
 	const issues: string[] = [];
 
@@ -342,7 +346,7 @@ export interface RichProgress {
  */
 export function createProgressTracker(
 	modelName: string,
-	intervalMs = 500,
+	intervalMs = 500
 ): (raw: DownloadProgress) => RichProgress | null {
 	let startTime = 0;
 	let lastEmitTime = 0;
@@ -402,7 +406,7 @@ export function createProgressTracker(
 export function verifyDownload(
 	modelId: string,
 	downloadUrls: Record<string, string>,
-	expectedTotalBytes: number,
+	expectedTotalBytes: number
 ): { ok: boolean; issues: string[] } {
 	const issues: string[] = [];
 	const dir = getModelDir(modelId);
@@ -440,7 +444,9 @@ export function verifyDownload(
 	if (issues.length === 0 && expectedTotalBytes > 0) {
 		const ratio = totalSize / expectedTotalBytes;
 		if (ratio < 0.5) {
-			issues.push(`Download appears incomplete: ${Math.round(totalSize / (1024 * 1024))} MB downloaded, expected ~${Math.round(expectedTotalBytes / (1024 * 1024))} MB`);
+			issues.push(
+				`Download appears incomplete: ${Math.round(totalSize / (1024 * 1024))} MB downloaded, expected ~${Math.round(expectedTotalBytes / (1024 * 1024))} MB`
+			);
 		}
 	}
 
@@ -450,16 +456,17 @@ export function verifyDownload(
 // ─── Handy model import ──────────────────────────────────────────────────────
 
 /** Known Handy model directory (macOS) */
-const HANDY_MODELS_DIR = path.join(
-	os.homedir(), "Library", "Application Support", "com.pais.handy", "models",
-);
+const HANDY_MODELS_DIR = path.join(os.homedir(), "Library", "Application Support", "com.pais.handy", "models");
 
 /** Map of handy model directory names → pi model IDs + file mappings */
-const HANDY_MODEL_MAP: Record<string, {
-	piModelId: string;
-	/** Map of handy filename → pi expected filename */
-	fileMap: Record<string, string>;
-}> = {
+const HANDY_MODEL_MAP: Record<
+	string,
+	{
+		piModelId: string;
+		/** Map of handy filename → pi expected filename */
+		fileMap: Record<string, string>;
+	}
+> = {
 	"parakeet-tdt-0.6b-v3-int8": {
 		piModelId: "parakeet-v3",
 		fileMap: {
@@ -555,10 +562,7 @@ export function importHandyModel(handyId: string): { ok: boolean; error?: string
 }
 
 /** Check if a pi model dir has valid symlinks or files for a handy mapping */
-function isSymlinkOrComplete(
-	piDir: string,
-	mapping: { fileMap: Record<string, string> },
-): boolean {
+function isSymlinkOrComplete(piDir: string, mapping: { fileMap: Record<string, string> }): boolean {
 	for (const piFile of Object.values(mapping.fileMap)) {
 		if (!fs.existsSync(path.join(piDir, piFile))) return false;
 	}

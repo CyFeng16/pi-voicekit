@@ -45,11 +45,7 @@ import * as path from "node:path";
 import * as os from "node:os";
 import * as fs from "node:fs";
 import { loadSherpa, getSherpaModule, getSherpaError, isSherpaAvailable } from "./sherpa-loader";
-import {
-	type TtsLocalModelInfo,
-	modelSupportsLanguage,
-	getTtsModel,
-} from "./tts-local-models";
+import { type TtsLocalModelInfo, modelSupportsLanguage, getTtsModel } from "./tts-local-models";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -211,7 +207,7 @@ function getOrCreateTts(model: TtsLocalModelInfo, modelDir: string): Promise<Cac
 				ttsCache.delete(key);
 			}
 			throw err;
-		},
+		}
 	);
 	ttsCache.set(key, pending);
 	return pending;
@@ -274,7 +270,7 @@ export function clearTtsCache(): void {
 export async function warmupTts(
 	model: TtsLocalModelInfo,
 	modelDir: string,
-	opts: { signal?: AbortSignal } = {},
+	opts: { signal?: AbortSignal } = {}
 ): Promise<boolean> {
 	if (opts.signal?.aborted) return false;
 	try {
@@ -317,7 +313,9 @@ export async function synthesize(opts: SynthesizeOpts): Promise<TtsAudio> {
 	//    is already aborted at entry, `signal.aborted` is true and the
 	//    onProgress callback returns 0 on its first invocation.
 	let aborted = signal?.aborted === true;
-	const onAbort = () => { aborted = true; };
+	const onAbort = () => {
+		aborted = true;
+	};
 	if (signal && !aborted) {
 		signal.addEventListener("abort", onAbort, { once: true });
 	}
@@ -346,7 +344,7 @@ export async function synthesize(opts: SynthesizeOpts): Promise<TtsAudio> {
 		// reason from the catalog so they can switch voices.
 		if (model.incompatible) {
 			throw new Error(
-				`TTS model ${model.id} is incompatible with the installed sherpa-onnx runtime: ${model.incompatible}`,
+				`TTS model ${model.id} is incompatible with the installed sherpa-onnx runtime: ${model.incompatible}`
 			);
 		}
 
@@ -397,9 +395,9 @@ export async function synthesize(opts: SynthesizeOpts): Promise<TtsAudio> {
 		if (audio.samples.length > 0 && Number.isNaN(audio.samples[0])) {
 			throw new Error(
 				`TTS synthesis returned NaN samples for ${model.id} sid=${sid}. ` +
-				`This voice is incompatible with the installed sherpa-onnx-node ` +
-				`runtime — pick a different voice via /voice-speak-models or ` +
-				`/voice-settings → Speak tab.`,
+					`This voice is incompatible with the installed sherpa-onnx-node ` +
+					`runtime — pick a different voice via /voice-speak-models or ` +
+					`/voice-settings → Speak tab.`
 			);
 		}
 		// If the run was aborted mid-generate, surface that to the caller
@@ -445,7 +443,9 @@ function makeAbortError(): Error {
 function extendChain(cached: CachedTts): { previousTail: Promise<void>; release: () => void } {
 	const previousTail = cached.generateChain;
 	let release!: () => void;
-	cached.generateChain = new Promise<void>((res) => { release = res; });
+	cached.generateChain = new Promise<void>((res) => {
+		release = res;
+	});
 	return { previousTail, release };
 }
 
@@ -477,7 +477,7 @@ export function resolveLanguageForLocal(model: TtsLocalModelInfo, language: stri
 		const supported = model.languages.join(", ");
 		throw new Error(
 			`Active local TTS model ${model.name} only supports ${supported}. ` +
-			`Switch model in /voice-settings or change ttsLanguage to a supported value.`,
+				`Switch model in /voice-settings or change ttsLanguage to a supported value.`
 		);
 	}
 }
@@ -585,7 +585,7 @@ function getTtsThreads(slot: TtsLocalModelInfo["sherpaSlot"]): number {
 /** Clamp speaker id into the model's voice range. */
 function clampSid(sid: number, model: TtsLocalModelInfo): number {
 	if (!Number.isFinite(sid)) return model.defaultSid;
-	const maxSid = Math.max(0, ...model.voices.map(v => v.sid));
+	const maxSid = Math.max(0, ...model.voices.map((v) => v.sid));
 	return Math.max(0, Math.min(maxSid, Math.floor(sid)));
 }
 
@@ -602,7 +602,7 @@ function clampSpeed(speed: number): number {
  */
 function findPiperOnnx(modelDir: string): string {
 	const entries = fs.readdirSync(modelDir);
-	const onnx = entries.find(e => e.endsWith(".onnx"));
+	const onnx = entries.find((e) => e.endsWith(".onnx"));
 	if (!onnx) throw new Error(`No .onnx file found in Piper model directory: ${modelDir}`);
 	return path.join(modelDir, onnx);
 }
@@ -625,7 +625,7 @@ function findFirstOnnx(modelDir: string, candidates: string[]): string {
 		if (fs.existsSync(p)) return p;
 	}
 	const entries = fs.readdirSync(modelDir);
-	const onnx = entries.find(e => e.endsWith(".onnx"));
+	const onnx = entries.find((e) => e.endsWith(".onnx"));
 	if (!onnx) throw new Error(`No .onnx file found in model directory: ${modelDir}`);
 	return path.join(modelDir, onnx);
 }
@@ -638,9 +638,9 @@ function findFirstOnnx(modelDir: string, candidates: string[]): string {
  */
 function findKokoroLexicons(modelDir: string): string | null {
 	const entries = fs.readdirSync(modelDir);
-	const lex = entries.filter(e => e.startsWith("lexicon-") && e.endsWith(".txt"));
+	const lex = entries.filter((e) => e.startsWith("lexicon-") && e.endsWith(".txt"));
 	if (lex.length === 0) return null;
-	return lex.map(e => path.join(modelDir, e)).join(",");
+	return lex.map((e) => path.join(modelDir, e)).join(",");
 }
 
 /**

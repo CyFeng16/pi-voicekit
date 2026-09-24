@@ -124,7 +124,9 @@ export async function deepgramSpeak(opts: DeepgramSpeakOpts): Promise<DeepgramSp
 
 	const apiKey = resolveDeepgramApiKey(config);
 	if (!apiKey) {
-		throw new Error("DEEPGRAM_API_KEY not set. Run /voice-settings to configure it, or export DEEPGRAM_API_KEY in your shell.");
+		throw new Error(
+			"DEEPGRAM_API_KEY not set. Run /voice-settings to configure it, or export DEEPGRAM_API_KEY in your shell."
+		);
 	}
 
 	const url = buildDeepgramSpeakUrl(voiceId, sampleRate);
@@ -134,12 +136,12 @@ export async function deepgramSpeak(opts: DeepgramSpeakOpts): Promise<DeepgramSp
 		response = await fetch(url, {
 			method: "POST",
 			headers: {
-				"Authorization": `Token ${apiKey}`,
+				Authorization: `Token ${apiKey}`,
 				"Content-Type": "application/json",
 				// Deepgram's TTS REST returns audio bytes regardless of
 				// Accept, but setting it explicitly documents intent and
 				// matches the official docs example.
-				"Accept": "audio/wav",
+				Accept: "audio/wav",
 			},
 			body: JSON.stringify({ text }),
 			signal,
@@ -156,7 +158,9 @@ export async function deepgramSpeak(opts: DeepgramSpeakOpts): Promise<DeepgramSp
 		// JSON like {"err_code":"INVALID_AUTH",...} on auth failures and
 		// plain text on others.
 		let body = "";
-		try { body = (await response.text()).slice(0, 300); } catch {}
+		try {
+			body = (await response.text()).slice(0, 300);
+		} catch {}
 		throw new Error(`Deepgram TTS HTTP ${response.status}${body ? `: ${body}` : ""}`);
 	}
 
@@ -168,7 +172,7 @@ export async function deepgramSpeak(opts: DeepgramSpeakOpts): Promise<DeepgramSp
 	if (Number.isFinite(declared) && declared > DEEPGRAM_TTS_MAX_BYTES) {
 		throw new Error(
 			`Deepgram TTS response too large (${declared} bytes, max ${DEEPGRAM_TTS_MAX_BYTES}). ` +
-			`Reduce text length or check your Deepgram account.`,
+				`Reduce text length or check your Deepgram account.`
 		);
 	}
 
@@ -186,9 +190,7 @@ async function readBoundedBody(response: Response, maxBytes: number): Promise<Ui
 		// No stream available — buffer in one shot but verify size after.
 		const buf = new Uint8Array(await response.arrayBuffer());
 		if (buf.byteLength > maxBytes) {
-			throw new Error(
-				`Deepgram TTS response too large (${buf.byteLength} bytes, max ${maxBytes}).`,
-			);
+			throw new Error(`Deepgram TTS response too large (${buf.byteLength} bytes, max ${maxBytes}).`);
 		}
 		return buf;
 	}
@@ -204,16 +206,20 @@ async function readBoundedBody(response: Response, maxBytes: number): Promise<Ui
 			total += value.byteLength;
 			if (total > maxBytes) {
 				// Cancel the underlying fetch so we don't keep streaming.
-				try { await reader.cancel(`Deepgram TTS response exceeded ${maxBytes} bytes`); } catch {}
+				try {
+					await reader.cancel(`Deepgram TTS response exceeded ${maxBytes} bytes`);
+				} catch {}
 				throw new Error(
 					`Deepgram TTS response too large (>${maxBytes} bytes). ` +
-					`Reduce text length or check your Deepgram account.`,
+						`Reduce text length or check your Deepgram account.`
 				);
 			}
 			chunks.push(value);
 		}
 	} finally {
-		try { reader.releaseLock(); } catch {}
+		try {
+			reader.releaseLock();
+		} catch {}
 	}
 
 	const out = new Uint8Array(total);
@@ -242,8 +248,8 @@ export function buildDeepgramSpeakUrl(voiceId: string, sampleRate: number): stri
 // ─── Voice catalog helpers ────────────────────────────────────────────────────
 
 /** Look up a voice entry by id; returns undefined if not in the surfaced list. */
-export function getDeepgramVoice(id: string): typeof DEEPGRAM_TTS_VOICES[number] | undefined {
-	return DEEPGRAM_TTS_VOICES.find(v => v.id === id);
+export function getDeepgramVoice(id: string): (typeof DEEPGRAM_TTS_VOICES)[number] | undefined {
+	return DEEPGRAM_TTS_VOICES.find((v) => v.id === id);
 }
 
 /**
@@ -258,7 +264,7 @@ export function getDeepgramVoice(id: string): typeof DEEPGRAM_TTS_VOICES[number]
 export function filterDeepgramVoicesByLanguage(lang: string): readonly (typeof DEEPGRAM_TTS_VOICES)[number][] {
 	const base = (lang.split("-")[0] ?? "").toLowerCase();
 	if (!base) return DEEPGRAM_TTS_VOICES;
-	return DEEPGRAM_TTS_VOICES.filter(v => v.language === base);
+	return DEEPGRAM_TTS_VOICES.filter((v) => v.language === base);
 }
 
 /**
@@ -286,7 +292,7 @@ export function assertLanguageForDeepgram(voiceId: string, language: string): vo
 	if (voice.language !== requestedBase) {
 		throw new Error(
 			`Deepgram voice ${voice.id} speaks ${voice.language} but ttsLanguage is ${language}. ` +
-			`Pick a voice for ${language} via /voice-settings, or change ttsLanguage to ${voice.language}.`,
+				`Pick a voice for ${language} via /voice-settings, or change ttsLanguage to ${voice.language}.`
 		);
 	}
 }
@@ -332,7 +338,8 @@ export async function deepgramSpeakStreaming(opts: DeepgramStreamingOpts): Promi
 	if (!apiKey) throw new Error("DEEPGRAM_API_KEY not set.");
 	if (signal?.aborted) throw makeAbortError();
 
-	const wsUrl = `wss://api.deepgram.com/v1/speak?model=${encodeURIComponent(voiceId)}` +
+	const wsUrl =
+		`wss://api.deepgram.com/v1/speak?model=${encodeURIComponent(voiceId)}` +
 		`&encoding=linear16&sample_rate=${sampleRate}`;
 
 	// Node 22 ships a built-in WebSocket. The 3rd-arg `headers` form is
@@ -360,10 +367,13 @@ export async function deepgramSpeakStreaming(opts: DeepgramStreamingOpts): Promi
 			settled = true;
 			action();
 		};
-		const onAbort = () => settle(() => {
-			try { ws.close(1000, "abort"); } catch {}
-			reject(makeAbortError());
-		});
+		const onAbort = () =>
+			settle(() => {
+				try {
+					ws.close(1000, "abort");
+				} catch {}
+				reject(makeAbortError());
+			});
 		signal?.addEventListener("abort", onAbort);
 
 		ws.addEventListener("open", () => {
@@ -388,30 +398,42 @@ export async function deepgramSpeakStreaming(opts: DeepgramStreamingOpts): Promi
 				try {
 					const p = sink.writePcm(i16);
 					if (p && typeof (p as Promise<void>).catch === "function") {
-						(p as Promise<void>).catch(() => { /* sink already errored, caller observes */ });
+						(p as Promise<void>).catch(() => {
+							/* sink already errored, caller observes */
+						});
 					}
-				} catch { /* sync errors swallowed — sink handles state */ }
+				} catch {
+					/* sync errors swallowed — sink handles state */
+				}
 			} else if (typeof data === "string") {
 				// Control frames: { "type": "Metadata" } / { "type": "Flushed" } / errors
 				try {
 					const msg = JSON.parse(data);
 					if (msg?.type === "Flushed" || msg?.type === "Final") {
 						// Server signals end of synthesis. Close and resolve.
-						try { ws.close(1000, "done"); } catch {}
+						try {
+							ws.close(1000, "done");
+						} catch {}
 						settle(() => resolve());
 					} else if (msg?.type === "Error" || msg?.error) {
 						// godspeed glm finding: must close socket on error
 						// path or sustained errors leak FDs + abort listeners.
-						try { ws.close(1011, "error"); } catch {}
+						try {
+							ws.close(1011, "error");
+						} catch {}
 						settle(() => reject(new Error(`Deepgram WS error: ${msg.error ?? data}`)));
 					}
-				} catch { /* ignore unparsable text frames */ }
+				} catch {
+					/* ignore unparsable text frames */
+				}
 			}
 		});
 		ws.addEventListener("error", (ev: any) => {
 			// godspeed glm finding: close on error path to release the
 			// FD + abort listener. Without this, sustained errors leak.
-			try { ws.close(1011, "error"); } catch {}
+			try {
+				ws.close(1011, "error");
+			} catch {}
 			settle(() => reject(new Error(`Deepgram WS error: ${ev?.message ?? "unknown"}`)));
 		});
 		ws.addEventListener("close", (ev: any) => {
