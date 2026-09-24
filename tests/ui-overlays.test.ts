@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { TtsOnboardingOverlay } from "../extensions/voice/tts-onboarding-overlay";
 import { HelpOverlay } from "../extensions/voice/ui-help-overlay";
+import { visualWidth } from "../extensions/voice/ui-width";
 
 const noTheme = undefined; // overlays gracefully fall back to plain text without theme
 
@@ -14,7 +15,7 @@ describe("TtsOnboardingOverlay — render", () => {
 		expect(lines.length).toBeGreaterThan(5);
 		// Should mention the recommended model and the action keys
 		const blob = lines.join("\n");
-		expect(blob).toContain("pi-listen TTS");
+		expect(blob).toContain("pi-voicekit TTS");
 		expect(blob).toContain("Recommended");
 		expect(blob).toContain("[↵]");
 		expect(blob).toContain("[m]");
@@ -28,8 +29,19 @@ describe("TtsOnboardingOverlay — render", () => {
 		});
 		const lines = o.render(50);
 		expect(lines.length).toBe(3);
-		expect(lines.join("\n")).toContain("pi-listen TTS");
+		expect(lines.join("\n")).toContain("pi-voicekit TTS");
 		expect(resolved).toBeNull();
+	});
+	test("box frame keeps a single width across border, body and hint rows", () => {
+		// Regression: the top border pads from the brand title's visual width, so a
+		// longer brand must not push the frame wider than the body/bottom rows.
+		for (const cols of [60, 70, 80, 100, 120, 200]) {
+			const o = new TtsOnboardingOverlay({ systemLocale: "en", theme: noTheme }, () => {});
+			const widths = o.render(cols).map(visualWidth);
+			const frame = widths[widths.length - 1];
+			expect(widths).toEqual(Array.from({ length: widths.length }, () => frame));
+			expect(frame).toBeGreaterThan(0);
+		}
 	});
 });
 
@@ -90,7 +102,7 @@ describe("HelpOverlay — render", () => {
 		const h = new HelpOverlay({ theme: noTheme }, () => {});
 		const lines = h.render(50);
 		const blob = lines.join("\n");
-		expect(blob).toContain("pi-listen Help");
+		expect(blob).toContain("pi-voicekit Help");
 		expect(blob).not.toContain("─"); // no horizontal rule chrome
 	});
 });

@@ -1,6 +1,6 @@
-# Contributing to pi-listen
+# Contributing to pi-voicekit
 
-Thank you for your interest in contributing to pi-listen! This document provides guidelines and information for contributors.
+Thank you for your interest in contributing to pi-voicekit! This document provides guidelines and information for contributors.
 
 ## Table of Contents
 
@@ -38,8 +38,8 @@ This project follows the [Contributor Covenant Code of Conduct](CODE_OF_CONDUCT.
 ### Install Dependencies
 
 ```bash
-git clone https://github.com/codexstar69/pi-listen.git
-cd pi-listen
+git clone https://github.com/CyFeng16/pi-voicekit.git
+cd pi-voicekit
 bun install
 ```
 
@@ -52,7 +52,7 @@ bun run check    # typecheck + test
 ## Project Structure
 
 ```
-pi-listen/
+pi-voicekit/
 ├── extensions/
 │   ├── voice.ts              # Main extension — state machine, recording, UI
 │   └── voice/
@@ -158,7 +158,7 @@ bun run check  # typecheck + test
 Please include:
 
 1. **Pi version** (`pi --version`)
-2. **pi-listen version** (check in Pi or `bun pm ls @codexstar/pi-listen`)
+2. **pi-voicekit version** (check in Pi or `bun pm ls pi-voicekit`)
 3. **OS and architecture** (e.g., macOS 15.2, Apple Silicon)
 4. **Steps to reproduce**
 5. **Expected vs actual behavior**
@@ -174,4 +174,4 @@ Please include:
 
 ## Recognition
 
-Contributors are recognized in release notes and the project README. Thank you for helping make pi-listen better!
+Contributors are recognized in release notes and the project README. Thank you for helping make pi-voicekit better!

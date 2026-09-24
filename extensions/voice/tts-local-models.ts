@@ -1,5 +1,5 @@
 /**
- * Local TTS model catalog for pi-listen v6.0.0+.
+ * Local TTS model catalog for pi-voicekit.
  *
  * Three tiers:
  *   - Tier 0 (default): Kitten Nano v0.2 — 25.4 MB, 8 voices, English. The

@@ -1,9 +1,9 @@
 [English](../README.md) | [简体中文](README.zh-CN.md) | [日本語](README.ja.md) | [한국어](README.ko.md) | [Español](README.es.md) | [Français](README.fr.md) | [Português](README.pt-BR.md) | [हिन्दी](README.hi.md)
 
-# pi-listen
+# pi-voicekit
 
 <p align="center">
-  <img src="../assets/banner.png" alt="pi-listen — Entrada de voz para el agente de programación Pi" width="100%" />
+  <img src="../assets/banner.png" alt="pi-voicekit — Entrada de voz para el agente de programación Pi" width="100%" />
 </p>
 
 **Entrada de voz mantener-para-hablar para [Pi](https://github.com/earendil-works/pi-coding-agent).** Streaming en la nube con Deepgram o completamente offline con modelos locales.
@@ -33,7 +33,7 @@ pi install npm:pi-voicekit
 
 ### 2. Elige tu backend
 
-pi-listen soporta dos backends de transcripción:
+pi-voicekit soporta dos backends de transcripción:
 
 |                   | Deepgram (nube)                                                               | Modelos locales (offline)                                                |
 | ----------------- | ----------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
@@ -62,7 +62,7 @@ No se necesita configuración — ejecuta `/voice-settings`, cambia el backend a
 
 ### 3. Abre Pi
 
-En el primer inicio, pi-listen verifica tu configuración y te dice qué está listo:
+En el primer inicio, pi-voicekit verifica tu configuración y te dice qué está listo:
 
 - Backend configurado (clave de Deepgram o modelo local)
 - Herramienta de captura de audio detectada (sox, ffmpeg o arecord)
@@ -70,7 +70,7 @@ En el primer inicio, pi-listen verifica tu configuración y te dice qué está l
 
 ### Captura de audio
 
-pi-listen detecta automáticamente tu herramienta de audio. No se necesita instalación manual si ya tienes sox o ffmpeg.
+pi-voicekit detecta automáticamente tu herramienta de audio. No se necesita instalación manual si ya tienes sox o ffmpeg.
 
 | Prioridad | Herramienta     | Plataformas           | Instalación                                                  |
 | --------- | --------------- | --------------------- | ------------------------------------------------------------ |
@@ -271,7 +271,7 @@ Ejecuta `/voice test` dentro de Pi para un diagnóstico completo.
 
 - **STT en la nube** — el audio se envía a Deepgram para transcripción (solo backend Deepgram)
 - **STT local** — el audio nunca sale de tu máquina (backend local)
-- **Sin telemetría** — pi-listen no recopila ni transmite datos de uso
+- **Sin telemetría** — pi-voicekit no recopila ni transmite datos de uso
 - **Clave API** — almacenada en variable de entorno o configuración de Pi, nunca registrada en logs
 
 Consulta [SECURITY.md](../SECURITY.md) para reportar vulnerabilidades.

@@ -1,5 +1,5 @@
 /**
- * pi-voice — Enterprise-grade voice STT for Pi CLI.
+ * pi-voicekit — Enterprise-grade voice STT for Pi CLI.
  *
  * Architecture (modeled after Claude Code's voice pipeline):
  *
@@ -2279,7 +2279,7 @@ export default function (pi: ExtensionAPI) {
 		// actually loaded after a `pi install .` (path-installed
 		// extensions cache modules across `pi install` reinstalls — only
 		// a fresh `pi` process picks up source changes).
-		voiceDebug("pi-listen v7.1.3 loaded", { reason });
+		voiceDebug("pi-voicekit loaded", { reason });
 
 		// Migration / setup runs on EVERY session_start, regardless of reason.
 		// Only the first-run notification is gated on isStartup.
@@ -2323,7 +2323,7 @@ export default function (pi: ExtensionAPI) {
 				? `Local model: ${LOCAL_MODELS.find((m) => m.id === config.localModel)?.name || config.localModel} (offline, batch mode)`
 				: "Deepgram Nova-3 (cloud, live streaming)";
 			const lines = [
-				"pi-listen ready!",
+				"pi-voicekit ready!",
 				"",
 				"  Hold SPACE to record → release to transcribe",
 				`  ${toggleShortcutLabel} to toggle recording`,
@@ -2339,7 +2339,7 @@ export default function (pi: ExtensionAPI) {
 		// No backend configured — show install hint only on actual startup.
 		if (!isStartup) return;
 		const lines = [
-			"pi-listen installed — voice input for Pi",
+			"pi-voicekit installed — voice input for Pi",
 			"",
 			"  Two backends available:",
 			"  • Deepgram — cloud, live streaming, $200 free credit (6–12 months of use)",
@@ -2955,27 +2955,27 @@ export default function (pi: ExtensionAPI) {
 	// ─── /voice-setup → redirects to settings panel ─────────────────────────
 
 	pi.registerCommand("voice-setup", {
-		description: "Open pi-listen settings panel",
+		description: "Open pi-voicekit settings panel",
 		handler: async (_args, cmdCtx) => openSettingsPanel(cmdCtx),
 	});
 
 	// ─── /voice-language → redirects to settings panel ───────────────────────
 
 	pi.registerCommand("voice-language", {
-		description: "Open pi-listen settings to change language",
+		description: "Open pi-voicekit settings to change language",
 		handler: async (_args, cmdCtx) => openSettingsPanel(cmdCtx),
 	});
 
 	// ─── /voice-help → v7.1 §11 keyboard / command reference ────────────────
 
 	pi.registerCommand("voice-help", {
-		description: "Show pi-listen keyboard + command reference",
+		description: "Show pi-voicekit keyboard + command reference",
 		handler: async (_args, cmdCtx) => openHelpOverlay(cmdCtx),
 	});
 
 	async function openHelpOverlay(cmdCtx: ExtensionCommandContext): Promise<void> {
 		if (!cmdCtx.hasUI) {
-			cmdCtx.ui.notify("pi-listen: hold space=record · /voice-speak <text> · /voice-settings · /voice-help", "info");
+			cmdCtx.ui.notify("pi-voicekit: hold space=record · /voice-speak <text> · /voice-settings · /voice-help", "info");
 			return;
 		}
 		const { HelpOverlay } = await import("./voice/ui-help-overlay");
@@ -3637,10 +3637,10 @@ export default function (pi: ExtensionAPI) {
 		handler: async (_args, cmdCtx) => openSettingsPanel(cmdCtx, 3),
 	});
 
-	// ─── /voice-settings — unified pi-listen settings panel ─────────────
+	// ─── /voice-settings — unified pi-voicekit settings panel ─────────────
 
 	pi.registerCommand("voice-settings", {
-		description: "Open pi-listen settings — backend, models, language, device",
+		description: "Open pi-voicekit settings — backend, models, language, device",
 		handler: async (_args, cmdCtx) => openSettingsPanel(cmdCtx),
 	});
 

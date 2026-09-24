@@ -103,7 +103,7 @@ export class HelpOverlay {
 		const w = Math.max(60, Math.min(width - 2, 90));
 		const lines: string[] = [];
 		lines.push(
-			`  ${bold("pi-listen")} ${dim(ICON.middot)} ${bold("Help")} ${dim(`${ICON.middot} press [esc] to close`)}`
+			`  ${bold("pi-voicekit")} ${dim(ICON.middot)} ${bold("Help")} ${dim(`${ICON.middot} press [esc] to close`)}`
 		);
 		lines.push(`  ${dim(ICON.boxH.repeat(Math.min(w, 60)))}`);
 		for (const sec of HELP_SECTIONS) {
@@ -127,7 +127,7 @@ export class HelpOverlay {
 		const dim = (s: string) => (t ? t.fg("dim", s) : s);
 		const accent = (s: string) => (t ? t.fg("accent", s) : s);
 		const lines: string[] = [];
-		lines.push(` ${accent("pi-listen Help")}`);
+		lines.push(` ${accent("pi-voicekit Help")}`);
 		for (const sec of HELP_SECTIONS) {
 			lines.push("");
 			lines.push(` ${accent(sec.heading)}`);

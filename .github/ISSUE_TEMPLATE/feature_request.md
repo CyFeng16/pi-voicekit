@@ -1,6 +1,6 @@
 ---
 name: Feature Request
-about: Suggest a feature for pi-listen
+about: Suggest a feature for pi-voicekit
 title: "[FEATURE] "
 labels: enhancement
 assignees: ''
@@ -25,4 +25,4 @@ Add any other context, mockups, or examples about the feature request here.
 ## Checklist
 
 - [ ] I've searched existing issues to confirm this isn't a duplicate
-- [ ] This feature aligns with pi-listen's scope (voice input, STT, voice commands)
+- [ ] This feature aligns with pi-voicekit's scope (voice input, STT, voice commands)

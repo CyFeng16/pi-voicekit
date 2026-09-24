@@ -1,9 +1,9 @@
 [English](../README.md) | [简体中文](README.zh-CN.md) | [日本語](README.ja.md) | [한국어](README.ko.md) | [Español](README.es.md) | [Français](README.fr.md) | [Português](README.pt-BR.md) | [हिन्दी](README.hi.md)
 
-# pi-listen
+# pi-voicekit
 
 <p align="center">
-  <img src="../assets/banner.png" alt="pi-listen — Pi 编程智能体的语音输入工具" width="100%" />
+  <img src="../assets/banner.png" alt="pi-voicekit — Pi 编程智能体的语音输入工具" width="100%" />
 </p>
 
 **为 [Pi](https://github.com/earendil-works/pi-coding-agent) 打造的按住即说语音输入。** 支持 Deepgram 云端流式传输或本地模型完全离线使用。
@@ -33,7 +33,7 @@ pi install npm:pi-voicekit
 
 ### 2. 选择转录后端
 
-pi-listen 支持两种转录后端：
+pi-voicekit 支持两种转录后端：
 
 |              | Deepgram（云端）                            | 本地模型（离线）                      |
 | ------------ | ------------------------------------------- | ------------------------------------- |
@@ -62,7 +62,7 @@ export DEEPGRAM_API_KEY="your-key-here"    # 添加到 ~/.zshrc 或 ~/.bashrc
 
 ### 3. 打开 Pi
 
-首次启动时，pi-listen 会检查你的配置并告知就绪状态：
+首次启动时，pi-voicekit 会检查你的配置并告知就绪状态：
 
 - 后端已配置（Deepgram 密钥或本地模型）
 - 检测到音频捕获工具（sox、ffmpeg 或 arecord）
@@ -70,7 +70,7 @@ export DEEPGRAM_API_KEY="your-key-here"    # 添加到 ~/.zshrc 或 ~/.bashrc
 
 ### 音频捕获
 
-pi-listen 自动检测你的音频工具。如果你已安装 sox 或 ffmpeg，无需手动安装。
+pi-voicekit 自动检测你的音频工具。如果你已安装 sox 或 ffmpeg，无需手动安装。
 
 | 优先级 | 工具            | 支持平台              | 安装方式                                                     |
 | ------ | --------------- | --------------------- | ------------------------------------------------------------ |
@@ -271,7 +271,7 @@ extensions/voice/settings-panel.ts  设置面板 — Component 接口、覆盖�
 
 - **云端语音转文字** — 音频发送到 Deepgram 进行转录（仅 Deepgram 后端）
 - **本地语音转文字** — 音频不会离开你的设备（本地后端）
-- **无遥测** — pi-listen 不收集或传输任何使用数据
+- **无遥测** — pi-voicekit 不收集或传输任何使用数据
 - **API 密钥** — 存储在环境变量或 Pi 设置中，从不记录日志
 
 漏洞报告请参阅 [SECURITY.md](../SECURITY.md)。
