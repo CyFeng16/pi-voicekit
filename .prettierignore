@@ -1,0 +1,11 @@
+# Local working files (superpowers specs/plans). Not tracked, never published.
+# Needed beyond `.pi-lens.json`'s `ignore`: pi-lens' autoformat phase does not
+# consult that matcher, it shells out to prettier with cwd set to the nearest
+# tool-config root (this repo root), so this file is what actually exempts it.
+docs/superpowers/
+
+# Markdown is hand-formatted by policy (AGENTS.md: "Markdown is intentionally
+# not gated — hand-format docs"), while pi-lens' deferred autoformat would other-
+# wise reflow every edited doc. CI's format:check glob never covered markdown, so
+# excluding it here only removes writes the gate never verified.
+**/*.md
