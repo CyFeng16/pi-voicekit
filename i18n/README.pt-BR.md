@@ -6,7 +6,7 @@
 > Sem vínculo com o autor original. Nome antigo: `pi-listen`.
 
 <p align="center">
-  <img src="../assets/banner.png" alt="pi-voicekit — Entrada de voz para o agente de programação Pi" width="100%" />
+  <img src="../assets/brand/banner-en.png" alt="pi-voicekit — Entrada e saída de voz para o agente de programação Pi" width="100%" />
 </p>
 
 **Voz de entrada e voz de saída para o [Pi](https://github.com/earendil-works/pi-coding-agent).**
@@ -28,7 +28,7 @@ fala as respostas do agente (Kitten, Kokoro, Piper ou Deepgram Aura).
 ## Veja como funciona
 
 <p align="center">
-  <video src="../assets/pi-listen.mp4" controls width="100%"></video>
+  <video src="../assets/demo/pi-voicekit-demo.mp4" controls width="100%"></video>
   <br>
   <em>Vídeo de demonstração</em>
 </p>
@@ -102,19 +102,19 @@ Toda a configuração fica em um só lugar: `/voice-settings`. Cinco abas cobrem
 
 ### Geral — backend, idioma, escopo
 
-<img src="../assets/settings-general.png" alt="Configurações gerais — backend, modelo, idioma, escopo, alternância de voz" width="600" />
+<img src="../assets/screenshots/settings-general.png" alt="Configurações gerais — backend, modelo, idioma, escopo, alternância de voz" width="600" />
 
 Alterne entre Deepgram (nuvem, streaming ao vivo) e Local (offline, modo em lote). Mude o idioma, o escopo e ative/desative a voz — tudo com atalhos de teclado.
 
 ### Modelos — navegar, buscar, instalar
 
-<img src="../assets/settings-models.png" alt="Aba Modelos — navegue por 21 modelos com avaliações de precisão/velocidade" width="600" />
+<img src="../assets/screenshots/settings-models.png" alt="Aba Modelos — navegue por 21 modelos com avaliações de precisão/velocidade" width="600" />
 
 Navegue por 21 modelos de Parakeet, Whisper, Moonshine, SenseVoice, GigaAM, Paraformer e Qwen3. Cada modelo mostra avaliações de precisão e velocidade (●●●●○/●●●●○), selos de aptidão e status de download. Busca difusa para encontrar modelos rápido. Pressione Enter para ativar e baixar.
 
 ### Baixados — gerenciar os modelos instalados
 
-<img src="../assets/settings-downloaded.png" alt="Aba Baixados — gerencie os modelos instalados, ativar ou excluir" width="600" />
+<img src="../assets/screenshots/settings-downloaded.png" alt="Aba Baixados — gerencie os modelos instalados, ativar ou excluir" width="600" />
 
 Veja o que está instalado, o uso total de disco e qual modelo está ativo. Pressione Enter para ativar, `x` para excluir. Modelos do [Handy](https://github.com/cjpais/handy) são detectados automaticamente e podem ser importados sem baixar de novo.
 
@@ -126,7 +126,7 @@ automática das respostas do agente é ativada aqui.
 
 ### Dispositivo — perfil de hardware e dependências
 
-<img src="../assets/settings-device.png" alt="Aba Dispositivo — perfil de hardware, dependências, espaço em disco" width="600" />
+<img src="../assets/screenshots/settings-device.png" alt="Aba Dispositivo — perfil de hardware, dependências, espaço em disco" width="600" />
 
 Veja o perfil do seu hardware (RAM, CPU, GPU), o status das dependências (runtime sherpa-onnx), o espaço em disco disponível e o total de modelos baixados. As recomendações de modelos se baseiam nesse perfil.
 

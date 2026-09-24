@@ -6,7 +6,7 @@
 > 原作者との関係はありません。旧名称：`pi-listen`。
 
 <p align="center">
-  <img src="../assets/banner.png" alt="pi-voicekit — Pi コーディングエージェント用の音声入力" width="100%" />
+  <img src="../assets/brand/banner-en.png" alt="pi-voicekit — Pi コーディングエージェント用の音声入力と出力" width="100%" />
 </p>
 
 **[Pi](https://github.com/earendil-works/pi-coding-agent) への音声入力と、Pi からの音声出力。**
@@ -28,7 +28,7 @@
 ## 動作デモ
 
 <p align="center">
-  <video src="../assets/pi-listen.mp4" controls width="100%"></video>
+  <video src="../assets/demo/pi-voicekit-demo.mp4" controls width="100%"></video>
   <br>
   <em>デモ動画</em>
 </p>
@@ -102,19 +102,19 @@ pi-voicekit は音声ツールを自動検出します。sox または ffmpeg �
 
 ### 全般 — バックエンド、言語、スコープ
 
-<img src="../assets/settings-general.png" alt="全般設定 — バックエンド、モデル、言語、スコープ、音声トグル" width="600" />
+<img src="../assets/screenshots/settings-general.png" alt="全般設定 — バックエンド、モデル、言語、スコープ、音声トグル" width="600" />
 
 Deepgram（クラウド、ライブストリーミング）と Local（オフライン、バッチモード）を切り替えます。言語とスコープの変更、音声の有効化/無効化も、すべてキーボードショートカットで操作できます。
 
 ### モデル — 閲覧、検索、インストール
 
-<img src="../assets/settings-models.png" alt="モデルタブ — 精度/速度の評価付きで 21 モデルを閲覧" width="600" />
+<img src="../assets/screenshots/settings-models.png" alt="モデルタブ — 精度/速度の評価付きで 21 モデルを閲覧" width="600" />
 
 Parakeet、Whisper、Moonshine、SenseVoice、GigaAM、Paraformer、Qwen3 の 21 モデルを閲覧できます。各モデルには精度と速度の評価（●●●●○/●●●●○）、適性バッジ、ダウンロード状況が表示されます。ファジー検索でモデルをすばやく見つけられます。Enter を押すと有効化してダウンロードします。
 
 ### ダウンロード済み — インストール済みモデルの管理
 
-<img src="../assets/settings-downloaded.png" alt="ダウンロード済みタブ — インストール済みモデルの管理、有効化や削除" width="600" />
+<img src="../assets/screenshots/settings-downloaded.png" alt="ダウンロード済みタブ — インストール済みモデルの管理、有効化や削除" width="600" />
 
 インストール済みのモデル、合計ディスク使用量、現在アクティブなモデルを確認できます。Enter で有効化、`x` で削除します。[Handy](https://github.com/cjpais/handy) のモデルは自動検出され、再ダウンロードなしでインポートできます。
 
@@ -126,7 +126,7 @@ TTS バックエンド（ローカルの sherpa-onnx または Deepgram Aura）�
 
 ### デバイス — ハードウェアプロファイルと依存関係
 
-<img src="../assets/settings-device.png" alt="デバイスタブ — ハードウェアプロファイル、依存関係、ディスク容量" width="600" />
+<img src="../assets/screenshots/settings-device.png" alt="デバイスタブ — ハードウェアプロファイル、依存関係、ディスク容量" width="600" />
 
 ハードウェアプロファイル（RAM、CPU、GPU）、依存関係の状態（sherpa-onnx ランタイム）、利用可能なディスク容量、ダウンロード済みモデルの合計を確認できます。モデルの推奨はこのプロファイルに基づきます。
 

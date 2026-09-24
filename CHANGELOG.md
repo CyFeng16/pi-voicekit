@@ -16,6 +16,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   hold-to-talk default, the local TTS voice count, and the audio-tool priority
   (ffmpeg first when `PULSE_SERVER` is set); completed the command and
   architecture listings; release notes now track the 0.1.x line.
+- **Brand assets added; `assets/` reorganised by purpose** — new banner (English for every README
+  except the Chinese one), icon and horizontal/vertical lockups live in `assets/brand/`; the settings
+  screenshots moved to `assets/screenshots/`, the demo to `assets/demo/`, and the upstream-era images
+  to `assets/legacy/`. `assets/banner.png` — a JPEG carrying a `.png` extension — was removed.
 
 ## [0.1.3] - 2026-09-24
 
@@ -975,7 +979,7 @@ single source of truth per row.
 ## [3.3.2] - 2026-03-14
 
 ### Added
-- **Documentation images** — photorealistic terminal hero and voice command screenshots in `docs/images/hero.png` and `docs/images/voice-commands.png`
+- **Documentation images** — photorealistic terminal hero in `docs/images/hero.png`
 
 ## [3.3.1] - 2026-03-14
 

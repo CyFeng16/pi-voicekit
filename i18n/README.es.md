@@ -6,7 +6,7 @@
 > Sin afiliación con el autor original. Nombre anterior: `pi-listen`.
 
 <p align="center">
-  <img src="../assets/banner.png" alt="pi-voicekit — Entrada de voz para el agente de programación Pi" width="100%" />
+  <img src="../assets/brand/banner-en.png" alt="pi-voicekit — Entrada y salida de voz para el agente de programación Pi" width="100%" />
 </p>
 
 **Voz de entrada y voz de salida para [Pi](https://github.com/earendil-works/pi-coding-agent).**
@@ -29,7 +29,7 @@ lee en voz alta las respuestas del agente (Kitten, Kokoro, Piper o Deepgram Aura
 ## Mira cómo funciona
 
 <p align="center">
-  <video src="../assets/pi-listen.mp4" controls width="100%"></video>
+  <video src="../assets/demo/pi-voicekit-demo.mp4" controls width="100%"></video>
   <br>
   <em>Vídeo de demostración</em>
 </p>
@@ -103,19 +103,19 @@ Toda la configuración vive en un solo lugar: `/voice-settings`. Cinco pestañas
 
 ### General — backend, idioma, alcance
 
-<img src="../assets/settings-general.png" alt="Configuración general — backend, modelo, idioma, alcance, activación de voz" width="600" />
+<img src="../assets/screenshots/settings-general.png" alt="Configuración general — backend, modelo, idioma, alcance, activación de voz" width="600" />
 
 Alterna entre Deepgram (nube, streaming en vivo) y Local (sin conexión, modo por lotes). Cambia el idioma, el alcance y activa o desactiva la voz — todo con atajos de teclado.
 
 ### Modelos — explorar, buscar, instalar
 
-<img src="../assets/settings-models.png" alt="Pestaña Modelos — explora 21 modelos con valoraciones de precisión/velocidad" width="600" />
+<img src="../assets/screenshots/settings-models.png" alt="Pestaña Modelos — explora 21 modelos con valoraciones de precisión/velocidad" width="600" />
 
 Explora 21 modelos de Parakeet, Whisper, Moonshine, SenseVoice, GigaAM, Paraformer y Qwen3. Cada modelo muestra valoraciones de precisión y velocidad (●●●●○/●●●●○), insignias de idoneidad y estado de descarga. Búsqueda difusa para encontrar modelos rápido. Pulsa Intro para activar y descargar.
 
 ### Descargados — gestiona los modelos instalados
 
-<img src="../assets/settings-downloaded.png" alt="Pestaña Descargados — gestiona los modelos instalados, activa o elimina" width="600" />
+<img src="../assets/screenshots/settings-downloaded.png" alt="Pestaña Descargados — gestiona los modelos instalados, activa o elimina" width="600" />
 
 Consulta qué está instalado, el uso total de disco y qué modelo está activo. Pulsa Intro para activar, `x` para eliminar. Los modelos de [Handy](https://github.com/cjpais/handy) se detectan automáticamente y se pueden importar sin volver a descargarlos.
 
@@ -127,7 +127,7 @@ automática de las respuestas del agente se activa aquí.
 
 ### Dispositivo — perfil de hardware y dependencias
 
-<img src="../assets/settings-device.png" alt="Pestaña Dispositivo — perfil de hardware, dependencias, espacio en disco" width="600" />
+<img src="../assets/screenshots/settings-device.png" alt="Pestaña Dispositivo — perfil de hardware, dependencias, espacio en disco" width="600" />
 
 Consulta tu perfil de hardware (RAM, CPU, GPU), el estado de las dependencias (runtime de sherpa-onnx), el espacio en disco disponible y el total de modelos descargados. Las recomendaciones de modelos se basan en este perfil.
 

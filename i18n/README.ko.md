@@ -6,7 +6,7 @@
 > 원작자와는 무관합니다. 이전 이름: `pi-listen`.
 
 <p align="center">
-  <img src="../assets/banner.png" alt="pi-voicekit — Pi 코딩 에이전트용 음성 입력" width="100%" />
+  <img src="../assets/brand/banner-en.png" alt="pi-voicekit — Pi 코딩 에이전트용 음성 입력 및 출력" width="100%" />
 </p>
 
 **[Pi](https://github.com/earendil-works/pi-coding-agent)를 위한 음성 입력과 음성 출력.**
@@ -26,7 +26,7 @@
 ## 작동 방식 보기
 
 <p align="center">
-  <video src="../assets/pi-listen.mp4" controls width="100%"></video>
+  <video src="../assets/demo/pi-voicekit-demo.mp4" controls width="100%"></video>
   <br>
   <em>데모 영상</em>
 </p>
@@ -100,19 +100,19 @@ pi-voicekit은 오디오 도구를 자동으로 감지합니다. sox나 ffmpeg�
 
 ### 일반 — 백엔드, 언어, 범위
 
-<img src="../assets/settings-general.png" alt="일반 설정 — 백엔드, 모델, 언어, 범위, 음성 토글" width="600" />
+<img src="../assets/screenshots/settings-general.png" alt="일반 설정 — 백엔드, 모델, 언어, 범위, 음성 토글" width="600" />
 
 Deepgram(클라우드, 라이브 스트리밍)과 Local(오프라인, 배치 모드)을 전환합니다. 언어와 범위를 바꾸고 음성을 활성화/비활성화하는 것도 모두 키보드 단축키로 할 수 있습니다.
 
 ### 모델 — 탐색, 검색, 설치
 
-<img src="../assets/settings-models.png" alt="모델 탭 — 정확도/속도 평가가 표시된 21개 모델 탐색" width="600" />
+<img src="../assets/screenshots/settings-models.png" alt="모델 탭 — 정확도/속도 평가가 표시된 21개 모델 탐색" width="600" />
 
 Parakeet, Whisper, Moonshine, SenseVoice, GigaAM, Paraformer, Qwen3의 21개 모델을 탐색할 수 있습니다. 각 모델에는 정확도와 속도 평가(●●●●○/●●●●○), 적합성 배지, 다운로드 상태가 표시됩니다. 퍼지 검색으로 원하는 모델을 빠르게 찾고, Enter를 눌러 활성화 및 다운로드하세요.
 
 ### 다운로드됨 — 설치된 모델 관리
 
-<img src="../assets/settings-downloaded.png" alt="다운로드됨 탭 — 설치된 모델 관리, 활성화 또는 삭제" width="600" />
+<img src="../assets/screenshots/settings-downloaded.png" alt="다운로드됨 탭 — 설치된 모델 관리, 활성화 또는 삭제" width="600" />
 
 설치된 모델, 총 디스크 사용량, 현재 활성화된 모델을 확인할 수 있습니다. Enter로 활성화하고 `x`로 삭제하세요. [Handy](https://github.com/cjpais/handy)의 모델은 자동으로 감지되어 다시 다운로드하지 않고 가져올 수 있습니다.
 
@@ -124,7 +124,7 @@ TTS 백엔드(로컬 sherpa-onnx 또는 Deepgram Aura)를 선택하고, 약 13 M
 
 ### 디바이스 — 하드웨어 프로필과 의존성
 
-<img src="../assets/settings-device.png" alt="디바이스 탭 — 하드웨어 프로필, 의존성, 디스크 공간" width="600" />
+<img src="../assets/screenshots/settings-device.png" alt="디바이스 탭 — 하드웨어 프로필, 의존성, 디스크 공간" width="600" />
 
 하드웨어 프로필(RAM, CPU, GPU), 의존성 상태(sherpa-onnx 런타임), 사용 가능한 디스크 공간, 다운로드된 모델 총량을 확인할 수 있습니다. 모델 추천은 이 프로필을 기반으로 합니다.
 

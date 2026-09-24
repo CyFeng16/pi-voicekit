@@ -6,7 +6,7 @@
 > Sans affiliation avec l'auteur d'origine. Ancien nom : `pi-listen`.
 
 <p align="center">
-  <img src="../assets/banner.png" alt="pi-voicekit — Saisie vocale pour l'agent de programmation Pi" width="100%" />
+  <img src="../assets/brand/banner-en.png" alt="pi-voicekit — Saisie et sortie vocales pour l'agent de programmation Pi" width="100%" />
 </p>
 
 **Entrée et sortie vocales pour [Pi](https://github.com/earendil-works/pi-coding-agent).**
@@ -29,7 +29,7 @@ prononce les réponses de l'agent (Kitten, Kokoro, Piper ou Deepgram Aura).
 ## Voir comment ça marche
 
 <p align="center">
-  <video src="../assets/pi-listen.mp4" controls width="100%"></video>
+  <video src="../assets/demo/pi-voicekit-demo.mp4" controls width="100%"></video>
   <br>
   <em>Vidéo de démonstration</em>
 </p>
@@ -103,19 +103,19 @@ Toute la configuration tient au même endroit : `/voice-settings`. Cinq onglets 
 
 ### Général — backend, langue, portée
 
-<img src="../assets/settings-general.png" alt="Paramètres généraux — backend, modèle, langue, portée, activation de la voix" width="600" />
+<img src="../assets/screenshots/settings-general.png" alt="Paramètres généraux — backend, modèle, langue, portée, activation de la voix" width="600" />
 
 Basculez entre Deepgram (cloud, streaming en direct) et Local (hors ligne, mode par lots). Changez la langue, la portée, et activez ou désactivez la voix — le tout au clavier.
 
 ### Modèles — parcourir, rechercher, installer
 
-<img src="../assets/settings-models.png" alt="Onglet Modèles — parcourir 21 modèles avec évaluations de précision/vitesse" width="600" />
+<img src="../assets/screenshots/settings-models.png" alt="Onglet Modèles — parcourir 21 modèles avec évaluations de précision/vitesse" width="600" />
 
 Parcourez 21 modèles issus de Parakeet, Whisper, Moonshine, SenseVoice, GigaAM, Paraformer et Qwen3. Chaque modèle affiche des évaluations de précision et de vitesse (●●●●○/●●●●○), des badges d'adéquation et l'état de téléchargement. La recherche floue permet de trouver un modèle rapidement. Appuyez sur Entrée pour l'activer et le télécharger.
 
 ### Téléchargés — gérer les modèles installés
 
-<img src="../assets/settings-downloaded.png" alt="Onglet Téléchargés — gérer les modèles installés, activer ou supprimer" width="600" />
+<img src="../assets/screenshots/settings-downloaded.png" alt="Onglet Téléchargés — gérer les modèles installés, activer ou supprimer" width="600" />
 
 Voyez ce qui est installé, l'espace disque total utilisé et le modèle actif. Appuyez sur Entrée pour activer, sur `x` pour supprimer. Les modèles de [Handy](https://github.com/cjpais/handy) sont détectés automatiquement et peuvent être importés sans re-téléchargement.
 
@@ -127,7 +127,7 @@ La lecture automatique des réponses de l'agent se règle ici.
 
 ### Appareil — profil matériel et dépendances
 
-<img src="../assets/settings-device.png" alt="Onglet Appareil — profil matériel, dépendances, espace disque" width="600" />
+<img src="../assets/screenshots/settings-device.png" alt="Onglet Appareil — profil matériel, dépendances, espace disque" width="600" />
 
 Consultez votre profil matériel (RAM, CPU, GPU), l'état des dépendances (runtime sherpa-onnx), l'espace disque disponible et le total des modèles téléchargés. Les recommandations de modèles s'appuient sur ce profil.
 

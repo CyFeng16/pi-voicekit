@@ -6,7 +6,7 @@
 > मूल लेखक से कोई संबद्धता नहीं। पुराना नाम: `pi-listen`।
 
 <p align="center">
-  <img src="../assets/banner.png" alt="pi-voicekit — Pi कोडिंग एजेंट के लिए वॉइस इनपुट" width="100%" />
+  <img src="../assets/brand/banner-en.png" alt="pi-voicekit — Pi कोडिंग एजेंट के लिए वॉइस इनपुट और आउटपुट" width="100%" />
 </p>
 
 **[Pi](https://github.com/earendil-works/pi-coding-agent) के लिए वॉइस इनपुट और वॉइस आउटपुट।**
@@ -28,7 +28,7 @@
 ## देखें कि यह कैसे काम करता है
 
 <p align="center">
-  <video src="../assets/pi-listen.mp4" controls width="100%"></video>
+  <video src="../assets/demo/pi-voicekit-demo.mp4" controls width="100%"></video>
   <br>
   <em>डेमो वीडियो</em>
 </p>
@@ -102,19 +102,19 @@ pi-voicekit आपका ऑडियो टूल ऑटो-डिटेक्�
 
 ### सामान्य — बैकएंड, भाषा, स्कोप
 
-<img src="../assets/settings-general.png" alt="सामान्य सेटिंग्स — बैकएंड, मॉडल, भाषा, स्कोप, वॉइस टॉगल" width="600" />
+<img src="../assets/screenshots/settings-general.png" alt="सामान्य सेटिंग्स — बैकएंड, मॉडल, भाषा, स्कोप, वॉइस टॉगल" width="600" />
 
 Deepgram (क्लाउड, लाइव स्ट्रीमिंग) और Local (ऑफ़लाइन, बैच मोड) के बीच स्विच करें। भाषा, स्कोप बदलें और वॉइस को चालू/बंद करें — सब कीबोर्ड शॉर्टकट से।
 
 ### मॉडल — ब्राउज़ करें, खोजें, इंस्टॉल करें
 
-<img src="../assets/settings-models.png" alt="मॉडल टैब — सटीकता/गति रेटिंग के साथ 21 मॉडल ब्राउज़ करें" width="600" />
+<img src="../assets/screenshots/settings-models.png" alt="मॉडल टैब — सटीकता/गति रेटिंग के साथ 21 मॉडल ब्राउज़ करें" width="600" />
 
 Parakeet, Whisper, Moonshine, SenseVoice, GigaAM, Paraformer और Qwen3 के 21 मॉडल ब्राउज़ करें। हर मॉडल सटीकता और गति रेटिंग (●●●●○/●●●●○), उपयुक्तता बैज और डाउनलोड स्थिति दिखाता है। मॉडल जल्दी ढूँढ़ने के लिए फ़ज़ी सर्च। सक्रिय करने और डाउनलोड करने के लिए Enter दबाएँ।
 
 ### डाउनलोड किए गए — इंस्टॉल किए गए मॉडल प्रबंधित करें
 
-<img src="../assets/settings-downloaded.png" alt="डाउनलोड किए गए टैब — इंस्टॉल किए गए मॉडल प्रबंधित करें, सक्रिय करें या हटाएँ" width="600" />
+<img src="../assets/screenshots/settings-downloaded.png" alt="डाउनलोड किए गए टैब — इंस्टॉल किए गए मॉडल प्रबंधित करें, सक्रिय करें या हटाएँ" width="600" />
 
 देखें कि क्या इंस्टॉल है, कुल डिस्क उपयोग और कौन सा मॉडल सक्रिय है। सक्रिय करने के लिए Enter दबाएँ, हटाने के लिए `x`। [Handy](https://github.com/cjpais/handy) के मॉडल ऑटो-डिटेक्ट होते हैं और बिना दोबारा डाउनलोड किए इम्पोर्ट किए जा सकते हैं।
 
@@ -126,7 +126,7 @@ Parakeet, Whisper, Moonshine, SenseVoice, GigaAM, Paraformer और Qwen3 के
 
 ### डिवाइस — हार्डवेयर प्रोफ़ाइल और डिपेंडेंसी
 
-<img src="../assets/settings-device.png" alt="डिवाइस टैब — हार्डवेयर प्रोफ़ाइल, डिपेंडेंसी, डिस्क स्पेस" width="600" />
+<img src="../assets/screenshots/settings-device.png" alt="डिवाइस टैब — हार्डवेयर प्रोफ़ाइल, डिपेंडेंसी, डिस्क स्पेस" width="600" />
 
 अपनी हार्डवेयर प्रोफ़ाइल (RAM, CPU, GPU), डिपेंडेंसी स्टेटस (sherpa-onnx रनटाइम), उपलब्ध डिस्क स्पेस और कुल डाउनलोड किए गए मॉडल देखें। मॉडल सिफ़ारिशें इसी प्रोफ़ाइल पर आधारित होती हैं।
 

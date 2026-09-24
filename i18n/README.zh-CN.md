@@ -6,7 +6,7 @@
 > 与原作者无隶属关系。旧名称：`pi-listen`。
 
 <p align="center">
-  <img src="../assets/banner.png" alt="pi-voicekit — Pi 编程智能体的语音输入工具" width="100%" />
+  <img src="../assets/brand/banner-zh-CN.png" alt="pi-voicekit — Pi 编程智能体的语音输入与输出工具" width="100%" />
 </p>
 
 **为 [Pi](https://github.com/earendil-works/pi-coding-agent) 打造的语音输入与语音输出。**
@@ -26,7 +26,7 @@
 ## 看看它是如何工作的
 
 <p align="center">
-  <video src="../assets/pi-listen.mp4" controls width="100%"></video>
+  <video src="../assets/demo/pi-voicekit-demo.mp4" controls width="100%"></video>
   <br>
   <em>演示视频</em>
 </p>
@@ -100,19 +100,19 @@ pi-voicekit 会自动检测你的音频工具。如果你已安装 sox 或 ffmpe
 
 ### 通用 — 后端、语言、作用域
 
-<img src="../assets/settings-general.png" alt="常规设置 — 后端、模型、语言、作用域、语音开关" width="600" />
+<img src="../assets/screenshots/settings-general.png" alt="常规设置 — 后端、模型、语言、作用域、语音开关" width="600" />
 
 在 Deepgram（云端，实时流式传输）与本地（离线，批量模式）之间切换。还能用键盘快捷键修改语言、作用域，以及启用/禁用语音。
 
 ### 模型 — 浏览、搜索、安装
 
-<img src="../assets/settings-models.png" alt="模型标签页 — 浏览 21 个模型及其准确度/速度评分" width="600" />
+<img src="../assets/screenshots/settings-models.png" alt="模型标签页 — 浏览 21 个模型及其准确度/速度评分" width="600" />
 
 浏览来自 Parakeet、Whisper、Moonshine、SenseVoice、GigaAM、Paraformer 和 Qwen3 的 21 个模型。每个模型都会显示准确度与速度评分（●●●●○/●●●●○）、适配徽章和下载状态。支持模糊搜索，快速定位模型。按回车即可激活并下载。
 
 ### 已下载 — 管理已安装的模型
 
-<img src="../assets/settings-downloaded.png" alt="已下载标签页 — 管理已安装模型、激活或删除" width="600" />
+<img src="../assets/screenshots/settings-downloaded.png" alt="已下载标签页 — 管理已安装模型、激活或删除" width="600" />
 
 查看已安装的模型、总磁盘占用，以及当前激活的模型。按回车激活，按 `x` 删除。来自 [Handy](https://github.com/cjpais/handy) 的模型会被自动检测，并可导入而无需重新下载。
 
@@ -124,7 +124,7 @@ pi-voicekit 会自动检测你的音频工具。如果你已安装 sox 或 ffmpe
 
 ### 设备 — 硬件信息和依赖项
 
-<img src="../assets/settings-device.png" alt="设备标签页 — 硬件信息、依赖项、磁盘空间" width="600" />
+<img src="../assets/screenshots/settings-device.png" alt="设备标签页 — 硬件信息、依赖项、磁盘空间" width="600" />
 
 查看硬件信息（内存、CPU、GPU）、依赖状态（sherpa-onnx 运行时）、可用磁盘空间和已下载模型总量。模型推荐会基于这份硬件信息生成。
 
