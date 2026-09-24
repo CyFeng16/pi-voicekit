@@ -46,8 +46,8 @@
     "typecheck": "bunx tsc -p tsconfig.json",
     "test": "bun test",
     "check": "bun run typecheck && bun run test",
-    "format": "bunx prettier@3.3.3 --write \"**/*.{ts,json,yml,yaml}\"",
-    "format:check": "bunx prettier@3.3.3 --check \"**/*.{ts,json,yml,yaml}\"",
+    "format": "prettier --write \"**/*.{ts,json,yml,yaml}\"",
+    "format:check": "prettier --check \"**/*.{ts,json,yml,yaml}\"",
     "release:dry": "bun run check && bun publish --dry-run",
     "release": "bun run check && bun publish --access public"
   },
@@ -58,7 +58,8 @@
   "devDependencies": {
     "@earendil-works/pi-coding-agent": "^0.85.0",
     "@earendil-works/pi-tui": "^0.85.0",
-    "@types/ws": "^8"
+    "@types/ws": "^8",
+    "prettier": "3.3.3"
   },
   "pi": {
     "extensions": [
