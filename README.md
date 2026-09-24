@@ -9,21 +9,19 @@
   <img src="https://raw.githubusercontent.com/CyFeng16/pi-voicekit/main/assets/banner.png" alt="pi-voicekit — Voice input for the Pi coding agent" width="100%" />
 </p>
 
-**Hold-to-talk voice input for [Pi](https://github.com/earendil-works/pi-coding-agent).** Cloud streaming via Deepgram or fully offline with local models.
+**Voice in and voice out for [Pi](https://github.com/earendil-works/pi-coding-agent).**
+Hold-to-talk STT — Deepgram streaming (cloud) or 21 offline models — plus TTS that
+speaks the agent's replies (Kitten, Kokoro, Piper, or Deepgram Aura).
 
 [![npm version](https://img.shields.io/npm/v/pi-voicekit.svg)](https://www.npmjs.com/package/pi-voicekit)
 [![license](https://img.shields.io/npm/l/pi-voicekit.svg)](https://github.com/CyFeng16/pi-voicekit/blob/main/LICENSE)
 [![original author](https://img.shields.io/badge/original_author-@baanditeagle-1DA1F2?logo=x&logoColor=white)](https://x.com/baanditeagle)
 
-> **v7.0.0 — World-class TTS UX** — pick models from `/voice-settings` Speak
-> tab (no more JSON editing), auto-download on selection with progress, voice
-> picker for every backend, first-run onboarding with smart-default
-> recommendation by your system locale, and `ttsAutoSpeak: true` finally
-> works — auto-speaks the agent's responses with code-block stripping and
-> rate limiting. Diagnostic command `/voice-speak-info` shows everything.
-> Resume-on-interrupt downloads. Plus all v6 features (14 local models from
-> 25 MB Kitten Nano up, Deepgram Aura cloud, region-strict language matching,
-> sentence-aware chunking). [Full changelog →](CHANGELOG.md)
+> **v0.1.3 — current release** — audio capture prefers `ffmpeg` when
+> `PULSE_SERVER` is set (SSH audio tunnel / remote PulseAudio), so remote
+> microphones record reliably. Voice in **and** voice out: 21 offline STT models,
+> 20 local TTS voices plus Deepgram Aura, driven by one `/voice-settings` panel
+> with 5 tabs. The 0.1.x line is documented in the [changelog](CHANGELOG.md).
 
 ---
 
@@ -95,11 +93,14 @@ pi-voicekit auto-detects your audio tool. No manual install needed if you alread
 | 2        | **ffmpeg**      | macOS, Linux, Windows | `brew install ffmpeg` / `apt install ffmpeg`                 |
 | 3        | **arecord**     | Linux only            | Pre-installed (ALSA)                                         |
 
+> When `PULSE_SERVER` is set (SSH audio tunnel or remote PulseAudio) the order
+> becomes **ffmpeg → sox → arecord** — network Pulse sources need ffmpeg.
+
 ---
 
 ## Settings Panel
 
-All configuration lives in one place: `/voice-settings`. Four tabs cover everything you need.
+All configuration lives in one place: `/voice-settings`. Five tabs cover everything you need.
 
 ### General — backend, language, scope
 
@@ -119,6 +120,12 @@ Browse 21 models from Parakeet, Whisper, Moonshine, SenseVoice, GigaAM, Paraform
 
 See what's installed, total disk usage, and which model is active. Press Enter to activate, `x` to delete. Models from [Handy](https://github.com/cjpais/handy) are auto-detected and can be imported without re-downloading.
 
+### Speak — TTS models and voices
+
+Pick a TTS backend (local sherpa-onnx or Deepgram Aura), browse 20 local voices
+from ~13 MB, download on selection, and choose a voice per backend. Auto-speak of
+agent replies is toggled here.
+
 ### Device — hardware profile and dependencies
 
 <img src="https://raw.githubusercontent.com/CyFeng16/pi-voicekit/main/assets/settings-device.png" alt="Device tab — hardware profile, dependencies, disk space" width="600" />
@@ -133,7 +140,7 @@ See your hardware profile (RAM, CPU, GPU), dependency status (sherpa-onnx runtim
 
 | Action               | Key                  | Notes                                                                   |
 | -------------------- | -------------------- | ----------------------------------------------------------------------- |
-| **Record to editor** | Hold `SPACE` (≥1.2s) | Release to finalize. Pre-records during warmup so you don't miss words. |
+| **Record to editor** | Hold `SPACE` (≥0.7s) | Release to finalize. Pre-records during warmup so you don't miss words. |
 | **Toggle recording** | `Ctrl+Shift+V`       | Works in all terminals — press to start, press again to stop.           |
 | **Clear editor**     | `Escape` × 2         | Double-tap within 500ms to clear all text.                              |
 
@@ -150,10 +157,15 @@ See your hardware profile (RAM, CPU, GPU), dependency status (sherpa-onnx runtim
 | ------------------------ | --------------------------------------------------------- |
 | `/voice-settings`        | Settings panel — backend, models, language, scope, device |
 | `/voice-models`          | Settings panel (Models tab)                               |
+| `/voice-setup`           | Run the first-run setup wizard                            |
+| `/voice-language`        | Open the settings panel to change language                |
 | `/voice-speak <text>`    | Speak text out loud (TTS)                                 |
 | `/voice-speak-test`      | Speak a sample sentence                                   |
 | `/voice-speak-toggle`    | Enable / disable TTS                                      |
-| `/voice-autosubmit` `[on | off]`                                                     | Toggle: STT text auto-sent to the agent |
+| `/voice-stream`          | Toggle Deepgram streaming TTS (cloud)                     |
+| `/voice-speak-stop`      | Stop in-flight TTS playback                               |
+| `/voice-autosubmit`      | Toggle: STT text auto-sent to the agent (`on`/`off`)      |
+| `/voice-hold-delay`      | Set hold-to-talk delay (200-3000 ms, default 700)         |
 | `/voice-speak-models`    | Browse / install TTS voice models                         |
 | `/voice-speak-info`      | Diagnose TTS state                                        |
 | `/voice-help`            | Keyboard + command reference (or press `F1`)              |
@@ -245,10 +257,10 @@ Models from [Handy](https://github.com/cjpais/handy) (`~/Library/Application Sup
 | **Device-aware recommendations** | Scores models against your hardware. Only best-in-class models get [recommended].        |
 | **Enterprise download pipeline** | Pre-checks (disk, network, permissions), live progress with speed/ETA, post-verification |
 | **Handy integration**            | Auto-detects models from Handy app, imports via symlink                                  |
-| **Audio fallback chain**         | Tries sox, ffmpeg, arecord in order                                                      |
+| **Audio fallback chain**         | Tries sox → ffmpeg → arecord in order — ffmpeg first when `PULSE_SERVER` is set          |
 | **Pre-recording**                | Audio capture starts during warmup — you never miss the first word                       |
 | **Tail recording**               | Keeps recording 1.5s after release so your last word isn't clipped                       |
-| **Live streaming**               | Deepgram Nova 3 WebSocket — interim transcripts as you speak                             |
+| **Live streaming**               | Deepgram Nova 3 WebSocket (Nova 2 for Chinese locales) — live interim transcripts        |
 | **56+ languages**                | Deepgram: 56+ with live streaming. Local: up to 57 depending on model.                   |
 | **Continuous dictation**         | `/voice dictate` for long-form input without holding keys                                |
 | **Typing cooldown**              | Space holds within 400ms of typing are ignored                                           |
@@ -260,15 +272,47 @@ Models from [Handy](https://github.com/cjpais/handy) (`~/Library/Application Sup
 ## Architecture
 
 ```
-extensions/voice.ts                Main extension — state machine, recording, UI, settings panel
-extensions/voice/config.ts         Config loading, saving, migration
-extensions/voice/onboarding.ts     First-run wizard, language picker
-extensions/voice/deepgram.ts       Deepgram URL builder, API key resolver
-extensions/voice/local.ts          Model catalog (21 models), in-process transcription
-extensions/voice/device.ts         Device profiling — RAM, GPU, CPU, container detection
-extensions/voice/model-download.ts Download manager — resume, progress, verification, Handy import
-extensions/voice/sherpa-engine.ts   sherpa-onnx bindings — recognizer lifecycle, inference
-extensions/voice/settings-panel.ts  Settings panel — Component interface, overlay, 4 tabs
+# core
+extensions/voice.ts                         Main extension — state machine, recording, UI, command surface
+extensions/voice/config.ts                  Config loading, saving, migration
+extensions/voice/onboarding.ts              First-run wizard, language picker
+extensions/voice/audio-tool.ts              Capture tool detection (sox / ffmpeg / arecord)
+extensions/voice/hold-to-talk.ts            Hold detection, Kitty and non-Kitty terminals
+extensions/voice/release-controller.ts      Recording lifecycle, release handling
+
+# speech-to-text
+extensions/voice/deepgram.ts                Deepgram URL builder, API key resolver
+extensions/voice/local.ts                   Model catalog (21 models), in-process transcription
+extensions/voice/sherpa-engine.ts           sherpa-onnx bindings — recognizer lifecycle, inference
+extensions/voice/sherpa-loader.ts           Lazy native module loading
+extensions/voice/model-download.ts          Download manager — resume, progress, verification, Handy import
+extensions/voice/device.ts                  Device profiling — RAM, GPU, CPU, container detection
+
+# text-to-speech
+extensions/voice/speak.ts                   Speak entry point, auto-speak wiring
+extensions/voice/tts-engine.ts              sherpa-onnx TTS synthesis
+extensions/voice/tts-deepgram.ts            Deepgram Aura voices (cloud)
+extensions/voice/tts-local-models.ts        Local TTS catalog — 20 voices (Kitten, Kokoro, Piper)
+extensions/voice/tts-playback.ts            Playback, buffering, player detection
+extensions/voice/tts-text-filter.ts         Code-block stripping, sentence prep
+extensions/voice/tts-onboarding.ts          TTS onboarding flow
+extensions/voice/tts-onboarding-overlay.ts  TTS onboarding overlay
+extensions/voice/tts-install-progress.ts    Model install progress widget
+extensions/voice/tts-playback-indicator.ts  Speaking indicator widget
+
+# settings and UI
+extensions/voice/settings-panel.ts          Settings panel — overlay, 5 tabs
+extensions/voice/ui-picker.ts               Generic list picker
+extensions/voice/ui-help-overlay.ts         Keyboard and command reference
+extensions/voice/ui-aura.ts                 Visual primitives (Liquid Braille, Aurora)
+extensions/voice/ui-widget-base.ts          Widget registry and base class
+extensions/voice/ui-render-ticker.ts        Shared render ticker
+extensions/voice/ui-icons.ts                Glyph and icon set
+extensions/voice/ui-width.ts                CJK-aware visual width helpers
+extensions/voice/ui-locale-labels.ts        Native language and voice labels
+
+# types
+extensions/voice/sherpa-onnx-node.d.ts      Type declarations for the optional native module
 ```
 
 ---
@@ -300,6 +344,8 @@ Settings stored in Pi's settings files under the `voice` key:
 into `~/.pi/agent/settings.json`. If you paste a key during onboarding, that is
 an explicit save and it still goes to `~/.env.secrets` or `~/.zshrc`.
 
+Hold-to-talk delay defaults to **700 ms** (`/voice-hold-delay` accepts 200–3000 ms).
+
 ---
 
 ## Troubleshooting
@@ -310,6 +356,7 @@ Run `/voice test` inside Pi for full diagnostics.
 | ------------------------------------------------ | --------------------------------------------------------------------------------------------------------------- |
 | "DEEPGRAM_API_KEY not set"                       | [Get a key](https://dpgr.am/pi-voice) → `export DEEPGRAM_API_KEY="..."` in `~/.zshrc`                           |
 | "No audio capture tool found"                    | `brew install sox` or `brew install ffmpeg`                                                                     |
+| Remote microphone records silence                | Audio over PulseAudio/SSH — install ffmpeg on the Pi side (capture then prefers ffmpeg)                         |
 | Space doesn't activate voice                     | Run `/voice-settings` — voice may be disabled                                                                   |
 | Local model not transcribing                     | Check `/voice-settings` → Device tab for sherpa-onnx status                                                     |
 | Download failed                                  | Partial downloads auto-resume on retry. Check disk space in Device tab.                                         |
