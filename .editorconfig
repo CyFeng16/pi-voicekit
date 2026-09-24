@@ -1,4 +1,4 @@
-# 顶层代码风格单一事实源（SSOT）：pi-listen-ng
+# 顶层代码风格单一事实源（SSOT）：pi-voicekit
 # 与 .prettierrc.json 保持一致：
 #   - TS/JS：[*.{ts,tsx,js,jsx}] tab 缩进 = 2 列（prettier useTabs+tabWidth2）
 #   - JSON/YAML：space 2（prettier override 同值）

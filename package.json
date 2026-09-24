@@ -1,7 +1,7 @@
 {
-  "name": "pi-listen-ng",
-  "version": "7.3.2",
-  "description": "Voice in + voice out for Pi CLI — hold-to-talk STT (Deepgram or 19 offline models) plus TTS (Kitten Nano, Piper, Kokoro, or Deepgram Aura)",
+  "name": "pi-voicekit",
+  "version": "0.1.3",
+  "description": "Voice in + voice out for Pi CLI — hold-to-talk STT (Deepgram streaming or 21 offline models) plus TTS (Kitten Nano, Piper, Kokoro, or Deepgram Aura)",
   "type": "module",
   "keywords": [
     "pi-package",
@@ -34,18 +34,20 @@
     "url": "https://x.com/baanditeagle"
   },
   "license": "MIT",
-  "homepage": "https://github.com/CyFeng16/pi-listen-ng#readme",
+  "homepage": "https://github.com/CyFeng16/pi-voicekit#readme",
   "repository": {
     "type": "git",
-    "url": "https://github.com/CyFeng16/pi-listen-ng.git"
+    "url": "https://github.com/CyFeng16/pi-voicekit.git"
   },
   "bugs": {
-    "url": "https://github.com/CyFeng16/pi-listen-ng/issues"
+    "url": "https://github.com/CyFeng16/pi-voicekit/issues"
   },
   "scripts": {
     "typecheck": "bunx tsc -p tsconfig.json",
     "test": "bun test",
     "check": "bun run typecheck && bun run test",
+    "format": "bunx prettier@3.3.3 --write \"**/*.{ts,json,yml,yaml}\"",
+    "format:check": "bunx prettier@3.3.3 --check \"**/*.{ts,json,yml,yaml}\"",
     "release:dry": "bun run check && bun publish --dry-run",
     "release": "bun run check && bun publish --access public"
   },

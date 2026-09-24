@@ -3,22 +3,22 @@
 # pi-listen
 
 <p align="center">
-  <img src="assets/banner.png" alt="pi-listen — Pi コーディングエージェント用の音声入力" width="100%" />
+  <img src="../assets/banner.png" alt="pi-listen — Pi コーディングエージェント用の音声入力" width="100%" />
 </p>
 
 **[Pi](https://github.com/earendil-works/pi-coding-agent) 向けの長押しトーク音声入力。** Deepgram によるクラウドストリーミング、またはローカルモデルによる完全オフライン対応。
 
-[![npm version](https://img.shields.io/npm/v/pi-listen-ng.svg)](https://www.npmjs.com/package/pi-listen-ng)
-[![license](https://img.shields.io/npm/l/pi-listen-ng.svg)](https://github.com/CyFeng16/pi-listen-ng/blob/main/LICENSE)
+[![npm version](https://img.shields.io/npm/v/pi-voicekit.svg)](https://www.npmjs.com/package/pi-voicekit)
+[![license](https://img.shields.io/npm/l/pi-voicekit.svg)](https://github.com/CyFeng16/pi-voicekit/blob/main/LICENSE)
 [![author](https://img.shields.io/badge/author-@baanditeagle-1DA1F2?logo=x&logoColor=white)](https://x.com/baanditeagle)
 
-> **v5.0.1 — セキュリティパッチ** — API キーがプロジェクト設定に漏洩する問題を修正。悪意のあるリポジトリ設定によるマイク音声のリモートサーバーへのリダイレクトを防止。API キーオンボーディング時のシェルインジェクションを修正。設定の書き込みがアトミック操作に。[完全な変更履歴 →](CHANGELOG.md)
+> **v5.0.1 — セキュリティパッチ** — API キーがプロジェクト設定に漏洩する問題を修正。悪意のあるリポジトリ設定によるマイク音声のリモートサーバーへのリダイレクトを防止。API キーオンボーディング時のシェルインジェクションを修正。設定の書き込みがアトミック操作に。[完全な変更履歴 →](../CHANGELOG.md)
 
 ---
 
 ## 動作デモ
 
-<video src="assets/pi-listen.mp4" controls width="100%"></video>
+<video src="../assets/pi-listen.mp4" controls width="100%"></video>
 
 ---
 
@@ -28,7 +28,7 @@
 
 ```bash
 # 通常のターミナルで実行（Pi の内部ではなく）
-pi install npm:pi-listen-ng
+pi install npm:pi-voicekit
 ```
 
 ### 2. バックエンドの選択
@@ -86,25 +86,25 @@ pi-listen は音声ツールを自動検出します。sox または ffmpeg が�
 
 ### 全般 — バックエンド、言語、スコープ
 
-<img src="assets/settings-general.png" alt="全般設定 — バックエンド、モデル、言語、スコープ、音声トグル" width="600" />
+<img src="../assets/settings-general.png" alt="全般設定 — バックエンド、モデル、言語、スコープ、音声トグル" width="600" />
 
 Deepgram（クラウド、ライブストリーミング）と Local（オフライン、バッチモード）を切り替え。言語、スコープの変更、音声の有効/無効化 — すべてキーボードショートカットで操作可能。
 
 ### モデル — 閲覧、検索、インストール
 
-<img src="assets/settings-models.png" alt="モデルタブ — 19モデルを精度/速度評価付きで閲覧" width="600" />
+<img src="../assets/settings-models.png" alt="モデルタブ — 21モデルを精度/速度評価付きで閲覧" width="600" />
 
-Parakeet、Whisper、Moonshine、SenseVoice、GigaAM の19モデルを閲覧。各モデルには精度と速度の評価（●●●●○/●●●●○）、適性バッジ、ダウンロード状態が表示されます。ファジー検索でモデルを素早く検索。Enter キーで有効化とダウンロード。
+Parakeet、Whisper、Moonshine、SenseVoice、GigaAM、Paraformer、Qwen3 の21モデルを閲覧。各モデルには精度と速度の評価（●●●●○/●●●●○）、適性バッジ、ダウンロード状態が表示されます。ファジー検索でモデルを素早く検索。Enter キーで有効化とダウンロード。
 
 ### ダウンロード済み — インストール済みモデルの管理
 
-<img src="assets/settings-downloaded.png" alt="ダウンロード済みタブ — インストール済みモデルの管理、有効化または削除" width="600" />
+<img src="../assets/settings-downloaded.png" alt="ダウンロード済みタブ — インストール済みモデルの管理、有効化または削除" width="600" />
 
 インストール済みのモデル、合計ディスク使用量、アクティブなモデルを確認。Enter で有効化、`x` で削除。[Handy](https://github.com/cjpais/handy) のモデルは自動検出され、再ダウンロードなしでインポートできます。
 
 ### デバイス — ハードウェアプロファイルと依存関係
 
-<img src="assets/settings-device.png" alt="デバイスタブ — ハードウェアプロファイル、依存関係、ディスク容量" width="600" />
+<img src="../assets/settings-device.png" alt="デバイスタブ — ハードウェアプロファイル、依存関係、ディスク容量" width="600" />
 
 ハードウェアプロファイル（RAM、CPU、GPU）、依存関係の状態（sherpa-onnx ランタイム）、利用可能なディスク容量、ダウンロード済みモデルの合計を確認。モデルの推奨はこのプロファイルに基づきます。
 
@@ -144,7 +144,7 @@ Parakeet、Whisper、Moonshine、SenseVoice、GigaAM の19モデルを閲覧。�
 
 ## ローカルモデル
 
-5つのファミリーから19モデル。品質順に並べています — 最良のモデルが最初です。
+7つのファミリーから21モデル。品質順に並べています — 最良のモデルが最初です。
 
 ### おすすめ
 
@@ -195,7 +195,7 @@ SPACE を離す → バッファを sherpa-onnx に送信（インプロセス�
 | 機能                                           | 説明                                                                                                 |
 | ---------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
 | **デュアルバックエンド**                       | Deepgram（クラウド、ライブストリーミング）またはローカルモデル（オフライン、バッチ）— 設定で切り替え |
-| **19のローカルモデル**                         | Parakeet、Whisper、Moonshine、SenseVoice、GigaAM — 精度/速度評価付き                                 |
+| **21のローカルモデル**                         | Parakeet、Whisper、Moonshine、SenseVoice、GigaAM、Paraformer、Qwen3 — 精度/速度評価付き                                 |
 | **統合設定パネル**                             | すべての設定を一つのオーバーレイパネルで — `/voice-settings`                                         |
 | **デバイス対応の推奨**                         | ハードウェアに対してモデルをスコアリング。ベストインクラスのモデルのみ [recommended] 表示。          |
 | **エンタープライズ級ダウンロードパイプライン** | 事前チェック（ディスク、ネットワーク、権限）、速度/ETA 付きライブ進捗、ダウンロード後の検証          |
@@ -219,7 +219,7 @@ extensions/voice.ts                メイン拡張 — ステートマシン、�
 extensions/voice/config.ts         設定の読み込み、保存、マイグレーション
 extensions/voice/onboarding.ts     初回実行ウィザード、言語ピッカー
 extensions/voice/deepgram.ts       Deepgram URL ビルダー、API キーリゾルバー
-extensions/voice/local.ts          モデルカタログ（19モデル）、インプロセス文字起こし
+extensions/voice/local.ts          モデルカタログ（21モデル）、インプロセス文字起こし
 extensions/voice/device.ts         デバイスプロファイリング — RAM、GPU、CPU、コンテナ検出
 extensions/voice/model-download.ts ダウンロードマネージャー — レジューム、進捗、検証、Handy インポート
 extensions/voice/sherpa-engine.ts   sherpa-onnx バインディング — リコグナイザーライフサイクル、推論
@@ -274,19 +274,19 @@ Pi 内で `/voice test` を実行して完全な診断を行います。
 - **テレメトリなし** — pi-listen は利用データの収集・送信を行いません
 - **API キー** — 環境変数または Pi 設定に保存、ログには記録されません
 
-脆弱性の報告については [SECURITY.md](SECURITY.md) をご覧ください。
+脆弱性の報告については [SECURITY.md](../SECURITY.md) をご覧ください。
 
 ---
 
 ## ライセンス
 
-[MIT](LICENSE) © 2026 codexstar69
+[MIT](../LICENSE) © 2026 codexstar69
 
 ---
 
 ## リンク
 
-- **npm:** [npmjs.com/package/pi-listen-ng](https://www.npmjs.com/package/pi-listen-ng)
-- **GitHub:** [github.com/CyFeng16/pi-listen-ng](https://github.com/CyFeng16/pi-listen-ng)
+- **npm:** [npmjs.com/package/pi-voicekit](https://www.npmjs.com/package/pi-voicekit)
+- **GitHub:** [github.com/CyFeng16/pi-voicekit](https://github.com/CyFeng16/pi-voicekit)
 - **Deepgram:** [dpgr.am/pi-voice](https://dpgr.am/pi-voice)（$200 無料クレジット）
 - **Pi CLI:** [github.com/earendil-works/pi-coding-agent](https://github.com/earendil-works/pi-coding-agent)

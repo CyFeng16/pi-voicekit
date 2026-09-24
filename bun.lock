@@ -3,7 +3,7 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "pi-listen-ng",
+      "name": "pi-voicekit",
       "devDependencies": {
         "@earendil-works/pi-coding-agent": "^0.85.0",
         "@earendil-works/pi-tui": "^0.85.0",

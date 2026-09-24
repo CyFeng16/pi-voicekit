@@ -3,22 +3,22 @@
 # pi-listen
 
 <p align="center">
-  <img src="assets/banner.png" alt="pi-listen — Saisie vocale pour l'agent de programmation Pi" width="100%" />
+  <img src="../assets/banner.png" alt="pi-listen — Saisie vocale pour l'agent de programmation Pi" width="100%" />
 </p>
 
 **Saisie vocale maintenir-pour-parler pour [Pi](https://github.com/earendil-works/pi-coding-agent).** Streaming cloud via Deepgram ou entièrement hors ligne avec des modèles locaux.
 
-[![npm version](https://img.shields.io/npm/v/pi-listen-ng.svg)](https://www.npmjs.com/package/pi-listen-ng)
-[![license](https://img.shields.io/npm/l/pi-listen-ng.svg)](https://github.com/CyFeng16/pi-listen-ng/blob/main/LICENSE)
+[![npm version](https://img.shields.io/npm/v/pi-voicekit.svg)](https://www.npmjs.com/package/pi-voicekit)
+[![license](https://img.shields.io/npm/l/pi-voicekit.svg)](https://github.com/CyFeng16/pi-voicekit/blob/main/LICENSE)
 [![author](https://img.shields.io/badge/author-@baanditeagle-1DA1F2?logo=x&logoColor=white)](https://x.com/baanditeagle)
 
-> **v5.0.1 — Correctif de sécurité** — Les clés API ne fuient plus dans la configuration du projet. L'audio du micro ne peut plus être redirigé vers des serveurs distants via des paramètres de dépôt malveillants. Injection shell corrigée dans le processus d'intégration des clés API. Les écritures de configuration sont désormais atomiques. [Journal des modifications complet →](CHANGELOG.md)
+> **v5.0.1 — Correctif de sécurité** — Les clés API ne fuient plus dans la configuration du projet. L'audio du micro ne peut plus être redirigé vers des serveurs distants via des paramètres de dépôt malveillants. Injection shell corrigée dans le processus d'intégration des clés API. Les écritures de configuration sont désormais atomiques. [Journal des modifications complet →](../CHANGELOG.md)
 
 ---
 
 ## Voir comment ça marche
 
-<video src="assets/pi-listen.mp4" controls width="100%"></video>
+<video src="../assets/pi-listen.mp4" controls width="100%"></video>
 
 ---
 
@@ -28,7 +28,7 @@
 
 ```bash
 # Dans un terminal classique (pas à l'intérieur de Pi)
-pi install npm:pi-listen-ng
+pi install npm:pi-voicekit
 ```
 
 ### 2. Choisir votre backend
@@ -86,25 +86,25 @@ Toute la configuration au même endroit : `/voice-settings`. Quatre onglets couv
 
 ### Général — backend, langue, portée
 
-<img src="assets/settings-general.png" alt="Paramètres généraux — backend, modèle, langue, portée, activation/désactivation de la voix" width="600" />
+<img src="../assets/settings-general.png" alt="Paramètres généraux — backend, modèle, langue, portée, activation/désactivation de la voix" width="600" />
 
 Basculez entre Deepgram (cloud, streaming en direct) et Local (hors ligne, mode par lots). Changez la langue, la portée et activez/désactivez la voix — le tout avec des raccourcis clavier.
 
 ### Modèles — parcourir, rechercher, installer
 
-<img src="assets/settings-models.png" alt="Onglet Modèles — parcourir 19 modèles avec évaluations de précision/vitesse" width="600" />
+<img src="../assets/settings-models.png" alt="Onglet Modèles — parcourir 21 modèles avec évaluations de précision/vitesse" width="600" />
 
-Parcourez 19 modèles issus de Parakeet, Whisper, Moonshine, SenseVoice et GigaAM. Chaque modèle affiche des évaluations de précision et de vitesse (●●●●○/●●●●○), des badges d'aptitude et l'état de téléchargement. Recherche floue pour trouver les modèles rapidement. Appuyez sur Entrée pour activer et télécharger.
+Parcourez 21 modèles issus de Parakeet, Whisper, Moonshine, SenseVoice, GigaAM, Paraformer et Qwen3. Chaque modèle affiche des évaluations de précision et de vitesse (●●●●○/●●●●○), des badges d'aptitude et l'état de téléchargement. Recherche floue pour trouver les modèles rapidement. Appuyez sur Entrée pour activer et télécharger.
 
 ### Téléchargés — gérer les modèles installés
 
-<img src="assets/settings-downloaded.png" alt="Onglet Téléchargés — gérer les modèles installés, activer ou supprimer" width="600" />
+<img src="../assets/settings-downloaded.png" alt="Onglet Téléchargés — gérer les modèles installés, activer ou supprimer" width="600" />
 
 Consultez ce qui est installé, l'utilisation totale du disque et quel modèle est actif. Appuyez sur Entrée pour activer, `x` pour supprimer. Les modèles de [Handy](https://github.com/cjpais/handy) sont détectés automatiquement et peuvent être importés sans re-téléchargement.
 
 ### Appareil — profil matériel et dépendances
 
-<img src="assets/settings-device.png" alt="Onglet Appareil — profil matériel, dépendances, espace disque" width="600" />
+<img src="../assets/settings-device.png" alt="Onglet Appareil — profil matériel, dépendances, espace disque" width="600" />
 
 Consultez votre profil matériel (RAM, CPU, GPU), l'état des dépendances (runtime sherpa-onnx), l'espace disque disponible et le total des modèles téléchargés. Les recommandations de modèles sont basées sur ce profil.
 
@@ -144,7 +144,7 @@ Consultez votre profil matériel (RAM, CPU, GPU), l'état des dépendances (runt
 
 ## Modèles locaux
 
-19 modèles répartis en 5 familles. Triés par qualité — les meilleurs modèles en premier.
+21 modèles répartis en 7 familles. Triés par qualité — les meilleurs modèles en premier.
 
 ### Meilleurs choix
 
@@ -195,7 +195,7 @@ Les modèles de [Handy](https://github.com/cjpais/handy) (`~/Library/Application
 | Fonctionnalité                            | Description                                                                                                               |
 | ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
 | **Double backend**                        | Deepgram (cloud, streaming en direct) ou modèles locaux (hors ligne, par lots) — changement dans les paramètres           |
-| **19 modèles locaux**                     | Parakeet, Whisper, Moonshine, SenseVoice, GigaAM — avec évaluations précision/vitesse                                     |
+| **21 modèles locaux**                     | Parakeet, Whisper, Moonshine, SenseVoice, GigaAM, Paraformer, Qwen3 — avec évaluations précision/vitesse                                     |
 | **Panneau de configuration unifié**       | Un seul panneau superposé pour toute la configuration — `/voice-settings`                                                 |
 | **Recommandations selon l'appareil**      | Évalue les modèles par rapport à votre matériel. Seuls les meilleurs de leur catégorie obtiennent [recommended].          |
 | **Pipeline de téléchargement entreprise** | Pré-vérifications (disque, réseau, permissions), progression en direct avec vitesse/ETA, vérification post-téléchargement |
@@ -219,7 +219,7 @@ extensions/voice.ts                Extension principale — machine à états, e
 extensions/voice/config.ts         Chargement, sauvegarde et migration de la configuration
 extensions/voice/onboarding.ts     Assistant de première exécution, sélecteur de langue
 extensions/voice/deepgram.ts       Constructeur d'URL Deepgram, résolveur de clé API
-extensions/voice/local.ts          Catalogue de modèles (19 modèles), transcription en processus
+extensions/voice/local.ts          Catalogue de modèles (21 modèles), transcription en processus
 extensions/voice/device.ts         Profilage d'appareil — RAM, GPU, CPU, détection de conteneur
 extensions/voice/model-download.ts Gestionnaire de téléchargements — reprise, progression, vérification, import Handy
 extensions/voice/sherpa-engine.ts   Bindings sherpa-onnx — cycle de vie du reconnaisseur, inférence
@@ -274,19 +274,19 @@ Exécutez `/voice test` dans Pi pour un diagnostic complet.
 - **Pas de télémétrie** — pi-listen ne collecte ni ne transmet de données d'utilisation
 - **Clé API** — stockée dans une variable d'environnement ou les paramètres Pi, jamais journalisée
 
-Consultez [SECURITY.md](SECURITY.md) pour signaler des vulnérabilités.
+Consultez [SECURITY.md](../SECURITY.md) pour signaler des vulnérabilités.
 
 ---
 
 ## Licence
 
-[MIT](LICENSE) © 2026 codexstar69
+[MIT](../LICENSE) © 2026 codexstar69
 
 ---
 
 ## Liens
 
-- **npm :** [npmjs.com/package/pi-listen-ng](https://www.npmjs.com/package/pi-listen-ng)
-- **GitHub :** [github.com/CyFeng16/pi-listen-ng](https://github.com/CyFeng16/pi-listen-ng)
+- **npm :** [npmjs.com/package/pi-voicekit](https://www.npmjs.com/package/pi-voicekit)
+- **GitHub :** [github.com/CyFeng16/pi-voicekit](https://github.com/CyFeng16/pi-voicekit)
 - **Deepgram :** [dpgr.am/pi-voice](https://dpgr.am/pi-voice) (200 $ de crédit gratuit)
 - **Pi CLI :** [github.com/earendil-works/pi-coding-agent](https://github.com/earendil-works/pi-coding-agent)

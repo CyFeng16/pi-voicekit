@@ -3,22 +3,22 @@
 # pi-listen
 
 <p align="center">
-  <img src="assets/banner.png" alt="pi-listen — Pi कोडिंग एजेंट के लिए वॉइस इनपुट" width="100%" />
+  <img src="../assets/banner.png" alt="pi-listen — Pi कोडिंग एजेंट के लिए वॉइस इनपुट" width="100%" />
 </p>
 
 **[Pi](https://github.com/earendil-works/pi-coding-agent) के लिए होल्ड-टू-टॉक वॉइस इनपुट।** Deepgram के ज़रिए क्लाउड स्ट्रीमिंग या लोकल मॉडल के साथ पूरी तरह ऑफ़लाइन।
 
-[![npm version](https://img.shields.io/npm/v/pi-listen-ng.svg)](https://www.npmjs.com/package/pi-listen-ng)
-[![license](https://img.shields.io/npm/l/pi-listen-ng.svg)](https://github.com/CyFeng16/pi-listen-ng/blob/main/LICENSE)
+[![npm version](https://img.shields.io/npm/v/pi-voicekit.svg)](https://www.npmjs.com/package/pi-voicekit)
+[![license](https://img.shields.io/npm/l/pi-voicekit.svg)](https://github.com/CyFeng16/pi-voicekit/blob/main/LICENSE)
 [![author](https://img.shields.io/badge/author-@baanditeagle-1DA1F2?logo=x&logoColor=white)](https://x.com/baanditeagle)
 
-> **v5.0.1 — सुरक्षा पैच** — API कुंजियाँ अब प्रोजेक्ट कॉन्फ़िग में लीक नहीं होतीं। माइक ऑडियो को दुर्भावनापूर्ण रिपो सेटिंग्स के ज़रिए रिमोट सर्वर पर रीडायरेक्ट नहीं किया जा सकता। API कुंजी ऑनबोर्डिंग में शेल इंजेक्शन ठीक किया गया। कॉन्फ़िग राइट्स अब एटॉमिक हैं। [पूरा चेंजलॉग →](CHANGELOG.md)
+> **v5.0.1 — सुरक्षा पैच** — API कुंजियाँ अब प्रोजेक्ट कॉन्फ़िग में लीक नहीं होतीं। माइक ऑडियो को दुर्भावनापूर्ण रिपो सेटिंग्स के ज़रिए रिमोट सर्वर पर रीडायरेक्ट नहीं किया जा सकता। API कुंजी ऑनबोर्डिंग में शेल इंजेक्शन ठीक किया गया। कॉन्फ़िग राइट्स अब एटॉमिक हैं। [पूरा चेंजलॉग →](../CHANGELOG.md)
 
 ---
 
 ## देखें कैसे काम करता है
 
-<video src="assets/pi-listen.mp4" controls width="100%"></video>
+<video src="../assets/pi-listen.mp4" controls width="100%"></video>
 
 ---
 
@@ -28,7 +28,7 @@
 
 ```bash
 # सामान्य टर्मिनल में चलाएँ (Pi के अंदर नहीं)
-pi install npm:pi-listen-ng
+pi install npm:pi-voicekit
 ```
 
 ### 2. अपना बैकएंड चुनें
@@ -86,25 +86,25 @@ pi-listen आपके ऑडियो टूल को ऑटो-डिटे�
 
 ### सामान्य — बैकएंड, भाषा, स्कोप
 
-<img src="assets/settings-general.png" alt="सामान्य सेटिंग्स — बैकएंड, मॉडल, भाषा, स्कोप, वॉइस टॉगल" width="600" />
+<img src="../assets/settings-general.png" alt="सामान्य सेटिंग्स — बैकएंड, मॉडल, भाषा, स्कोप, वॉइस टॉगल" width="600" />
 
 Deepgram (क्लाउड, लाइव स्ट्रीमिंग) और Local (ऑफ़लाइन, बैच मोड) के बीच स्विच करें। भाषा, स्कोप बदलें और वॉइस को चालू/बंद करें — सब कीबोर्ड शॉर्टकट से।
 
 ### मॉडल — ब्राउज़ करें, खोजें, इंस्टॉल करें
 
-<img src="assets/settings-models.png" alt="मॉडल टैब — 19 मॉडल ब्राउज़ करें, सटीकता/गति रेटिंग के साथ" width="600" />
+<img src="../assets/settings-models.png" alt="मॉडल टैब — 21 मॉडल ब्राउज़ करें, सटीकता/गति रेटिंग के साथ" width="600" />
 
-Parakeet, Whisper, Moonshine, SenseVoice और GigaAM के 19 मॉडल ब्राउज़ करें। हर मॉडल सटीकता और गति रेटिंग (●●●●○/●●●●○), उपयुक्तता बैज और डाउनलोड स्थिति दिखाता है। मॉडल तेज़ी से खोजने के लिए फ़ज़ी सर्च। Enter दबाएँ सक्रिय करने और डाउनलोड करने के लिए।
+Parakeet, Whisper, Moonshine, SenseVoice, GigaAM, Paraformer और Qwen3 के 21 मॉडल ब्राउज़ करें। हर मॉडल सटीकता और गति रेटिंग (●●●●○/●●●●○), उपयुक्तता बैज और डाउनलोड स्थिति दिखाता है। मॉडल तेज़ी से खोजने के लिए फ़ज़ी सर्च। Enter दबाएँ सक्रिय करने और डाउनलोड करने के लिए।
 
 ### डाउनलोड किए गए — इंस्टॉल किए गए मॉडल प्रबंधित करें
 
-<img src="assets/settings-downloaded.png" alt="डाउनलोड किए गए टैब — इंस्टॉल किए गए मॉडल प्रबंधित करें, सक्रिय या हटाएँ" width="600" />
+<img src="../assets/settings-downloaded.png" alt="डाउनलोड किए गए टैब — इंस्टॉल किए गए मॉडल प्रबंधित करें, सक्रिय या हटाएँ" width="600" />
 
 देखें क्या इंस्टॉल है, कुल डिस्क उपयोग और कौन सा मॉडल सक्रिय है। Enter से सक्रिय करें, `x` से हटाएँ। [Handy](https://github.com/cjpais/handy) के मॉडल ऑटो-डिटेक्ट होते हैं और बिना दोबारा डाउनलोड किए इम्पोर्ट हो सकते हैं।
 
 ### डिवाइस — हार्डवेयर प्रोफ़ाइल और डिपेंडेंसी
 
-<img src="assets/settings-device.png" alt="डिवाइस टैब — हार्डवेयर प्रोफ़ाइल, डिपेंडेंसी, डिस्क स्पेस" width="600" />
+<img src="../assets/settings-device.png" alt="डिवाइस टैब — हार्डवेयर प्रोफ़ाइल, डिपेंडेंसी, डिस्क स्पेस" width="600" />
 
 अपनी हार्डवेयर प्रोफ़ाइल (RAM, CPU, GPU), डिपेंडेंसी स्टेटस (sherpa-onnx रनटाइम), उपलब्ध डिस्क स्पेस और कुल डाउनलोड किए गए मॉडल देखें। मॉडल सिफ़ारिशें इस प्रोफ़ाइल पर आधारित हैं।
 
@@ -144,7 +144,7 @@ Parakeet, Whisper, Moonshine, SenseVoice और GigaAM के 19 मॉडल �
 
 ## लोकल मॉडल
 
-5 परिवारों में 19 मॉडल। गुणवत्ता के अनुसार क्रमबद्ध — सबसे अच्छे मॉडल पहले।
+7 परिवारों में 21 मॉडल। गुणवत्ता के अनुसार क्रमबद्ध — सबसे अच्छे मॉडल पहले।
 
 ### शीर्ष चयन
 
@@ -195,7 +195,7 @@ SPACE छोड़ें → बफ़र sherpa-onnx को भेजा जा
 | सुविधा                           | विवरण                                                                                              |
 | -------------------------------- | -------------------------------------------------------------------------------------------------- |
 | **दोहरा बैकएंड**                 | Deepgram (क्लाउड, लाइव स्ट्रीमिंग) या लोकल मॉडल (ऑफ़लाइन, बैच) — सेटिंग्स में स्विच करें           |
-| **19 लोकल मॉडल**                 | Parakeet, Whisper, Moonshine, SenseVoice, GigaAM — सटीकता/गति रेटिंग सहित                          |
+| **21 लोकल मॉडल**                 | Parakeet, Whisper, Moonshine, SenseVoice, GigaAM, Paraformer, Qwen3 — सटीकता/गति रेटिंग सहित                          |
 | **एकीकृत सेटिंग्स पैनल**         | सारी कॉन्फ़िगरेशन एक ओवरले पैनल में — `/voice-settings`                                            |
 | **डिवाइस-अवेयर सिफ़ारिशें**      | आपके हार्डवेयर के हिसाब से मॉडल स्कोर करता है। केवल बेस्ट-इन-क्लास मॉडल को [recommended] मिलता है। |
 | **एंटरप्राइज़ डाउनलोड पाइपलाइन** | प्री-चेक (डिस्क, नेटवर्क, अनुमतियाँ), गति/ETA के साथ लाइव प्रगति, डाउनलोड बाद सत्यापन              |
@@ -219,7 +219,7 @@ extensions/voice.ts                मुख्य एक्सटेंशन �
 extensions/voice/config.ts         कॉन्फ़िग लोडिंग, सेविंग, माइग्रेशन
 extensions/voice/onboarding.ts     पहली बार चलाने का विज़ार्ड, भाषा चयनकर्ता
 extensions/voice/deepgram.ts       Deepgram URL बिल्डर, API कुंजी रिज़ॉल्वर
-extensions/voice/local.ts          मॉडल कैटलॉग (19 मॉडल), इन-प्रोसेस ट्रांसक्रिप्शन
+extensions/voice/local.ts          मॉडल कैटलॉग (21 मॉडल), इन-प्रोसेस ट्रांसक्रिप्शन
 extensions/voice/device.ts         डिवाइस प्रोफ़ाइलिंग — RAM, GPU, CPU, कंटेनर डिटेक्शन
 extensions/voice/model-download.ts डाउनलोड मैनेजर — रिज़्यूम, प्रगति, सत्यापन, Handy इम्पोर्ट
 extensions/voice/sherpa-engine.ts   sherpa-onnx बाइंडिंग — रिकग्नाइज़र लाइफ़साइकल, इन्फ़रेंस
@@ -274,19 +274,19 @@ extensions/voice/settings-panel.ts  सेटिंग्स पैनल — Co
 - **कोई टेलीमेट्री नहीं** — pi-listen उपयोग डेटा एकत्र या प्रसारित नहीं करता
 - **API कुंजी** — एनवायरनमेंट वेरिएबल या Pi सेटिंग्स में संग्रहीत, कभी लॉग नहीं होती
 
-कमज़ोरी रिपोर्टिंग के लिए [SECURITY.md](SECURITY.md) देखें।
+कमज़ोरी रिपोर्टिंग के लिए [SECURITY.md](../SECURITY.md) देखें।
 
 ---
 
 ## लाइसेंस
 
-[MIT](LICENSE) © 2026 codexstar69
+[MIT](../LICENSE) © 2026 codexstar69
 
 ---
 
 ## लिंक
 
-- **npm:** [npmjs.com/package/pi-listen-ng](https://www.npmjs.com/package/pi-listen-ng)
-- **GitHub:** [github.com/CyFeng16/pi-listen-ng](https://github.com/CyFeng16/pi-listen-ng)
+- **npm:** [npmjs.com/package/pi-voicekit](https://www.npmjs.com/package/pi-voicekit)
+- **GitHub:** [github.com/CyFeng16/pi-voicekit](https://github.com/CyFeng16/pi-voicekit)
 - **Deepgram:** [dpgr.am/pi-voice](https://dpgr.am/pi-voice) ($200 मुफ़्त क्रेडिट)
 - **Pi CLI:** [github.com/earendil-works/pi-coding-agent](https://github.com/earendil-works/pi-coding-agent)

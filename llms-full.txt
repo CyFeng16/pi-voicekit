@@ -1,12 +1,16 @@
-# pi-listen — Full Context for LLMs
+# pi-voicekit — Full Context for LLMs
 
-> Complete documentation for AI assistants working with the pi-listen codebase.
+> Complete documentation for AI assistants working with the pi-voicekit codebase.
+>
+> ⚠️ **Partially outdated:** the Architecture, File Reference, Commands and Key Constants sections
+> below still describe the v5.x-era design (Deepgram-only STT, four modules, no TTS, no offline
+> models). Treat `README.md` and `llms.txt` as authoritative for current behavior.
 
 ## Package Identity
 
-- **Name:** @codexstar/pi-listen
-- **npm:** https://www.npmjs.com/package/@codexstar/pi-listen
-- **GitHub:** https://github.com/codexstar69/pi-listen
+- **Name:** pi-voicekit (formerly `pi-listen-ng`; fork lineage `@codexstar/pi-listen`)
+- **npm:** https://www.npmjs.com/package/pi-voicekit
+- **GitHub:** https://github.com/CyFeng16/pi-voicekit
 - **License:** MIT
 - **Type:** Pi coding agent extension (pi-package)
 - **Language:** TypeScript
@@ -147,7 +151,7 @@ interface VoiceConfig {
 ## Setup
 
 ```bash
-pi install npm:@codexstar/pi-listen   # Install extension
+pi install npm:pi-voicekit   # Install extension
 export DEEPGRAM_API_KEY="your-key"            # https://dpgr.am/pi-voice
 # Audio capture auto-detected: sox → ffmpeg → arecord (Linux)
 # Install one if needed: brew install sox  OR  brew install ffmpeg

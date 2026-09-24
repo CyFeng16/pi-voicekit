@@ -100,6 +100,7 @@ import {
 } from "./voice/local";
 import { shouldArmReleaseDetectOnRepeat, decideRecordingStartTimer } from "./voice/hold-to-talk";
 import { GapTimer, type TimerPort } from "./voice/release-controller";
+import { audioToolOrder, type AudioToolName } from "./voice/audio-tool";
 
 /** Adapter for the real event loop — lets GapTimer run under the real setTimeout. */
 const realTimerPort: TimerPort = {
@@ -245,87 +246,95 @@ interface AudioCaptureTool {
 	args: string[];
 }
 
-// Try available audio capture tools in order of preference
+// Try available audio capture tools in the order given by audioToolOrder()
 let _cachedAudioTool: AudioCaptureTool | null | undefined;
+
+function probeSox(): AudioCaptureTool | null {
+	if (!commandExists("rec")) return null;
+	return {
+		name: "sox",
+		cmd: "rec",
+		args: [
+			"-q",
+			"--buffer",
+			"4096",
+			"-c",
+			String(CHANNELS),
+			"-b",
+			"16",
+			"-e",
+			"signed-integer",
+			"-t",
+			"raw",
+			"-",
+			"rate",
+			String(SAMPLE_RATE),
+		],
+	};
+}
+
+function probeFfmpeg(): AudioCaptureTool | null {
+	if (!commandExists("ffmpeg")) return null;
+	const isLinux = process.platform === "linux";
+	const isMac = process.platform === "darwin";
+	const isWin = process.platform === "win32";
+	// Input device varies by platform
+	let inputArgs: string[];
+	if (isMac) {
+		inputArgs = ["-f", "avfoundation", "-i", ":default"];
+	} else if (isLinux) {
+		inputArgs = ["-f", "pulse", "-i", "default"];
+	} else if (isWin) {
+		// DirectShow has no "default" alias — enumerate devices and pick the first audio device
+		const dshowDevice = detectWindowsAudioDevice();
+		inputArgs = dshowDevice ? ["-f", "dshow", "-i", `audio=${dshowDevice}`] : ["-f", "dshow", "-i", "audio=Microphone"]; // last-resort guess
+	} else {
+		inputArgs = ["-f", "pulse", "-i", "default"]; // fallback for other platforms
+	}
+	return {
+		name: "ffmpeg",
+		cmd: "ffmpeg",
+		args: [
+			...inputArgs,
+			"-ac",
+			String(CHANNELS),
+			"-ar",
+			String(SAMPLE_RATE),
+			"-sample_fmt",
+			"s16",
+			"-f",
+			"s16le",
+			"-loglevel",
+			"error",
+			"pipe:1",
+		],
+	};
+}
+
+function probeArecord(): AudioCaptureTool | null {
+	if (process.platform !== "linux" || !commandExists("arecord")) return null;
+	return {
+		name: "arecord",
+		cmd: "arecord",
+		args: ["-q", "-f", "S16_LE", "-r", String(SAMPLE_RATE), "-c", String(CHANNELS), "-t", "raw"],
+	};
+}
+
+const audioProbes: Record<AudioToolName, () => AudioCaptureTool | null> = {
+	sox: probeSox,
+	ffmpeg: probeFfmpeg,
+	arecord: probeArecord,
+};
+
 function detectAudioCaptureTool(): AudioCaptureTool | null {
 	if (_cachedAudioTool !== undefined) return _cachedAudioTool;
-
-	// 1. SoX rec — purpose-built for recording, best quality
-	if (commandExists("rec")) {
-		_cachedAudioTool = {
-			name: "sox",
-			cmd: "rec",
-			args: [
-				"-q",
-				"--buffer",
-				"4096",
-				"-c",
-				String(CHANNELS),
-				"-b",
-				"16",
-				"-e",
-				"signed-integer",
-				"-t",
-				"raw",
-				"-",
-				"rate",
-				String(SAMPLE_RATE),
-			],
-		};
-		return _cachedAudioTool;
-	}
-
-	// 2. ffmpeg — widely installed, captures from default mic
-	if (commandExists("ffmpeg")) {
-		const isLinux = process.platform === "linux";
-		const isMac = process.platform === "darwin";
-		const isWin = process.platform === "win32";
-		// Input device varies by platform
-		let inputArgs: string[];
-		if (isMac) {
-			inputArgs = ["-f", "avfoundation", "-i", ":default"];
-		} else if (isLinux) {
-			inputArgs = ["-f", "pulse", "-i", "default"];
-		} else if (isWin) {
-			// DirectShow has no "default" alias — enumerate devices and pick the first audio device
-			const dshowDevice = detectWindowsAudioDevice();
-			inputArgs = dshowDevice
-				? ["-f", "dshow", "-i", `audio=${dshowDevice}`]
-				: ["-f", "dshow", "-i", "audio=Microphone"]; // last-resort guess
-		} else {
-			inputArgs = ["-f", "pulse", "-i", "default"]; // fallback for other platforms
+	for (const name of audioToolOrder()) {
+		const tool = audioProbes[name]();
+		if (tool) {
+			_cachedAudioTool = tool;
+			return tool;
 		}
-		_cachedAudioTool = {
-			name: "ffmpeg",
-			cmd: "ffmpeg",
-			args: [
-				...inputArgs,
-				"-ac",
-				String(CHANNELS),
-				"-ar",
-				String(SAMPLE_RATE),
-				"-sample_fmt",
-				"s16",
-				"-f",
-				"s16le",
-				"-loglevel",
-				"error",
-				"pipe:1",
-			],
-		};
-		return _cachedAudioTool;
 	}
-
-	// 3. arecord — built into Linux ALSA, zero install
-	if (process.platform === "linux" && commandExists("arecord")) {
-		_cachedAudioTool = {
-			name: "arecord",
-			cmd: "arecord",
-			args: ["-q", "-f", "S16_LE", "-r", String(SAMPLE_RATE), "-c", String(CHANNELS), "-t", "raw"],
-		};
-		return _cachedAudioTool;
-	}
-
 	_cachedAudioTool = null;
 	return null;
 }

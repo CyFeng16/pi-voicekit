@@ -1,7 +1,7 @@
-# pi-listen-ng — Contributing & Agent Guidelines
+# pi-voicekit — Contributing & Agent Guidelines
 
-pi-listen-ng is a **public, GitHub-hosted open-source project** (an independent
-continuation of the archived `codexstar69/pi-listen`, MIT). All repository-facing
+pi-voicekit is a **public, GitHub-hosted open-source project** (an independent
+continuation of the now-dormant `codexstar69/pi-listen`, MIT). All repository-facing
 text is **English-first**.
 
 ## Language policy (REQUIRED)
@@ -18,16 +18,17 @@ formatting baseline lives in `.prettierrc.json` + `.editorconfig`.
 
 ## Development
 
-- Toolchain: **Bun** 1.3.x. Gate: `bun run check` (= `bunx tsc -p tsconfig.json` + `bun test`).
-- Formatting SSOT: tabs, double quotes, `printWidth: 120`, `trailingComma: "es5"`.
-  Run `prettier --write` on files you touched; the CI workflow enforces
-  `prettier --check` on all TS sources.
+- Toolchain: **Bun** 1.3.x. Gate: `bun run check` (= `bunx tsc -p tsconfig.json` + `bun test`); CI also runs `bun run format:check`.
+- Formatting SSOT: tabs, double quotes, `printWidth: 120`, `trailingComma: "es5"`
+  (`.prettierrc.json`, prettier 3.3.3). Run `bun run format` on files you touched;
+  CI runs `bun run format:check` over `**/*.{ts,json,yml,yaml}` (code + config).
+  Markdown is intentionally not gated — hand-format docs.
 - History hygiene: one commit = one logical change; keep diffs minimal and
   unrelated edits out.
 
 ## Project context
 
-- Fork of `codexstar69/pi-listen` (archived upstream; last release v7.2.2).
+- Fork of `codexstar69/pi-listen` (dormant upstream; last release v7.2.2, May 2026).
   Not affiliated with the original author — see README for the disclosure.
 - Local improvements are the long-term mainline; intentional modification of
   upstream files is allowed when documented and covered by tests.

@@ -12,7 +12,7 @@ jobs:
   publish:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Verify tag matches package.json version
         run: |
@@ -35,7 +35,7 @@ jobs:
         run: bun run check
 
       - name: Setup Node (npm ≥ 11.5.1 supports OIDC publish)
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: 24
           registry-url: https://registry.npmjs.org
@@ -49,11 +49,11 @@ jobs:
         run: npm publish --provenance --access public
 
       # 一次性前置（npmjs.com 后台，由维护者手动完成，不能在 CI 内配置）:
-      #   1. 首次认领/创建包 pi-listen-ng（npm access public 可在 publish 时完成）
+      #   1. 首次认领/创建包 pi-voicekit（npm access public 可在 publish 时完成）
       #   2. 为包配置 Trusted Publishing 发布者（npm 端按 owner/repo/workflow
       #      文件精确绑定，大小写敏感，必须与本文件名一致）:
       #      - Provider: GitHub Actions
-      #      - Owner: CyFeng16     Repository: pi-listen-ng
+      #      - Owner: CyFeng16     Repository: pi-voicekit
       #      - Workflow: release.yml
       #   3. OIDC GA（2025-07-31）要求 npm ≥ 11.5.1 + Node ≥ 22.14.0；
       #      本 workflow 用 Node 24 并显式升级 npm@latest。
