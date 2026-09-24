@@ -5,6 +5,50 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- **Brand unified to `pi-voicekit`** — repository text and runtime UI now use one
+  name; upstream attribution, the Deepgram short link, asset filenames and runtime
+  paths are deliberately unchanged.
+- **README accuracy pass** — corrected the settings-panel tab count, the
+  hold-to-talk default, the local TTS voice count, and the audio-tool priority
+  (ffmpeg first when `PULSE_SERVER` is set); completed the command and
+  architecture listings; release notes now track the 0.1.x line.
+- **Brand assets added; `assets/` reorganised by purpose** — new banner (English for every README
+  except the Chinese one), icon and horizontal/vertical lockups live in `assets/brand/`; the settings
+  screenshots moved to `assets/screenshots/`, the demo to `assets/demo/`, and the upstream-era images
+  to `assets/legacy/`. `assets/banner.png` — a JPEG carrying a `.png` extension — was removed.
+
+## [0.1.3] - 2026-09-24
+
+### Fixed
+
+- **Remote microphone capture** — audio capture now prefers `ffmpeg` when
+  `PULSE_SERVER` is set (SSH audio tunnel / remote PulseAudio); SoX returned zero
+  bytes intermittently over network Pulse sources.
+
+## [0.1.2] - 2026-09-24
+
+### Changed
+
+- Prettier enforced in CI for code and config files.
+- Documentation fact corrections, `llms` metadata refresh, localized README link fixes.
+
+## [0.1.1] - 2026-09-24
+
+### Changed
+
+- Version bump only — first OIDC (Trusted Publishing) release, to verify the pipeline.
+
+## [0.1.0] - 2026-09-24
+
+### Changed
+
+- Package renamed `pi-listen-ng` → `pi-voicekit` and republished under the new name
+  (the previous line shipped as `pi-listen-ng` 7.3.0–7.3.2).
+
 ## [7.2.2] - 2026-05-01
 
 ### Added
@@ -935,7 +979,7 @@ single source of truth per row.
 ## [3.3.2] - 2026-03-14
 
 ### Added
-- **Documentation images** — photorealistic terminal hero and voice command screenshots in `docs/images/hero.png` and `docs/images/voice-commands.png`
+- **Documentation images** — photorealistic terminal hero in `docs/images/hero.png`
 
 ## [3.3.1] - 2026-03-14
 

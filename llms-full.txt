@@ -18,7 +18,7 @@
 
 ---
 
-## What pi-listen Does
+## What pi-voicekit Does
 
 1. **Audio fallback chain:** Tries sox, ffmpeg, arecord in order — works on most systems without extra installs.
 2. **Pre-recording:** Audio capture starts during the warmup countdown — the user never misses the first word.

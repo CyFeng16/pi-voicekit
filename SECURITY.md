@@ -9,12 +9,12 @@
 
 ## Reporting a Vulnerability
 
-If you discover a security vulnerability in pi-listen, **please report it responsibly.**
+If you discover a security vulnerability in pi-voicekit, **please report it responsibly.**
 
 ### How to Report
 
 1. **Do NOT open a public GitHub issue** for security vulnerabilities
-2. Email: Open a private security advisory on GitHub via the [Security tab](https://github.com/codexstar69/pi-listen/security/advisories/new)
+2. GitHub private advisory: open one from the [Security tab](https://github.com/CyFeng16/pi-voicekit/security/advisories/new)
 3. Include:
    - Description of the vulnerability
    - Steps to reproduce
@@ -48,13 +48,13 @@ The following are **out of scope:**
 
 ## Security Design Principles
 
-pi-listen follows these security principles:
+pi-voicekit follows these security principles:
 
 ### 1. Cloud STT
 Audio is streamed to Deepgram for transcription via encrypted WebSocket (wss://). No audio is stored locally or on the server after transcription.
 
 ### 2. No Telemetry
-pi-listen does not collect, transmit, or store any usage data, analytics, or telemetry.
+pi-voicekit does not collect, transmit, or store any usage data, analytics, or telemetry.
 
 ### 3. Minimal Attack Surface
 - No persistent storage of audio recordings

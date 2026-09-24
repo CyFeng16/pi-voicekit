@@ -150,7 +150,7 @@ export function readJsonFile(filePath: string): Record<string, unknown> {
 		return JSON.parse(fs.readFileSync(filePath, "utf8"));
 	} catch (err) {
 		process.stderr.write(
-			`[pi-voice] Warning: failed to read ${filePath}: ${err instanceof Error ? err.message : err}\n`
+			`[pi-voicekit] Warning: failed to read ${filePath}: ${err instanceof Error ? err.message : err}\n`
 		);
 		return {};
 	}
@@ -303,7 +303,7 @@ export function loadGlobalToggleShortcut(options: ConfigPathOptions = {}): strin
 			const candidate = (globalVoice as any).toggleShortcut;
 			if (isValidShortcut(candidate)) return candidate;
 			process.stderr.write(
-				`[pi-voice] Warning: invalid toggleShortcut "${candidate}" in settings, using default "${fallback}"\n`
+				`[pi-voicekit] Warning: invalid toggleShortcut "${candidate}" in settings, using default "${fallback}"\n`
 			);
 		}
 	} catch {

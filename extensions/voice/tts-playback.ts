@@ -210,7 +210,7 @@ export interface OpenPlaybackStreamOpts {
  * Open a streaming playback sink. Returns `null` when no streaming-capable
  * player is found on PATH — the caller should fall back to the file-based
  * `play()` path. Player priority: `sox` (preferred — works on macOS via
- * homebrew, Linux via apt/yum, ships with most pi-listen STT installs) →
+ * homebrew, Linux via apt/yum, ships with most pi-voicekit STT installs) →
  * `paplay` (Linux PulseAudio) → null.
  *
  * Windows is intentionally unsupported here — PowerShell SoundPlayer
@@ -464,7 +464,7 @@ function pickStreamingPlayer(sampleRate: number): StreamingPlayerSpec | null {
 	if (process.platform === "linux" && binaryAvailable("paplay")) {
 		return {
 			cmd: "paplay",
-			args: ["--raw", `--rate=${sampleRate}`, "--format=s16le", "--channels=1", "--client-name=pi-listen"],
+			args: ["--raw", `--rate=${sampleRate}`, "--format=s16le", "--channels=1", "--client-name=pi-voicekit"],
 		};
 	}
 	// sox last-resort: cross-platform but has the macOS CoreAudio

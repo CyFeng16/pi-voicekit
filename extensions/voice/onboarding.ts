@@ -314,7 +314,7 @@ export function finalizeOnboardingConfig(
 }
 
 export async function promptFirstRunOnboarding(ctx: VoiceUiContext): Promise<FirstRunDecision> {
-	const choice = await ctx.ui.select("Set up pi-voice now?", ["Start voice setup", "Remind me later"]);
+	const choice = await ctx.ui.select("Set up pi-voicekit now?", ["Start voice setup", "Remind me later"]);
 
 	return { action: choice === "Start voice setup" ? "start" : "later" };
 }
@@ -665,7 +665,7 @@ export async function runVoiceOnboarding(
 	}
 
 	// ─── Choose scope ────────────────────────────────────────
-	const scopeChoice = await ctx.ui.select("Where should pi-voice settings be saved?", [
+	const scopeChoice = await ctx.ui.select("Where should pi-voicekit settings be saved?", [
 		"Global (all projects)",
 		"Project only (this repo)",
 	]);

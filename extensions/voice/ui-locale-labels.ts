@@ -1,7 +1,7 @@
 /**
  * Native-script + gender labels for the Voice picker (§8 of v7.1 plan).
  *
- * Hand-curated for the languages pi-listen ships voices for, using the
+ * Hand-curated for the languages pi-voicekit ships voices for, using the
  * BCP-47 base-language tag (not script/region) as the lookup key. Three
  * intentional omissions:
  *

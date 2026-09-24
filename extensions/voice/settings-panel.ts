@@ -193,7 +193,7 @@ export class VoiceSettingsPanel {
 		// commands remain available (panel-less).
 		if (isPanelTooNarrow(width)) {
 			return [
-				`  ${this.bold("pi-listen")}`,
+				`  ${this.bold("pi-voicekit")}`,
 				`  ${this.warning(`Terminal too narrow ${ICON.middot} resize to ${ICON.arrowRight} 60 cols`)}`,
 				`  ${this.dim("Slash commands still work: /voice-speak, /voice-models, /voice-settings")}`,
 			];
@@ -212,7 +212,7 @@ export class VoiceSettingsPanel {
 		// backend/model/voice + active language. Width-tier aware:
 		// at "mid" (60-79) the row is trimmed; at "wide" (≥80) it
 		// shows the full picture.
-		lines.push(t(`  ${this.bold("pi-listen")}  ${this.dim(this.p.formatDeviceSummary(device))}`));
+		lines.push(t(`  ${this.bold("pi-voicekit")}  ${this.dim(this.p.formatDeviceSummary(device))}`));
 		lines.push(t("  " + this.renderStatusRow(widthTier(width) === "mid")));
 		lines.push(t(this.dim("  " + "─".repeat(Math.min(iw, 60)))));
 
