@@ -34,11 +34,12 @@ export interface SpaceHoldContext {
  */
 export function shouldArmReleaseDetectOnRepeat(ctx: SpaceHoldContext): boolean {
 	if (ctx.kittyReleaseDetected) return false;
-	// 仅录音已就绪（recording/finalizing）时 re-arm。warmup 或仅有
-	// spaceConsumed 的启动间隙不 arm——此时 arm 的 timer 到期会命中
-	// onSpaceReleaseDetected 的 warmup 取消分支而产生 false stop
-	// （上游 PATH B 注释亦明确启动期不可 re-arm，恢复由 recording
-	// 就绪时的统一 arm + 此处的 repeat 维持承担）。
+	// Only re-arm once recording is fully ready (recording/finalizing). Warmup
+	// or a startup gap with only spaceConsumed set never arms — a timer armed
+	// here would expire into onSpaceReleaseDetected's warmup-cancel branch and
+	// produce a false stop (upstream PATH B comment is explicit: never re-arm
+	// during startup; recovery is delegated to the unified arm once recording
+	// is ready plus the repeat stream kept alive here).
 	return ctx.voiceState === "recording" || ctx.voiceState === "finalizing";
 }
 

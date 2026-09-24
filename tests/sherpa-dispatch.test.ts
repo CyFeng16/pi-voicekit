@@ -60,10 +60,11 @@ describe("recognizer dispatch (mock sherpa-onnx-node)", () => {
 		expect(cfg.qwen3Asr).toBeDefined();
 		expect(cfg.qwen3Asr.encoder).toBe(`${dir}/encoder.int8.onnx`);
 		expect(cfg.qwen3Asr.convFrontend).toBe(`${dir}/conv_frontend.onnx`);
-		// 配置路径断言：sherpa 要求 tokenizer 指向一个包含
-		// merges.txt/vocab.json/tokenizer_config.json 的目录；model-download
-		// 把这些文件铺平到 modelDir 根，因此此处应传 modelDir 本身。
-		// （本测试只断言构造配置，实际下载落盘由下载管线冒烟覆盖。）
+		// Config-path assertion: sherpa requires the tokenizer to point at a
+		// directory containing merges.txt/vocab.json/tokenizer_config.json;
+		// model-download flattens those files into the modelDir root, so we pass
+		// modelDir itself. (This test only asserts construction config; actual
+		// download-to-disk is covered by the download-pipeline smoke tests.)
 		expect(cfg.qwen3Asr.tokenizer).toBe(dir);
 		expect(cfg.paraformer).toBeUndefined();
 		expect(cfg.transducer).toBeUndefined();

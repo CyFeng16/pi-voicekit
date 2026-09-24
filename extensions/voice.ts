@@ -1536,13 +1536,16 @@ export default function (pi: ExtensionAPI) {
 		showRecordingWidget();
 		playSound("start");
 
-		// #13：录音就绪（voiceState 已切 recording、成功出口）才 arm gap-based
-		// release timer。仅 hold 会话（spaceDownTime 非 null，用户按住 SPACE）
-		// 且非 kitty 时 arm：按住由后续 repeat 持续 re-arm，松键（repeat 停止）
-		// 在 RELEASE_DETECT_RECORDING_MS 内被感知，启动窗口内松键也能 250ms 后停。
-		// toggle/dictation 无 repeat 流维持 timer，arm 会在约 250ms 后自动停掉
-		// 录音，故必须排除（即 spaceDownTime 为 null）。kitty 依赖真实
-		// key-release，同样 clear。
+		// #13: arm the gap-based release timer only once recording is ready
+		// (voiceState flipped to recording, success exit). Only hold sessions
+		// (spaceDownTime != null — the user is holding SPACE) and non-Kitty
+		// terminals arm: holding re-arms on each repeat, and release (repeat
+		// stream stops) is perceived within RELEASE_DETECT_RECORDING_MS, so a
+		// key-up inside the startup window also stops ~250ms later. Toggle/
+		// dictation have no repeat stream keeping the timer alive — arming
+		// would auto-stop recording ~250ms after start — so they must be
+		// excluded (spaceDownTime == null). Kitty relies on the real key-release
+		// event, so it stays clear.
 		if (decideRecordingStartTimer({ kittyReleaseDetected, isHold: spaceDownTime != null }) === "arm") {
 			resetReleaseDetect();
 		}

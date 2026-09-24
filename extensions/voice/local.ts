@@ -769,15 +769,15 @@ export function languagesForLangSupport(langSupport: LocalModelInfo["langSupport
 		case "parakeet-multi":
 			return WHISPER_LANGUAGES;
 		default:
-			// 未登记的语言族：显式保守为空（不假设支持任何语言）
+			// Unregistered language families conservatively resolve to empty (assume no languages)
 			return [];
 	}
 }
 
 export function getLanguagesForLocalModel(modelId: string): { languages: LocalLangEntry[]; englishOnly: boolean } {
 	const model = LOCAL_MODELS.find((m) => m.id === modelId);
-	// UI 宽容处理未知模型 id —— 展示 Whisper 全集供手动选择。
-	// （能力判定请走 device.modelSupportsLanguage，它按 langSupport 查共享表。）
+	// UI is lenient with unknown model ids — show the full Whisper list for manual selection.
+	// (Capability checks go through device.modelSupportsLanguage, which uses the shared table by langSupport.)
 	if (!model) return { languages: WHISPER_LANGUAGES, englishOnly: false };
 	const languages = languagesForLangSupport(model.langSupport);
 	return { languages, englishOnly: languages.length <= 1 };

@@ -22,7 +22,7 @@ describe("shouldArmReleaseDetectOnRepeat (upstream #13)", () => {
 		expect(shouldArmReleaseDetectOnRepeat({ ...base, voiceState: "finalizing" })).toBe(true);
 	});
 
-	test("warmup must NOT arm — an armed timer would hit the warmup-cancel branch (#13 竞态)", () => {
+	test("warmup must NOT arm — an armed timer would hit the warmup-cancel branch (#13 race)", () => {
 		// Regression: arming during the recording startup window (voiceState still
 		// warmup, spaceConsumed already flipped) fires onSpaceReleaseDetected in the
 		// warmup branch and cancels the just-started recording.

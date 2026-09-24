@@ -155,10 +155,12 @@ export function autoRecommendModel(
 
 /** Check if a model supports a given language code. */
 function modelSupportsLanguage(model: LocalModelInfo, langCode: string): boolean {
-	// Single source of truth: 按 langSupport 查共享能力表（local.ts
-	// languagesForLangSupport），不按 model.id 回查全局目录 —— 未知/自定义
-	// 模型的 langSupport 未登记时保守返回空（不支持任何语言），避免 fail-open。
-	// 此前并行 switch 与按 id 回查都曾把新语言族漂移成"支持所有语言"。
+	// Single source of truth: resolve the shared capability table by langSupport
+	// (local.ts languagesForLangSupport), not by model.id against the global
+	// catalog — unknown/custom models whose langSupport is unregistered
+	// conservatively resolve to no languages, avoiding fail-open. Both the
+	// earlier parallel switch and the by-id lookup let new language families
+	// drift into "supports every language".
 	const base = langCode.split("-")[0];
 	const languages = languagesForLangSupport(model.langSupport);
 	return languages.some((l) => l.code === base || l.code === langCode);

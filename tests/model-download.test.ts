@@ -129,7 +129,7 @@ describe("language families for new zh models", () => {
 		const { languages, englishOnly } = getLanguagesForLocalModel("paraformer-zh");
 		expect(englishOnly).toBe(false);
 		expect(languages.map((l) => l.code).sort()).toEqual(["en", "zh"]);
-		// 必须不套用 Whisper 全语言集
+		// Must NOT reuse the Whisper full-language set
 		expect(languages.some((l) => l.code === "ja" || l.code === "fr")).toBe(false);
 	});
 
