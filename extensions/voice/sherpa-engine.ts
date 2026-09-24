@@ -19,6 +19,7 @@
  */
 
 import * as path from "node:path";
+import * as fs from "node:fs";
 import * as os from "node:os";
 import type { LocalModelInfo } from "./local";
 import { loadSherpa, getSherpaModule, getSherpaError, isSherpaAvailable } from "./sherpa-loader";
@@ -134,6 +135,10 @@ function createRecognizer(model: LocalModelInfo, modelDir: string, language: str
 			return createNemoCtcRecognizer(model, modelDir);
 		case "transducer":
 			return createTransducerRecognizer(model, modelDir);
+		case "paraformer":
+			return createParaformerRecognizer(model, modelDir);
+		case "qwen3_asr":
+			return createQwen3Recognizer(model, modelDir);
 		default:
 			throw new Error(`Unknown sherpa model type: ${modelType} for model ${model.id}`);
 	}
@@ -324,3 +329,136 @@ function getNumThreads(maxThreads = 4): number {
 
 /** Transducer (Parakeet, Zipformer) thread budget — see getNumThreads(). */
 const TRANSDUCER_MAX_THREADS = 6;
+
+// ─── Paraformer / Qwen3-ASR (zh-centric, added via local sherpa-onnx patch) ─
+
+// Verified against: sherpa-onnx offline-paraformer / offline-qwen3-asr configs.
+function createParaformerRecognizer(model: LocalModelInfo, modelDir: string): SherpaRecognizer {
+	const files = model.sherpaModel!.files;
+	const sherpa = getSherpaModule();
+	return new sherpa.OfflineRecognizer({
+		featConfig: {
+			sampleRate: 16000,
+			featureDim: 80,
+		},
+		modelConfig: {
+			paraformer: { model: path.join(modelDir, files.model!) },
+			tokens: path.join(modelDir, files.tokens!),
+			numThreads: getNumThreads(),
+			provider: "cpu",
+		},
+	});
+}
+
+function createQwen3Recognizer(model: LocalModelInfo, modelDir: string): SherpaRecognizer {
+	const files = model.sherpaModel!.files;
+	const sherpa = getSherpaModule();
+	// tokenizer expects a DIRECTORY containing vocab.json / merges.txt /
+	// tokenizer_config.json — the downloader flattens those onto modelDir root.
+	return new sherpa.OfflineRecognizer({
+		featConfig: {
+			sampleRate: 16000,
+			featureDim: 80,
+		},
+		modelConfig: {
+			qwen3Asr: {
+				convFrontend: path.join(modelDir, files.convFrontend!),
+				encoder: path.join(modelDir, files.encoder!),
+				decoder: path.join(modelDir, files.decoder!),
+				tokenizer: modelDir,
+			},
+			numThreads: getNumThreads(),
+			provider: "cpu",
+		},
+	});
+}
+
+// ─── Long-audio segmentation (Silero VAD) ─────────────────────────────────
+// LLM-based ASR (Qwen3-ASR) caps context at max_total_len=512 tokens, which
+// truncates recordings past ~18s. Long audio is split into speech-bounded
+// chunks before decoding. Opt-in per model (see local.ts transcribeInProcess).
+
+/** Path to the local Silero VAD model (~/.pi/models/vad/silero_vad.onnx). */
+function getSileroVadPath(): string | null {
+	const p = path.join(os.homedir(), ".pi", "models", "vad", "silero_vad.onnx");
+	return fs.existsSync(p) ? p : null;
+}
+
+/**
+ * Split Float32 PCM into speech segments via Silero VAD.
+ * Each returned chunk is ≤ maxSpeechSecs of speech. Falls back to the whole
+ * buffer when the VAD model is unavailable (graceful degradation).
+ */
+export function segmentPcmForLongAudio(samples: Float32Array, sampleRate: number, maxSpeechSecs = 10): Float32Array[] {
+	const vadModel = getSileroVadPath();
+	if (!vadModel) return [samples];
+
+	const sherpa = getSherpaModule();
+	const vad = new sherpa.Vad(
+		{
+			sileroVad: {
+				model: vadModel,
+				threshold: 0.5,
+				minSilenceDuration: 0.25,
+				minSpeechDuration: 0.25,
+				maxSpeechDuration: maxSpeechSecs,
+				windowSize: 512,
+			},
+			sampleRate,
+			numThreads: 1,
+			provider: "cpu",
+		},
+		60
+	);
+
+	// Feed one silero window at a time, draining segments as they appear —
+	// mirrors the official nodejs-addon-examples VAD usage. Silero only enqueues
+	// speech segments, so no isDetected() gate is needed (the node binding's
+	// isDetected() reports false even for genuine speech).
+	const ws: number = vad.config?.sileroVad?.windowSize ?? 512;
+	const segments: Float32Array[] = [];
+	for (let i = 0; i < samples.length; i += ws) {
+		vad.acceptWaveform(samples.subarray(i, i + ws));
+		while (!vad.isEmpty()) {
+			segments.push(vad.front().samples);
+			vad.pop();
+		}
+	}
+	vad.flush();
+	while (!vad.isEmpty()) {
+		segments.push(vad.front().samples);
+		vad.pop();
+	}
+	return segments.length > 0 ? segments : [samples];
+}
+
+/**
+ * Transcribe PCM with automatic VAD segmentation for long recordings.
+ * Byte-identical fast path (single decode) for audio ≤ thresholdSecs.
+ */
+export async function transcribeBufferSegmented(
+	pcmData: Buffer,
+	recognizer: SherpaRecognizer,
+	thresholdSecs = 10
+): Promise<string> {
+	getSherpaModule();
+	const samples = pcmToFloat32(pcmData);
+	if (samples.length / 16000 <= thresholdSecs) {
+		const stream = recognizer.createStream();
+		stream.acceptWaveform({ sampleRate: 16000, samples });
+		await recognizer.decodeAsync(stream);
+		const r = recognizer.getResult(stream);
+		return (r?.text || "").trim();
+	}
+
+	const parts: string[] = [];
+	for (const seg of segmentPcmForLongAudio(samples, 16000)) {
+		const stream = recognizer.createStream();
+		stream.acceptWaveform({ sampleRate: 16000, samples: seg });
+		await recognizer.decodeAsync(stream);
+		const r = recognizer.getResult(stream);
+		const t = (r?.text || "").trim();
+		if (t) parts.push(t);
+	}
+	return parts.join(" ");
+}

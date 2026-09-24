@@ -22,7 +22,7 @@ import { SAMPLE_RATE, CHANNELS } from "./deepgram";
 
 export interface SherpaModelConfig {
 	/** Recognizer type for sherpa-onnx */
-	type: "whisper" | "moonshine" | "sense_voice" | "nemo_ctc" | "transducer";
+	type: "whisper" | "moonshine" | "sense_voice" | "nemo_ctc" | "transducer" | "paraformer" | "qwen3_asr";
 	/** Map of role → filename within model directory */
 	files: Record<string, string>;
 	/** Map of role → download URL (HuggingFace or GitHub releases) */
@@ -52,7 +52,9 @@ export interface LocalModelInfo {
 		| "single-ko"
 		| "single-uk"
 		| "single-vi"
-		| "single-es";
+		| "single-es"
+		| "bilingual-zh-en"
+		| "qwen3";
 	/** Device tier: edge (<256 MB), standard (256 MB–1 GB), heavy (>1 GB) */
 	tier: "edge" | "standard" | "heavy";
 	/** Preferred model — best-in-class for its language/use case. Only these get [recommended]. */
@@ -546,6 +548,67 @@ export const LOCAL_MODELS: LocalModelInfo[] = [
 			},
 		},
 	},
+	// ═══════════════════════════════════════════════════════════════════════
+	// LLM-BASED — Qwen3-ASR and Paraformer (added via local sherpa-onnx patch)
+	// ═══════════════════════════════════════════════════════════════════════
+	{
+		id: "qwen3-asr-0.6b",
+		name: "Qwen3 ASR 0.6B",
+		size: "~983 MB",
+		sizeBytes: 1_031_000_000,
+		runtimeRamMB: 2100,
+		notes:
+			"Qwen (Alibaba) 2026-01 — 30 languages + 22 Chinese dialects, language auto-detection, strong zh/en code-switching. Punctuation per model card (not independently verified on this stack).",
+		langSupport: "qwen3",
+		tier: "heavy",
+		preferred: true,
+		accuracy: 4,
+		speed: 2,
+		sherpaModel: {
+			type: "qwen3_asr",
+			files: {
+				convFrontend: "conv_frontend.onnx",
+				encoder: "encoder.int8.onnx",
+				decoder: "decoder.int8.onnx",
+				tokenizerMerges: "merges.txt",
+				tokenizerVocab: "vocab.json",
+				tokenizerConfig: "tokenizer_config.json",
+			},
+			downloadUrls: {
+				convFrontend: "https://huggingface.co/pantinor/sherpa-onnx-qwen3-asr-0.6b-int8/resolve/main/conv_frontend.onnx",
+				encoder: "https://huggingface.co/pantinor/sherpa-onnx-qwen3-asr-0.6b-int8/resolve/main/encoder.int8.onnx",
+				decoder: "https://huggingface.co/pantinor/sherpa-onnx-qwen3-asr-0.6b-int8/resolve/main/decoder.int8.onnx",
+				tokenizerMerges:
+					"https://huggingface.co/pantinor/sherpa-onnx-qwen3-asr-0.6b-int8/resolve/main/tokenizer/merges.txt",
+				tokenizerVocab:
+					"https://huggingface.co/pantinor/sherpa-onnx-qwen3-asr-0.6b-int8/resolve/main/tokenizer/vocab.json",
+				tokenizerConfig:
+					"https://huggingface.co/pantinor/sherpa-onnx-qwen3-asr-0.6b-int8/resolve/main/tokenizer/tokenizer_config.json",
+			},
+		},
+	},
+	{
+		id: "paraformer-zh",
+		name: "Paraformer zh (bilingual)",
+		size: "~238 MB",
+		sizeBytes: 249_000_000,
+		runtimeRamMB: 620,
+		notes:
+			"Alibaba speech_paraformer-large-vad-punc 2023-09 — zh/en bilingual auto-detect. -punc variant nominally adds punctuation (per model card, not independently verified on this stack).",
+		langSupport: "bilingual-zh-en",
+		tier: "standard",
+		preferred: true,
+		accuracy: 4,
+		speed: 5,
+		sherpaModel: {
+			type: "paraformer",
+			files: { model: "model.int8.onnx", tokens: "tokens.txt" },
+			downloadUrls: {
+				model: hf1("sherpa-onnx-paraformer-zh-2023-09-14", "model.int8.onnx"),
+				tokens: hf1("sherpa-onnx-paraformer-zh-2023-09-14", "tokens.txt"),
+			},
+		},
+	},
 ];
 
 export const DEFAULT_LOCAL_ENDPOINT = "http://localhost:8080";
@@ -637,6 +700,22 @@ const SENSEVOICE_LANGUAGES: LocalLangEntry[] = [
 
 const RUSSIAN_ONLY_LANGUAGES: LocalLangEntry[] = [{ name: "Russian", code: "ru", popular: true }];
 
+/** Paraformer zh — actual capability is zh/en bilingual (auto-detect). */
+const BILINGUAL_ZH_EN_LANGUAGES: LocalLangEntry[] = [
+	{ name: "Chinese", code: "zh", popular: true },
+	{ name: "English", code: "en", popular: true },
+];
+
+/**
+ * Qwen3-ASR 0.6B — language auto-detection across 30 languages + 22 Chinese
+ * dialects (verified against Qwen/sherpa-onnx published specs; the full 30-language
+ * list is not enumerated here, zh/en shown as the primary use cases).
+ */
+const QWEN3_LANGUAGES: LocalLangEntry[] = [
+	{ name: "Chinese", code: "zh", popular: true },
+	{ name: "English", code: "en", popular: true },
+];
+
 // Single-language lists for Moonshine Flavors
 const SINGLE_LANG: Record<string, LocalLangEntry[]> = {
 	ar: [{ name: "Arabic", code: "ar", popular: true }],
@@ -652,36 +731,56 @@ const SINGLE_LANG: Record<string, LocalLangEntry[]> = {
  * Get the supported language list for a local model.
  * Returns englishOnly=true when only one language is supported (no picker needed).
  */
+/**
+ * Shared langSupport → language-list map. BOTH the UI (getLanguagesForLocalModel)
+ * and the device recommender (device.ts modelSupportsLanguage) read from here,
+ * so a new langSupport value can never drift one side fail-open again.
+ *
+ * Unknown langSupport values (forward/custom models) conservatively resolve to
+ * no languages: an unregistered capability must NOT silently mean "all".
+ */
+export function languagesForLangSupport(langSupport: LocalModelInfo["langSupport"]): LocalLangEntry[] {
+	switch (langSupport) {
+		case "english-only":
+			return ENGLISH_ONLY_LANGUAGES;
+		case "russian-only":
+			return RUSSIAN_ONLY_LANGUAGES;
+		case "single-ar":
+			return SINGLE_LANG.ar!;
+		case "single-zh":
+			return SINGLE_LANG.zh!;
+		case "single-ja":
+			return SINGLE_LANG.ja!;
+		case "single-ko":
+			return SINGLE_LANG.ko!;
+		case "single-uk":
+			return SINGLE_LANG.uk!;
+		case "single-vi":
+			return SINGLE_LANG.vi!;
+		case "single-es":
+			return SINGLE_LANG.es!;
+		case "sensevoice":
+			return SENSEVOICE_LANGUAGES;
+		case "bilingual-zh-en":
+			return BILINGUAL_ZH_EN_LANGUAGES;
+		case "qwen3":
+			return QWEN3_LANGUAGES;
+		case "whisper":
+		case "parakeet-multi":
+			return WHISPER_LANGUAGES;
+		default:
+			// 未登记的语言族：显式保守为空（不假设支持任何语言）
+			return [];
+	}
+}
+
 export function getLanguagesForLocalModel(modelId: string): { languages: LocalLangEntry[]; englishOnly: boolean } {
 	const model = LOCAL_MODELS.find((m) => m.id === modelId);
+	// UI 宽容处理未知模型 id —— 展示 Whisper 全集供手动选择。
+	// （能力判定请走 device.modelSupportsLanguage，它按 langSupport 查共享表。）
 	if (!model) return { languages: WHISPER_LANGUAGES, englishOnly: false };
-
-	switch (model.langSupport) {
-		case "english-only":
-			return { languages: ENGLISH_ONLY_LANGUAGES, englishOnly: true };
-		case "russian-only":
-			return { languages: RUSSIAN_ONLY_LANGUAGES, englishOnly: true };
-		case "single-ar":
-			return { languages: SINGLE_LANG.ar!, englishOnly: true };
-		case "single-zh":
-			return { languages: SINGLE_LANG.zh!, englishOnly: true };
-		case "single-ja":
-			return { languages: SINGLE_LANG.ja!, englishOnly: true };
-		case "single-ko":
-			return { languages: SINGLE_LANG.ko!, englishOnly: true };
-		case "single-uk":
-			return { languages: SINGLE_LANG.uk!, englishOnly: true };
-		case "single-vi":
-			return { languages: SINGLE_LANG.vi!, englishOnly: true };
-		case "single-es":
-			return { languages: SINGLE_LANG.es!, englishOnly: true };
-		case "sensevoice":
-			return { languages: SENSEVOICE_LANGUAGES, englishOnly: false };
-		case "parakeet-multi":
-		case "whisper":
-		default:
-			return { languages: WHISPER_LANGUAGES, englishOnly: false };
-	}
+	const languages = languagesForLangSupport(model.langSupport);
+	return { languages, englishOnly: languages.length <= 1 };
 }
 
 /**
@@ -700,7 +799,14 @@ export function isLanguageSupportedByModel(modelId: string, langCode: string): b
  */
 export function localLanguageDisplayName(code: string): string {
 	// Check all language lists
-	const allLists = [WHISPER_LANGUAGES, SENSEVOICE_LANGUAGES, RUSSIAN_ONLY_LANGUAGES, ...Object.values(SINGLE_LANG)];
+	const allLists = [
+		WHISPER_LANGUAGES,
+		SENSEVOICE_LANGUAGES,
+		BILINGUAL_ZH_EN_LANGUAGES,
+		QWEN3_LANGUAGES,
+		RUSSIAN_ONLY_LANGUAGES,
+		...Object.values(SINGLE_LANG),
+	];
 	for (const list of allLists) {
 		const entry = list.find((l) => l.code === code);
 		if (entry) return `${entry.name} (${entry.code})`;
@@ -982,9 +1088,14 @@ export function abortLocalSession(session: LocalSession | null): void {
  * Auto-downloads model on first use.
  */
 async function transcribeInProcess(pcmData: Buffer, config: VoiceConfig): Promise<string> {
-	const { initSherpa, isSherpaAvailable, getSherpaError, getOrCreateRecognizer, transcribeBuffer } = await import(
-		"./sherpa-engine"
-	);
+	const {
+		initSherpa,
+		isSherpaAvailable,
+		getSherpaError,
+		getOrCreateRecognizer,
+		transcribeBuffer,
+		transcribeBufferSegmented,
+	} = await import("./sherpa-engine");
 	const { ensureModelDownloaded } = await import("./model-download");
 
 	// Initialize sherpa if needed
@@ -1005,6 +1116,10 @@ async function transcribeInProcess(pcmData: Buffer, config: VoiceConfig): Promis
 
 	// Create/reuse recognizer and transcribe
 	const recognizer = getOrCreateRecognizer(model, modelDir, config.language || "en");
+	// Qwen3-ASR caps context at 512 tokens (~18s); segment long audio via VAD before decode.
+	if (model.sherpaModel.type === "qwen3_asr") {
+		return transcribeBufferSegmented(pcmData, recognizer);
+	}
 	return transcribeBuffer(pcmData, recognizer);
 }
 

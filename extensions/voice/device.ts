@@ -13,6 +13,7 @@ import * as os from "node:os";
 import * as fs from "node:fs";
 import { spawnSync } from "node:child_process";
 import type { LocalModelInfo } from "./local";
+import { languagesForLangSupport } from "./local";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -154,34 +155,13 @@ export function autoRecommendModel(
 
 /** Check if a model supports a given language code. */
 function modelSupportsLanguage(model: LocalModelInfo, langCode: string): boolean {
+	// Single source of truth: 按 langSupport 查共享能力表（local.ts
+	// languagesForLangSupport），不按 model.id 回查全局目录 —— 未知/自定义
+	// 模型的 langSupport 未登记时保守返回空（不支持任何语言），避免 fail-open。
+	// 此前并行 switch 与按 id 回查都曾把新语言族漂移成"支持所有语言"。
 	const base = langCode.split("-")[0];
-	switch (model.langSupport) {
-		case "whisper":
-		case "parakeet-multi":
-			return true; // Multilingual
-		case "english-only":
-			return base === "en";
-		case "russian-only":
-			return base === "ru";
-		case "sensevoice":
-			return ["zh", "en", "ja", "ko", "yue"].includes(base!);
-		case "single-ar":
-			return base === "ar";
-		case "single-zh":
-			return base === "zh";
-		case "single-ja":
-			return base === "ja";
-		case "single-ko":
-			return base === "ko";
-		case "single-uk":
-			return base === "uk";
-		case "single-vi":
-			return base === "vi";
-		case "single-es":
-			return base === "es";
-		default:
-			return true;
-	}
+	const languages = languagesForLangSupport(model.langSupport);
+	return languages.some((l) => l.code === base || l.code === langCode);
 }
 
 /** Format device profile as a short summary string. */

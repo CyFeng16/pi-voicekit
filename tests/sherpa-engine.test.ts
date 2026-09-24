@@ -5,6 +5,8 @@ import {
 	getSherpaError,
 	clearRecognizerCache,
 	transcribeBuffer,
+	transcribeBufferSegmented,
+	segmentPcmForLongAudio,
 } from "../extensions/voice/sherpa-engine";
 
 // ─── Module loading ──────────────────────────────────────────────────────────
@@ -116,5 +118,53 @@ describe("transcribeBuffer", () => {
 		expect(accepted).toHaveLength(1);
 		expect(accepted[0]?.sampleRate).toBe(16000);
 		expect(Array.from(accepted[0]?.samples || [])).toEqual([-256 / 32768, 127 / 32768, 128 / 32768]);
+	});
+});
+
+// ─── long-audio VAD segmentation (qwen3-asr / paraformer patch) ────────────
+
+describe("transcribeBufferSegmented", () => {
+	// Environment-agnostic: whether or not a Silero VAD model is installed,
+	// the result must equal the join of every per-decode result.
+	function makeMockRecognizer() {
+		const decoded: string[] = [];
+		const recognizer = {
+			createStream() {
+				return { acceptWaveform() {} };
+			},
+			async decodeAsync() {},
+			getResult() {
+				const text = `t${decoded.length + 1}`;
+				decoded.push(text);
+				return { text };
+			},
+		};
+		return { recognizer, decoded };
+	}
+
+	test("short audio (≤ threshold) takes the single-decode fast path", async () => {
+		const { recognizer, decoded } = makeMockRecognizer();
+		const pcm = Buffer.alloc(16000 * 2 * 5); // 5s @16kHz 16-bit
+		const result = await transcribeBufferSegmented(pcm, recognizer);
+		expect(result).toBe("t1");
+		expect(decoded).toEqual(["t1"]);
+	});
+
+	test("long audio result equals join of per-segment results", async () => {
+		const { recognizer, decoded } = makeMockRecognizer();
+		const pcm = Buffer.alloc(16000 * 2 * 30); // 30s @16kHz 16-bit
+		const result = await transcribeBufferSegmented(pcm, recognizer, 10);
+		expect(result).toBe(decoded.join(" "));
+		expect(decoded.length).toBeGreaterThan(0);
+	});
+});
+
+describe("segmentPcmForLongAudio", () => {
+	test("silence-only long input yields exactly one buffer", () => {
+		// With VAD installed: silence produces zero speech segments → fallback.
+		// Without VAD: graceful degradation returns the whole buffer.
+		const samples = new Float32Array(16000 * 30); // 30s of silence
+		const out = segmentPcmForLongAudio(samples, 16000, 10);
+		expect(out).toHaveLength(1);
 	});
 });

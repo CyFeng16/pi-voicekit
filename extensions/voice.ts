@@ -98,6 +98,16 @@ import {
 	localLanguageDisplayName,
 	type LocalSession,
 } from "./voice/local";
+import { shouldArmReleaseDetectOnRepeat, decideRecordingStartTimer } from "./voice/hold-to-talk";
+import { GapTimer, type TimerPort } from "./voice/release-controller";
+
+/** Adapter for the real event loop — lets GapTimer run under the real setTimeout. */
+const realTimerPort: TimerPort = {
+	once(fn, ms) {
+		const id = setTimeout(fn, ms);
+		return { cancel: () => clearTimeout(id) };
+	},
+};
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -745,7 +755,7 @@ export default function (pi: ExtensionAPI) {
 	let spaceDownTime: number | null = null;
 	let holdActivationTimer: ReturnType<typeof setTimeout> | null = null;
 	let spaceConsumed = false; // True once threshold passed and recording started
-	let releaseDetectTimer: ReturnType<typeof setTimeout> | null = null;
+	let releaseGapTimer: GapTimer | null = null; // gap-based release detection (see release-controller.ts)
 	let warmupWidgetTimer: ReturnType<typeof setInterval> | null = null;
 	let spacePressCount = 0; // Count of rapid space presses (for non-Kitty hold detection)
 	let lastSpacePressTime = 0; // Timestamp of last space press event
@@ -855,10 +865,7 @@ export default function (pi: ExtensionAPI) {
 	}
 
 	function clearReleaseTimer() {
-		if (releaseDetectTimer) {
-			clearTimeout(releaseDetectTimer);
-			releaseDetectTimer = null;
-		}
+		releaseGapTimer?.cancel();
 	}
 
 	function clearWarmupWidget() {
@@ -1528,6 +1535,17 @@ export default function (pi: ExtensionAPI) {
 
 		showRecordingWidget();
 		playSound("start");
+
+		// #13：录音就绪（voiceState 已切 recording、成功出口）才 arm gap-based
+		// release timer。仅 hold 会话（spaceDownTime 非 null，用户按住 SPACE）
+		// 且非 kitty 时 arm：按住由后续 repeat 持续 re-arm，松键（repeat 停止）
+		// 在 RELEASE_DETECT_RECORDING_MS 内被感知，启动窗口内松键也能 250ms 后停。
+		// toggle/dictation 无 repeat 流维持 timer，arm 会在约 250ms 后自动停掉
+		// 录音，故必须排除（即 spaceDownTime 为 null）。kitty 依赖真实
+		// key-release，同样 clear。
+		if (decideRecordingStartTimer({ kittyReleaseDetected, isHold: spaceDownTime != null }) === "arm") {
+			resetReleaseDetect();
+		}
 		return true;
 	}
 
@@ -1611,7 +1629,7 @@ export default function (pi: ExtensionAPI) {
 	// from being mistaken for a key release (brief gap in events).
 
 	function onSpaceReleaseDetected() {
-		releaseDetectTimer = null;
+		// GapTimer has already self-cleared (single-shot); nothing to reset here.
 		voiceDebug("onSpaceReleaseDetected", {
 			voiceState,
 			holdConfirmed,
@@ -1674,7 +1692,8 @@ export default function (pi: ExtensionAPI) {
 			// irregular when the system is under load (Deepgram streaming, etc.)
 			const timeout = voiceState === "recording" || spaceConsumed ? RELEASE_DETECT_RECORDING_MS : RELEASE_DETECT_MS;
 			voiceDebug("resetReleaseDetect", { timeout, voiceState, spaceConsumed });
-			releaseDetectTimer = setTimeout(onSpaceReleaseDetected, timeout);
+			releaseGapTimer = new GapTimer(realTimerPort, { ms: timeout, onFire: onSpaceReleaseDetected });
+			releaseGapTimer.arm();
 		}
 	}
 
@@ -1812,7 +1831,15 @@ export default function (pi: ExtensionAPI) {
 
 				// ── Kitty key-repeat ──
 				if (isKeyRepeat(data)) {
-					// Already in recording/finalizing — just consume
+					// #13: terminals without key-release events (e.g. Ghostty on
+					// macOS, non-kitty modes) signal "released" purely by a GAP in
+					// repeat events. Every repeat must re-arm the release-detect
+					// timer — recording start clears it, and if nothing re-arms it
+					// the release is never detected → hold-to-talk locks up forever.
+					if (shouldArmReleaseDetectOnRepeat({ voiceState, kittyReleaseDetected })) {
+						resetReleaseDetect();
+					}
+					// Already in recording/finalizing — consume (release timer kept alive above)
 					if (voiceState === "recording" || voiceState === "finalizing" || spaceConsumed) {
 						return { consume: true };
 					}
@@ -1851,8 +1878,9 @@ export default function (pi: ExtensionAPI) {
 									// seamlessly replaces it using the same widget ID.
 									spaceConsumed = true;
 									recordingStartedAt = Date.now();
-									// Clear release timer during async recording startup
-									// to prevent false stop. Next repeat re-arms it.
+									// Clear release timer during async recording startup to
+									// prevent a false stop. The 250ms gap timer is re-armed
+									// once recording is actually ready — see startStreamingRecording (#13).
 									clearReleaseTimer();
 									voiceDebug("holdActivationTimer fired → starting recording (Kitty repeat path)");
 									startVoiceRecording()
@@ -1878,7 +1906,8 @@ export default function (pi: ExtensionAPI) {
 
 						// Re-arm gap-based release detection — this is how
 						// Ghostty-on-macOS (repeats but no release) detects
-						// the key being released.
+						// the key being released. (Preserved from the original
+						// ordering — the recording-path re-arm above is separate.)
 						resetReleaseDetect();
 						return { consume: true };
 					}

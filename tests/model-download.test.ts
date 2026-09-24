@@ -10,7 +10,12 @@ import {
 	getDownloadedModels,
 	deleteModel,
 } from "../extensions/voice/model-download";
-import { LOCAL_MODELS } from "../extensions/voice/local";
+import {
+	LOCAL_MODELS,
+	getLanguagesForLocalModel,
+	isLanguageSupportedByModel,
+	languagesForLangSupport,
+} from "../extensions/voice/local";
 
 const tempDirs: string[] = [];
 
@@ -24,9 +29,9 @@ function makeTempModelDir(modelId: string): string {
 
 afterEach(() => {
 	for (const dir of tempDirs.splice(0)) {
-		try {
+		if (fs.existsSync(dir)) {
 			fs.rmSync(dir, { recursive: true, force: true });
-		} catch {}
+		}
 	}
 });
 
@@ -93,5 +98,72 @@ describe("download URLs validation", () => {
 			const urlRoles = Object.keys(model.sherpaModel.downloadUrls);
 			expect(fileRoles.sort()).toEqual(urlRoles.sort());
 		}
+	});
+});
+
+describe("zh models (paraformer / qwen3-asr patch)", () => {
+	test("qwen3-asr-0.6b and paraformer-zh are present with correct intent types", () => {
+		const ids = LOCAL_MODELS.map((m) => m.id);
+		expect(ids).toContain("qwen3-asr-0.6b");
+		expect(ids).toContain("paraformer-zh");
+		expect(LOCAL_MODELS.find((m) => m.id === "qwen3-asr-0.6b")!.sherpaModel.type).toBe("qwen3_asr");
+		expect(LOCAL_MODELS.find((m) => m.id === "paraformer-zh")!.sherpaModel.type).toBe("paraformer");
+	});
+
+	test("qwen3-asr-0.6b declares all tokenizer and encoder files", () => {
+		const files = LOCAL_MODELS.find((m) => m.id === "qwen3-asr-0.6b")!.sherpaModel.files;
+		for (const key of ["convFrontend", "encoder", "decoder", "tokenizerMerges", "tokenizerVocab", "tokenizerConfig"]) {
+			expect(files).toHaveProperty(key);
+			expect(files[key]).toBeTruthy();
+		}
+	});
+
+	test("model ids are globally unique", () => {
+		const ids = LOCAL_MODELS.map((m) => m.id);
+		expect(new Set(ids).size).toBe(ids.length);
+	});
+});
+
+describe("language families for new zh models", () => {
+	test("paraformer-zh exposes zh + en (bilingual-zh-en), not the Whisper set", () => {
+		const { languages, englishOnly } = getLanguagesForLocalModel("paraformer-zh");
+		expect(englishOnly).toBe(false);
+		expect(languages.map((l) => l.code).sort()).toEqual(["en", "zh"]);
+		// 必须不套用 Whisper 全语言集
+		expect(languages.some((l) => l.code === "ja" || l.code === "fr")).toBe(false);
+	});
+
+	test("qwen3-asr uses its own zh/en-facing family, not the Whisper set", () => {
+		const { languages } = getLanguagesForLocalModel("qwen3-asr-0.6b");
+		expect(languages.map((l) => l.code).sort()).toEqual(["en", "zh"]);
+	});
+
+	test("isLanguageSupportedByModel agrees for paraformer zh/en", () => {
+		expect(isLanguageSupportedByModel("paraformer-zh", "zh")).toBe(true);
+		expect(isLanguageSupportedByModel("paraformer-zh", "en")).toBe(true);
+		expect(isLanguageSupportedByModel("paraformer-zh", "ja")).toBe(false);
+	});
+});
+
+describe("languagesForLangSupport (shared capability table)", () => {
+	test("registered families map correctly", () => {
+		expect(
+			languagesForLangSupport("bilingual-zh-en")
+				.map((l) => l.code)
+				.sort()
+		).toEqual(["en", "zh"]);
+		expect(
+			languagesForLangSupport("qwen3")
+				.map((l) => l.code)
+				.sort()
+		).toEqual(["en", "zh"]);
+		expect(languagesForLangSupport("russian-only").map((l) => l.code)).toEqual(["ru"]);
+		expect(languagesForLangSupport("whisper").length).toBeGreaterThan(20);
+	});
+
+	test("unregistered langSupport fails CLOSED (empty), never 'all languages'", () => {
+		// Type level it can't happen today, but a forward/custom model runtime
+		// value must not silently mean "supports everything".
+		expect(languagesForLangSupport("some-future-family" as any)).toEqual([]);
 	});
 });
