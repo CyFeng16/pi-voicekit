@@ -1,6 +1,6 @@
 {
   "name": "pi-listen-ng",
-  "version": "7.2.2",
+  "version": "7.3.2",
   "description": "Voice in + voice out for Pi CLI — hold-to-talk STT (Deepgram or 19 offline models) plus TTS (Kitten Nano, Piper, Kokoro, or Deepgram Aura)",
   "type": "module",
   "keywords": [

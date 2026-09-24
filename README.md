@@ -1,16 +1,19 @@
-[English](README.md) | [简体中文](README.zh-CN.md) | [日本語](README.ja.md) | [한국어](README.ko.md) | [Español](README.es.md) | [Français](README.fr.md) | [Português](README.pt-BR.md) | [हिन्दी](README.hi.md)
+[English](README.md) | [简体中文](i18n/README.zh-CN.md) | [日本語](i18n/README.ja.md) | [한국어](i18n/README.ko.md) | [Español](i18n/README.es.md) | [Français](i18n/README.fr.md) | [Português](i18n/README.pt-BR.md) | [हिन्दी](i18n/README.hi.md)
 
-# pi-listen
+# pi-listen-ng
+
+> **Community continuation of [`codexstar69/pi-listen`](https://github.com/codexstar69/pi-listen)** (archived upstream, MIT).
+> Not affiliated with the original author. Old name: `pi-listen`.
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/codexstar69/pi-listen/main/assets/banner.png" alt="pi-listen — Voice input for the Pi coding agent" width="100%" />
+  <img src="https://raw.githubusercontent.com/CyFeng16/pi-listen-ng/main/assets/banner.png" alt="pi-listen — Voice input for the Pi coding agent" width="100%" />
 </p>
 
-**Hold-to-talk voice input for [Pi](https://github.com/mariozechner/pi-coding-agent).** Cloud streaming via Deepgram or fully offline with local models.
+**Hold-to-talk voice input for [Pi](https://github.com/earendil-works/pi-coding-agent).** Cloud streaming via Deepgram or fully offline with local models.
 
-[![npm version](https://img.shields.io/npm/v/@codexstar/pi-listen.svg)](https://www.npmjs.com/package/@codexstar/pi-listen)
-[![license](https://img.shields.io/npm/l/@codexstar/pi-listen.svg)](https://github.com/codexstar69/pi-listen/blob/main/LICENSE)
-[![author](https://img.shields.io/badge/author-@baanditeagle-1DA1F2?logo=x&logoColor=white)](https://x.com/baanditeagle)
+[![npm version](https://img.shields.io/npm/v/pi-listen-ng.svg)](https://www.npmjs.com/package/pi-listen-ng)
+[![license](https://img.shields.io/npm/l/pi-listen-ng.svg)](https://github.com/CyFeng16/pi-listen-ng/blob/main/LICENSE)
+[![original author](https://img.shields.io/badge/original_author-@baanditeagle-1DA1F2?logo=x&logoColor=white)](https://x.com/baanditeagle)
 
 > **v7.0.0 — World-class TTS UX** — pick models from `/voice-settings` Speak
 > tab (no more JSON editing), auto-download on selection with progress, voice
@@ -27,8 +30,8 @@
 ## See How It Works
 
 <p align="center">
-  <a href="https://github.com/codexstar69/pi-listen/blob/main/assets/pi-listen.mp4">
-    <img src="https://raw.githubusercontent.com/codexstar69/pi-listen/main/assets/banner.png" alt="Watch demo video" width="600" />
+  <a href="https://github.com/CyFeng16/pi-listen-ng/blob/main/assets/pi-listen.mp4">
+    <img src="https://raw.githubusercontent.com/CyFeng16/pi-listen-ng/main/assets/banner.png" alt="Watch demo video" width="600" />
   </a>
   <br>
   <em>Click to watch the demo video</em>
@@ -42,21 +45,21 @@
 
 ```bash
 # In a regular terminal (not inside Pi)
-pi install npm:@codexstar/pi-listen
+pi install npm:pi-listen-ng
 ```
 
 ### 2. Choose your backend
 
 pi-listen supports two transcription backends:
 
-| | Deepgram (cloud) | Local models (offline) |
-|---|---|---|
-| **How it works** | Live streaming — text appears as you speak | Batch mode — transcribes after you finish recording |
-| **Setup** | API key required | No API key, models auto-download on first use |
-| **Internet** | Required | Not required after model download |
-| **Latency** | Real-time interim results | 2–10 seconds after recording stops |
-| **Languages** | 56+ with live streaming | Depends on model (1–57 languages) |
-| **Cost** | $200 free credit (lasts 6–12 months for most developers) | Free forever |
+|                  | Deepgram (cloud)                                         | Local models (offline)                              |
+| ---------------- | -------------------------------------------------------- | --------------------------------------------------- |
+| **How it works** | Live streaming — text appears as you speak               | Batch mode — transcribes after you finish recording |
+| **Setup**        | API key required                                         | No API key, models auto-download on first use       |
+| **Internet**     | Required                                                 | Not required after model download                   |
+| **Latency**      | Real-time interim results                                | 2–10 seconds after recording stops                  |
+| **Languages**    | 56+ with live streaming                                  | Depends on model (1–57 languages)                   |
+| **Cost**         | $200 free credit (lasts 6–12 months for most developers) | Free forever                                        |
 
 Run `/voice-settings` inside Pi to choose your backend and configure everything from one panel.
 
@@ -77,6 +80,7 @@ No setup needed — run `/voice-settings`, switch backend to Local, and select a
 ### 3. Open Pi
 
 On first launch, pi-listen checks your setup and tells you what's ready:
+
 - Backend configured (Deepgram key or local model)
 - Audio capture tool detected (sox, ffmpeg, or arecord)
 - If everything checks out, voice activates immediately
@@ -85,11 +89,11 @@ On first launch, pi-listen checks your setup and tells you what's ready:
 
 pi-listen auto-detects your audio tool. No manual install needed if you already have sox or ffmpeg.
 
-| Priority | Tool | Platforms | Install |
-|----------|------|-----------|---------|
-| 1 | **SoX** (`rec`) | macOS, Linux, Windows | `brew install sox` / `apt install sox` / `choco install sox` |
-| 2 | **ffmpeg** | macOS, Linux, Windows | `brew install ffmpeg` / `apt install ffmpeg` |
-| 3 | **arecord** | Linux only | Pre-installed (ALSA) |
+| Priority | Tool            | Platforms             | Install                                                      |
+| -------- | --------------- | --------------------- | ------------------------------------------------------------ |
+| 1        | **SoX** (`rec`) | macOS, Linux, Windows | `brew install sox` / `apt install sox` / `choco install sox` |
+| 2        | **ffmpeg**      | macOS, Linux, Windows | `brew install ffmpeg` / `apt install ffmpeg`                 |
+| 3        | **arecord**     | Linux only            | Pre-installed (ALSA)                                         |
 
 ---
 
@@ -99,25 +103,25 @@ All configuration lives in one place: `/voice-settings`. Four tabs cover everyth
 
 ### General — backend, language, scope
 
-<img src="https://raw.githubusercontent.com/codexstar69/pi-listen/main/assets/settings-general.png" alt="General settings — backend, model, language, scope, voice toggle" width="600" />
+<img src="https://raw.githubusercontent.com/CyFeng16/pi-listen-ng/main/assets/settings-general.png" alt="General settings — backend, model, language, scope, voice toggle" width="600" />
 
 Toggle between Deepgram (cloud, live streaming) and Local (offline, batch mode). Change language, scope, and enable/disable voice — all with keyboard shortcuts.
 
 ### Models — browse, search, install
 
-<img src="https://raw.githubusercontent.com/codexstar69/pi-listen/main/assets/settings-models.png" alt="Models tab — browse 19 models with accuracy/speed ratings" width="600" />
+<img src="https://raw.githubusercontent.com/CyFeng16/pi-listen-ng/main/assets/settings-models.png" alt="Models tab — browse 19 models with accuracy/speed ratings" width="600" />
 
 Browse 19 models from Parakeet, Whisper, Moonshine, SenseVoice, and GigaAM. Each model shows accuracy and speed ratings (●●●●○/●●●●○), fitness badges, and download status. Fuzzy search to find models fast. Press Enter to activate and download.
 
 ### Downloaded — manage installed models
 
-<img src="https://raw.githubusercontent.com/codexstar69/pi-listen/main/assets/settings-downloaded.png" alt="Downloaded tab — manage installed models, activate or delete" width="600" />
+<img src="https://raw.githubusercontent.com/CyFeng16/pi-listen-ng/main/assets/settings-downloaded.png" alt="Downloaded tab — manage installed models, activate or delete" width="600" />
 
 See what's installed, total disk usage, and which model is active. Press Enter to activate, `x` to delete. Models from [Handy](https://github.com/cjpais/handy) are auto-detected and can be imported without re-downloading.
 
 ### Device — hardware profile and dependencies
 
-<img src="https://raw.githubusercontent.com/codexstar69/pi-listen/main/assets/settings-device.png" alt="Device tab — hardware profile, dependencies, disk space" width="600" />
+<img src="https://raw.githubusercontent.com/CyFeng16/pi-listen-ng/main/assets/settings-device.png" alt="Device tab — hardware profile, dependencies, disk space" width="600" />
 
 See your hardware profile (RAM, CPU, GPU), dependency status (sherpa-onnx runtime), available disk space, and total downloaded models. Model recommendations are based on this profile.
 
@@ -127,11 +131,11 @@ See your hardware profile (RAM, CPU, GPU), dependency status (sherpa-onnx runtim
 
 ### Keybindings
 
-| Action | Key | Notes |
-|--------|-----|-------|
+| Action               | Key                  | Notes                                                                   |
+| -------------------- | -------------------- | ----------------------------------------------------------------------- |
 | **Record to editor** | Hold `SPACE` (≥1.2s) | Release to finalize. Pre-records during warmup so you don't miss words. |
-| **Toggle recording** | `Ctrl+Shift+V` | Works in all terminals — press to start, press again to stop. |
-| **Clear editor** | `Escape` × 2 | Double-tap within 500ms to clear all text. |
+| **Toggle recording** | `Ctrl+Shift+V`       | Works in all terminals — press to start, press again to stop.           |
+| **Clear editor**     | `Escape` × 2         | Double-tap within 500ms to clear all text.                              |
 
 ### How recording works
 
@@ -142,44 +146,44 @@ See your hardware profile (RAM, CPU, GPU), dependency status (sherpa-onnx runtim
 
 ### Commands
 
-| Command | Description |
-|---------|-------------|
-| `/voice-settings` | Settings panel — backend, models, language, scope, device |
-| `/voice-models` | Settings panel (Models tab) |
-| `/voice-speak <text>` | Speak text out loud (TTS) |
-| `/voice-speak-test` | Speak a sample sentence |
-| `/voice-speak-toggle` | Enable / disable TTS |
-| `/voice-autosubmit` `[on|off]` | Toggle: STT text auto-sent to the agent |
-| `/voice-speak-models` | Browse / install TTS voice models |
-| `/voice-speak-info` | Diagnose TTS state |
-| `/voice-help` | Keyboard + command reference (or press `F1`) |
-| `/voice test` | Full diagnostics — audio tool, mic, API key |
-| `/voice on` / `off` | Enable or disable voice |
-| `/voice dictate` | Continuous dictation (no key hold) |
-| `/voice stop` | Stop active recording or dictation |
-| `/voice history` | Recent transcriptions |
-| `/voice` | Toggle on/off |
+| Command                  | Description                                               |
+| ------------------------ | --------------------------------------------------------- |
+| `/voice-settings`        | Settings panel — backend, models, language, scope, device |
+| `/voice-models`          | Settings panel (Models tab)                               |
+| `/voice-speak <text>`    | Speak text out loud (TTS)                                 |
+| `/voice-speak-test`      | Speak a sample sentence                                   |
+| `/voice-speak-toggle`    | Enable / disable TTS                                      |
+| `/voice-autosubmit` `[on | off]`                                                     | Toggle: STT text auto-sent to the agent |
+| `/voice-speak-models`    | Browse / install TTS voice models                         |
+| `/voice-speak-info`      | Diagnose TTS state                                        |
+| `/voice-help`            | Keyboard + command reference (or press `F1`)              |
+| `/voice test`            | Full diagnostics — audio tool, mic, API key               |
+| `/voice on` / `off`      | Enable or disable voice                                   |
+| `/voice dictate`         | Continuous dictation (no key hold)                        |
+| `/voice stop`            | Stop active recording or dictation                        |
+| `/voice history`         | Recent transcriptions                                     |
+| `/voice`                 | Toggle on/off                                             |
 
 ### v7.1 keyboard
 
 While in the settings panel:
 
-| Key | Action |
-|-----|--------|
-| `← →` | switch tab |
-| `↑ ↓` | navigate row (skips group headings) |
-| `↵` | select / activate |
-| `esc` | back to main / close panel |
-| `type` | filter (search) |
-| `bksp` | clear last search char |
+| Key    | Action                              |
+| ------ | ----------------------------------- |
+| `← →`  | switch tab                          |
+| `↑ ↓`  | navigate row (skips group headings) |
+| `↵`    | select / activate                   |
+| `esc`  | back to main / close panel          |
+| `type` | filter (search)                     |
+| `bksp` | clear last search char              |
 
 While an install widget or playback indicator is mounted (no overlay
 in front):
 
-| Key | Action |
-|-----|--------|
+| Key   | Action                                                        |
+| ----- | ------------------------------------------------------------- |
 | `esc` | cancel active install (most-recent first), then stop playback |
-| `F1` | open help overlay (always available) |
+| `F1`  | open help overlay (always available)                          |
 
 ---
 
@@ -189,27 +193,27 @@ in front):
 
 ### Top picks
 
-| Model | Accuracy | Speed | Size | Languages | Notes |
-|-------|----------|-------|------|-----------|-------|
-| **Parakeet TDT v3** | ●●●●○ | ●●●●○ | 671 MB | 25 (auto-detect) | Best overall. WER 6.3%. |
-| **Parakeet TDT v2** | ●●●●● | ●●●●○ | 661 MB | English | Best English. WER 6.0%. |
-| **Whisper Turbo** | ●●●●○ | ●●○○○ | 1.0 GB | 57 | Broadest language support. |
+| Model               | Accuracy | Speed | Size   | Languages        | Notes                      |
+| ------------------- | -------- | ----- | ------ | ---------------- | -------------------------- |
+| **Parakeet TDT v3** | ●●●●○    | ●●●●○ | 671 MB | 25 (auto-detect) | Best overall. WER 6.3%.    |
+| **Parakeet TDT v2** | ●●●●●    | ●●●●○ | 661 MB | English          | Best English. WER 6.0%.    |
+| **Whisper Turbo**   | ●●●●○    | ●●○○○ | 1.0 GB | 57               | Broadest language support. |
 
 ### Fast and lightweight
 
-| Model | Accuracy | Speed | Size | Languages | Notes |
-|-------|----------|-------|------|-----------|-------|
-| **Moonshine v2 Tiny** | ●●○○○ | ●●●●● | 43 MB | English | 34ms latency. Raspberry Pi friendly. |
-| **Moonshine Base** | ●●●○○ | ●●●●● | 287 MB | English | Handles accents well. |
-| **SenseVoice Small** | ●●●○○ | ●●●●● | 228 MB | zh/en/ja/ko/yue | Best for CJK languages. |
+| Model                 | Accuracy | Speed | Size   | Languages       | Notes                                |
+| --------------------- | -------- | ----- | ------ | --------------- | ------------------------------------ |
+| **Moonshine v2 Tiny** | ●●○○○    | ●●●●● | 43 MB  | English         | 34ms latency. Raspberry Pi friendly. |
+| **Moonshine Base**    | ●●●○○    | ●●●●● | 287 MB | English         | Handles accents well.                |
+| **SenseVoice Small**  | ●●●○○    | ●●●●● | 228 MB | zh/en/ja/ko/yue | Best for CJK languages.              |
 
 ### Specialist
 
-| Model | Accuracy | Speed | Size | Languages | Notes |
-|-------|----------|-------|------|-----------|-------|
-| **GigaAM v3** | ●●●●○ | ●●●●○ | 225 MB | Russian | 50% lower WER than Whisper on Russian. |
-| **Whisper Medium** | ●●●●○ | ●●●○○ | 946 MB | 57 | Good accuracy, medium speed. |
-| **Whisper Large v3** | ●●●●○ | ●○○○○ | 1.8 GB | 57 | Highest Whisper accuracy. Slow on CPU. |
+| Model                | Accuracy | Speed | Size   | Languages | Notes                                  |
+| -------------------- | -------- | ----- | ------ | --------- | -------------------------------------- |
+| **GigaAM v3**        | ●●●●○    | ●●●●○ | 225 MB | Russian   | 50% lower WER than Whisper on Russian. |
+| **Whisper Medium**   | ●●●●○    | ●●●○○ | 946 MB | 57        | Good accuracy, medium speed.           |
+| **Whisper Large v3** | ●●●●○    | ●○○○○ | 1.8 GB | 57        | Highest Whisper accuracy. Slow on CPU. |
 
 Plus 8 language-specialized Moonshine v2 variants for Japanese, Korean, Arabic, Chinese, Ukrainian, Vietnamese, and Spanish.
 
@@ -233,23 +237,23 @@ Models from [Handy](https://github.com/cjpais/handy) (`~/Library/Application Sup
 
 ## Features
 
-| Feature | Description |
-|---------|-------------|
-| **Dual backend** | Deepgram (cloud, live streaming) or local models (offline, batch) — switch in settings |
-| **19 local models** | Parakeet, Whisper, Moonshine, SenseVoice, GigaAM — with accuracy/speed ratings |
-| **Unified settings panel** | One overlay panel for all configuration — `/voice-settings` |
-| **Device-aware recommendations** | Scores models against your hardware. Only best-in-class models get [recommended]. |
+| Feature                          | Description                                                                              |
+| -------------------------------- | ---------------------------------------------------------------------------------------- |
+| **Dual backend**                 | Deepgram (cloud, live streaming) or local models (offline, batch) — switch in settings   |
+| **19 local models**              | Parakeet, Whisper, Moonshine, SenseVoice, GigaAM — with accuracy/speed ratings           |
+| **Unified settings panel**       | One overlay panel for all configuration — `/voice-settings`                              |
+| **Device-aware recommendations** | Scores models against your hardware. Only best-in-class models get [recommended].        |
 | **Enterprise download pipeline** | Pre-checks (disk, network, permissions), live progress with speed/ETA, post-verification |
-| **Handy integration** | Auto-detects models from Handy app, imports via symlink |
-| **Audio fallback chain** | Tries sox, ffmpeg, arecord in order |
-| **Pre-recording** | Audio capture starts during warmup — you never miss the first word |
-| **Tail recording** | Keeps recording 1.5s after release so your last word isn't clipped |
-| **Live streaming** | Deepgram Nova 3 WebSocket — interim transcripts as you speak |
-| **56+ languages** | Deepgram: 56+ with live streaming. Local: up to 57 depending on model. |
-| **Continuous dictation** | `/voice dictate` for long-form input without holding keys |
-| **Typing cooldown** | Space holds within 400ms of typing are ignored |
-| **Sound feedback** | macOS system sounds for start, stop, and error events |
-| **Cross-platform** | macOS, Windows, Linux — Kitty protocol + non-Kitty fallback |
+| **Handy integration**            | Auto-detects models from Handy app, imports via symlink                                  |
+| **Audio fallback chain**         | Tries sox, ffmpeg, arecord in order                                                      |
+| **Pre-recording**                | Audio capture starts during warmup — you never miss the first word                       |
+| **Tail recording**               | Keeps recording 1.5s after release so your last word isn't clipped                       |
+| **Live streaming**               | Deepgram Nova 3 WebSocket — interim transcripts as you speak                             |
+| **56+ languages**                | Deepgram: 56+ with live streaming. Local: up to 57 depending on model.                   |
+| **Continuous dictation**         | `/voice dictate` for long-form input without holding keys                                |
+| **Typing cooldown**              | Space holds within 400ms of typing are ignored                                           |
+| **Sound feedback**               | macOS system sounds for start, stop, and error events                                    |
+| **Cross-platform**               | macOS, Windows, Linux — Kitty protocol + non-Kitty fallback                              |
 
 ---
 
@@ -273,22 +277,22 @@ extensions/voice/settings-panel.ts  Settings panel — Component interface, over
 
 Settings stored in Pi's settings files under the `voice` key:
 
-| Scope | Path |
-|-------|------|
-| Global | `~/.pi/agent/settings.json` |
+| Scope   | Path                          |
+| ------- | ----------------------------- |
+| Global  | `~/.pi/agent/settings.json`   |
 | Project | `<project>/.pi/settings.json` |
 
 ```json
 {
-  "voice": {
-    "version": 2,
-    "enabled": true,
-    "language": "en",
-    "backend": "local",
-    "localModel": "parakeet-v3",
-    "scope": "global",
-    "onboarding": { "completed": true, "schemaVersion": 2 }
-  }
+	"voice": {
+		"version": 2,
+		"enabled": true,
+		"language": "en",
+		"backend": "local",
+		"localModel": "parakeet-v3",
+		"scope": "global",
+		"onboarding": { "completed": true, "schemaVersion": 2 }
+	}
 }
 ```
 
@@ -302,13 +306,13 @@ an explicit save and it still goes to `~/.env.secrets` or `~/.zshrc`.
 
 Run `/voice test` inside Pi for full diagnostics.
 
-| Problem | Solution |
-|---------|----------|
-| "DEEPGRAM_API_KEY not set" | [Get a key](https://dpgr.am/pi-voice) → `export DEEPGRAM_API_KEY="..."` in `~/.zshrc` |
-| "No audio capture tool found" | `brew install sox` or `brew install ffmpeg` |
-| Space doesn't activate voice | Run `/voice-settings` — voice may be disabled |
-| Local model not transcribing | Check `/voice-settings` → Device tab for sherpa-onnx status |
-| Download failed | Partial downloads auto-resume on retry. Check disk space in Device tab. |
+| Problem                                          | Solution                                                                                                        |
+| ------------------------------------------------ | --------------------------------------------------------------------------------------------------------------- |
+| "DEEPGRAM_API_KEY not set"                       | [Get a key](https://dpgr.am/pi-voice) → `export DEEPGRAM_API_KEY="..."` in `~/.zshrc`                           |
+| "No audio capture tool found"                    | `brew install sox` or `brew install ffmpeg`                                                                     |
+| Space doesn't activate voice                     | Run `/voice-settings` — voice may be disabled                                                                   |
+| Local model not transcribing                     | Check `/voice-settings` → Device tab for sherpa-onnx status                                                     |
+| Download failed                                  | Partial downloads auto-resume on retry. Check disk space in Device tab.                                         |
 | `dyld: Library not loaded: libsimdjson` on macOS | Homebrew Node ABI mismatch — run `brew reinstall node` or switch to version-managed Node (`mise`, `fnm`, `nvm`) |
 
 ---
@@ -326,12 +330,12 @@ See [SECURITY.md](SECURITY.md) for vulnerability reporting.
 
 ## License
 
-[MIT](LICENSE) © 2026 [@baanditeagle](https://x.com/baanditeagle)
+[MIT](LICENSE) — original by [@baanditeagle](https://x.com/baanditeagle), maintained by [CyFeng16](https://github.com/CyFeng16)
 
 ---
 
 <p align="center">
-  <strong>Made by <a href="https://x.com/baanditeagle">@baanditeagle</a></strong>
+  <strong>Continuation of pi-listen by <a href="https://x.com/baanditeagle">@baanditeagle</a>, maintained by <a href="https://github.com/CyFeng16">CyFeng16</a></strong>
   <br><br>
-  <a href="https://abhishektiwari.co">Website</a> · <a href="https://x.com/baanditeagle">𝕏 Twitter</a> · <a href="https://github.com/codexstar69/pi-listen">GitHub</a> · <a href="https://www.npmjs.com/package/@codexstar/pi-listen">npm</a> · <a href="https://github.com/codexstar69/pi-listen/issues">Report a Bug</a> · <a href="https://github.com/mariozechner/pi-coding-agent">Pi CLI</a>
+  <a href="https://abhishektiwari.co">Website</a> · <a href="https://x.com/baanditeagle">𝕏 Twitter</a> · <a href="https://github.com/CyFeng16/pi-listen-ng">GitHub</a> · <a href="https://www.npmjs.com/package/pi-listen-ng">npm</a> · <a href="https://github.com/CyFeng16/pi-listen-ng/issues">Report a Bug</a> · <a href="https://github.com/earendil-works/pi-coding-agent">Pi CLI</a>
 </p>
