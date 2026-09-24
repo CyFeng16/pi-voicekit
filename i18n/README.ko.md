@@ -1,9 +1,9 @@
 [English](../README.md) | [简体中文](README.zh-CN.md) | [日本語](README.ja.md) | [한국어](README.ko.md) | [Español](README.es.md) | [Français](README.fr.md) | [Português](README.pt-BR.md) | [हिन्दी](README.hi.md)
 
-# pi-listen
+# pi-voicekit
 
 <p align="center">
-  <img src="../assets/banner.png" alt="pi-listen — Pi 코딩 에이전트용 음성 입력" width="100%" />
+  <img src="../assets/banner.png" alt="pi-voicekit — Pi 코딩 에이전트용 음성 입력" width="100%" />
 </p>
 
 **[Pi](https://github.com/earendil-works/pi-coding-agent)를 위한 길게 누르기 음성 입력.** Deepgram 클라우드 스트리밍 또는 로컬 모델로 완전 오프라인 지원.
@@ -33,7 +33,7 @@ pi install npm:pi-voicekit
 
 ### 2. 백엔드 선택
 
-pi-listen은 두 가지 음성 인식 백엔드를 지원합니다:
+pi-voicekit은 두 가지 음성 인식 백엔드를 지원합니다:
 
 |               | Deepgram (클라우드)                                  | 로컬 모델 (오프라인)                         |
 | ------------- | ---------------------------------------------------- | -------------------------------------------- |
@@ -62,7 +62,7 @@ export DEEPGRAM_API_KEY="your-key-here"    # ~/.zshrc 또는 ~/.bashrc에 추가
 
 ### 3. Pi 열기
 
-첫 실행 시 pi-listen이 설정을 확인하고 준비 상태를 알려줍니다:
+첫 실행 시 pi-voicekit이 설정을 확인하고 준비 상태를 알려줍니다:
 
 - 백엔드 설정 완료 (Deepgram 키 또는 로컬 모델)
 - 오디오 캡처 도구 감지 (sox, ffmpeg 또는 arecord)
@@ -70,7 +70,7 @@ export DEEPGRAM_API_KEY="your-key-here"    # ~/.zshrc 또는 ~/.bashrc에 추가
 
 ### 오디오 캡처
 
-pi-listen이 오디오 도구를 자동 감지합니다. sox나 ffmpeg가 이미 설치되어 있다면 수동 설치가 필요 없습니다.
+pi-voicekit이 오디오 도구를 자동 감지합니다. sox나 ffmpeg가 이미 설치되어 있다면 수동 설치가 필요 없습니다.
 
 | 우선순위 | 도구            | 플랫폼                | 설치                                                         |
 | -------- | --------------- | --------------------- | ------------------------------------------------------------ |
@@ -271,7 +271,7 @@ Pi 내부에서 `/voice test`를 실행하여 전체 진단을 수행하세요.
 
 - **클라우드 STT** — 오디오가 텍스트 변환을 위해 Deepgram으로 전송됩니다 (Deepgram 백엔드만 해당)
 - **로컬 STT** — 오디오가 기기 밖으로 나가지 않습니다 (로컬 백엔드)
-- **텔레메트리 없음** — pi-listen은 사용 데이터를 수집하거나 전송하지 않습니다
+- **텔레메트리 없음** — pi-voicekit은 사용 데이터를 수집하거나 전송하지 않습니다
 - **API 키** — 환경 변수 또는 Pi 설정에 저장, 로그에 기록되지 않음
 
 취약점 보고는 [SECURITY.md](../SECURITY.md)를 참조하세요.

@@ -1,4 +1,4 @@
-# pi-listen troubleshooting
+# pi-voicekit troubleshooting
 
 ## First things to check
 
@@ -24,7 +24,7 @@ No Deepgram API key was found in environment variables or saved Pi settings.
 4. Or run `/voice-setup` inside Pi to paste it interactively
 
 ### Important behavior
-- If the key comes from your shell environment, pi-listen uses it at runtime
+- If the key comes from your shell environment, pi-voicekit uses it at runtime
   only and does not copy it into `~/.pi/agent/settings.json`
 - If you paste a key during onboarding, that is an explicit save and it goes to
   `~/.env.secrets` or `~/.zshrc`
@@ -42,7 +42,7 @@ The API key is set but Deepgram rejected it.
 ## Symptom: "Voice requires SoX. Install: brew install sox"
 
 ### What it means
-pi-listen could not find the `rec` command used for audio recording.
+pi-voicekit could not find the `rec` command used for audio recording.
 
 ### Fix
 Install SoX:

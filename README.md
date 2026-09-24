@@ -6,7 +6,7 @@
 > Not affiliated with the original author. Old name: `pi-listen`.
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/CyFeng16/pi-voicekit/main/assets/banner.png" alt="pi-listen — Voice input for the Pi coding agent" width="100%" />
+  <img src="https://raw.githubusercontent.com/CyFeng16/pi-voicekit/main/assets/banner.png" alt="pi-voicekit — Voice input for the Pi coding agent" width="100%" />
 </p>
 
 **Hold-to-talk voice input for [Pi](https://github.com/earendil-works/pi-coding-agent).** Cloud streaming via Deepgram or fully offline with local models.
@@ -50,7 +50,7 @@ pi install npm:pi-voicekit
 
 ### 2. Choose your backend
 
-pi-listen supports two transcription backends:
+pi-voicekit supports two transcription backends:
 
 |                  | Deepgram (cloud)                                         | Local models (offline)                              |
 | ---------------- | -------------------------------------------------------- | --------------------------------------------------- |
@@ -79,7 +79,7 @@ No setup needed — run `/voice-settings`, switch backend to Local, and select a
 
 ### 3. Open Pi
 
-On first launch, pi-listen checks your setup and tells you what's ready:
+On first launch, pi-voicekit checks your setup and tells you what's ready:
 
 - Backend configured (Deepgram key or local model)
 - Audio capture tool detected (sox, ffmpeg, or arecord)
@@ -87,7 +87,7 @@ On first launch, pi-listen checks your setup and tells you what's ready:
 
 ### Audio capture
 
-pi-listen auto-detects your audio tool. No manual install needed if you already have sox or ffmpeg.
+pi-voicekit auto-detects your audio tool. No manual install needed if you already have sox or ffmpeg.
 
 | Priority | Tool            | Platforms             | Install                                                      |
 | -------- | --------------- | --------------------- | ------------------------------------------------------------ |
@@ -321,7 +321,7 @@ Run `/voice test` inside Pi for full diagnostics.
 
 - **Cloud STT** — audio is sent to Deepgram for transcription (Deepgram backend only)
 - **Local STT** — audio never leaves your machine (local backend)
-- **No telemetry** — pi-listen does not collect or transmit usage data
+- **No telemetry** — pi-voicekit does not collect or transmit usage data
 - **API key** — stored in env var or Pi settings, never logged
 
 See [SECURITY.md](SECURITY.md) for vulnerability reporting.

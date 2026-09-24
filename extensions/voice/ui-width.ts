@@ -8,7 +8,7 @@
  * two halves of nothing.
  *
  * Hand-curated EAW Wide/Fullwidth ranges from Unicode 15.1 EastAsianWidth.txt
- * — only the blocks pi-listen actually ships labels for (CJK, Hangul,
+ * — only the blocks pi-voicekit actually ships labels for (CJK, Hangul,
  * Hiragana/Katakana, fullwidth ASCII). Hindi/Devanagari and Arabic
  * intentionally NOT covered: per the v7.1 plan their voices are rendered
  * with romanized labels, so a precise width here is unnecessary and a

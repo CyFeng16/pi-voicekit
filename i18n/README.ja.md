@@ -1,9 +1,9 @@
 [English](../README.md) | [简体中文](README.zh-CN.md) | [日本語](README.ja.md) | [한국어](README.ko.md) | [Español](README.es.md) | [Français](README.fr.md) | [Português](README.pt-BR.md) | [हिन्दी](README.hi.md)
 
-# pi-listen
+# pi-voicekit
 
 <p align="center">
-  <img src="../assets/banner.png" alt="pi-listen — Pi コーディングエージェント用の音声入力" width="100%" />
+  <img src="../assets/banner.png" alt="pi-voicekit — Pi コーディングエージェント用の音声入力" width="100%" />
 </p>
 
 **[Pi](https://github.com/earendil-works/pi-coding-agent) 向けの長押しトーク音声入力。** Deepgram によるクラウドストリーミング、またはローカルモデルによる完全オフライン対応。
@@ -33,7 +33,7 @@ pi install npm:pi-voicekit
 
 ### 2. バックエンドの選択
 
-pi-listen は2つの文字起こしバックエンドに対応しています：
+pi-voicekit は2つの文字起こしバックエンドに対応しています：
 
 |                    | Deepgram（クラウド）                                  | ローカルモデル（オフライン）                       |
 | ------------------ | ----------------------------------------------------- | -------------------------------------------------- |
@@ -62,7 +62,7 @@ export DEEPGRAM_API_KEY="your-key-here"    # ~/.zshrc または ~/.bashrc に追
 
 ### 3. Pi を開く
 
-初回起動時、pi-listen はセットアップを確認し、準備状況を通知します：
+初回起動時、pi-voicekit はセットアップを確認し、準備状況を通知します：
 
 - バックエンドの設定済み（Deepgram キーまたはローカルモデル）
 - 音声キャプチャツールの検出（sox、ffmpeg、または arecord）
@@ -70,7 +70,7 @@ export DEEPGRAM_API_KEY="your-key-here"    # ~/.zshrc または ~/.bashrc に追
 
 ### 音声キャプチャ
 
-pi-listen は音声ツールを自動検出します。sox または ffmpeg がインストール済みなら手動インストールは不要です。
+pi-voicekit は音声ツールを自動検出します。sox または ffmpeg がインストール済みなら手動インストールは不要です。
 
 | 優先度 | ツール          | 対応プラットフォーム  | インストール                                                 |
 | ------ | --------------- | --------------------- | ------------------------------------------------------------ |
@@ -271,7 +271,7 @@ Pi 内で `/voice test` を実行して完全な診断を行います。
 
 - **クラウド STT** — 音声は文字起こしのために Deepgram に送信されます（Deepgram バックエンドのみ）
 - **ローカル STT** — 音声はマシンの外に出ません（ローカルバックエンド）
-- **テレメトリなし** — pi-listen は利用データの収集・送信を行いません
+- **テレメトリなし** — pi-voicekit は利用データの収集・送信を行いません
 - **API キー** — 環境変数または Pi 設定に保存、ログには記録されません
 
 脆弱性の報告については [SECURITY.md](../SECURITY.md) をご覧ください。

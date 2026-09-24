@@ -1,9 +1,9 @@
 [English](../README.md) | [简体中文](README.zh-CN.md) | [日本語](README.ja.md) | [한국어](README.ko.md) | [Español](README.es.md) | [Français](README.fr.md) | [Português](README.pt-BR.md) | [हिन्दी](README.hi.md)
 
-# pi-listen
+# pi-voicekit
 
 <p align="center">
-  <img src="../assets/banner.png" alt="pi-listen — Saisie vocale pour l'agent de programmation Pi" width="100%" />
+  <img src="../assets/banner.png" alt="pi-voicekit — Saisie vocale pour l'agent de programmation Pi" width="100%" />
 </p>
 
 **Saisie vocale maintenir-pour-parler pour [Pi](https://github.com/earendil-works/pi-coding-agent).** Streaming cloud via Deepgram ou entièrement hors ligne avec des modèles locaux.
@@ -33,7 +33,7 @@ pi install npm:pi-voicekit
 
 ### 2. Choisir votre backend
 
-pi-listen prend en charge deux backends de transcription :
+pi-voicekit prend en charge deux backends de transcription :
 
 |                    | Deepgram (cloud)                                                            | Modèles locaux (hors ligne)                                                           |
 | ------------------ | --------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
@@ -62,7 +62,7 @@ Aucune configuration nécessaire — exécutez `/voice-settings`, passez le back
 
 ### 3. Ouvrir Pi
 
-Au premier lancement, pi-listen vérifie votre configuration et vous indique ce qui est prêt :
+Au premier lancement, pi-voicekit vérifie votre configuration et vous indique ce qui est prêt :
 
 - Backend configuré (clé Deepgram ou modèle local)
 - Outil de capture audio détecté (sox, ffmpeg ou arecord)
@@ -70,7 +70,7 @@ Au premier lancement, pi-listen vérifie votre configuration et vous indique ce 
 
 ### Capture audio
 
-pi-listen détecte automatiquement votre outil audio. Aucune installation manuelle nécessaire si vous avez déjà sox ou ffmpeg.
+pi-voicekit détecte automatiquement votre outil audio. Aucune installation manuelle nécessaire si vous avez déjà sox ou ffmpeg.
 
 | Priorité | Outil           | Plateformes           | Installation                                                 |
 | -------- | --------------- | --------------------- | ------------------------------------------------------------ |
@@ -271,7 +271,7 @@ Exécutez `/voice test` dans Pi pour un diagnostic complet.
 
 - **STT cloud** — l'audio est envoyé à Deepgram pour la transcription (backend Deepgram uniquement)
 - **STT local** — l'audio ne quitte jamais votre machine (backend local)
-- **Pas de télémétrie** — pi-listen ne collecte ni ne transmet de données d'utilisation
+- **Pas de télémétrie** — pi-voicekit ne collecte ni ne transmet de données d'utilisation
 - **Clé API** — stockée dans une variable d'environnement ou les paramètres Pi, jamais journalisée
 
 Consultez [SECURITY.md](../SECURITY.md) pour signaler des vulnérabilités.

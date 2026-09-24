@@ -1,7 +1,7 @@
 /**
  * "Auroral" visual language — v7.2 world-class polish.
  *
- * Three primitives that elevate pi-listen's visual identity from
+ * Three primitives that elevate pi-voicekit's visual identity from
  * "minimal CLI" to "premium application":
  *
  *  1. Liquid Braille waveform — sub-cell vertical bars at 4-level

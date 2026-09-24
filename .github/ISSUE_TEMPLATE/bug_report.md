@@ -1,6 +1,6 @@
 ---
 name: Bug Report
-about: Report a bug in pi-listen
+about: Report a bug in pi-voicekit
 title: "[BUG] "
 labels: bug
 assignees: ''
@@ -14,7 +14,7 @@ A clear and concise description of what the bug is.
 
 - **OS:** (e.g., macOS 15.2 Apple Silicon, Ubuntu 24.04, Windows 11)
 - **Pi version:** (run `pi --version`)
-- **pi-listen version:** (check `/voice info` inside Pi)
+- **pi-voicekit version:** (check `/voice info` inside Pi)
 - **Terminal:** (e.g., Ghostty, Kitty, macOS Terminal, WezTerm)
 
 ## To Reproduce

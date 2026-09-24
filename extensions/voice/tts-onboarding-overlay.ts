@@ -17,7 +17,7 @@
  *
  * Visual design (no emoji per v7.1 hard constraint):
  *
- *   ┌─ pi-listen TTS ─────────────────────────────────────────────┐
+ *   ┌─ pi-voicekit TTS ─────────────────────────────────────────────┐
  *   │                                                              │
  *   │   Voice output ready.                                        │
  *   │                                                              │
@@ -90,7 +90,11 @@ export class TtsOnboardingOverlay {
 		// v7.2: rounded corners for modal feel. Title sits inline on the
 		// top edge with thin spacing so the box reads as a "sheet"
 		// rather than a hard frame (HIG modal aesthetic).
-		const top = `${ICON.boxRoundedTL}${ICON.boxH.repeat(2)} ${bold("pi-listen TTS")} ${ICON.boxH.repeat(Math.max(0, innerW - 16))}${ICON.boxRoundedTR}`;
+		// Title sits inline on the top edge; the pad is derived from the title's
+		// *visual* width so the frame stays exactly as wide as the body/bottom
+		// rows (brand length is data, not a magic constant).
+		const title = "pi-voicekit TTS";
+		const top = `${ICON.boxRoundedTL}${ICON.boxH.repeat(2)} ${bold(title)} ${ICON.boxH.repeat(Math.max(0, innerW - visualWidth(title) - 4))}${ICON.boxRoundedTR}`;
 		const bottom = `${ICON.boxRoundedBL}${ICON.boxH.repeat(innerW)}${ICON.boxRoundedBR}`;
 		const hr = `${ICON.boxV}${" ".repeat(innerW)}${ICON.boxV}`;
 		const row = (s: string): string => {
@@ -147,7 +151,7 @@ export class TtsOnboardingOverlay {
 		const dim = (s: string) => (t ? t.fg("dim", s) : s);
 		const accent = (s: string) => (t ? t.fg("accent", s) : s);
 		return [
-			` ${accent("pi-listen TTS")}`,
+			` ${accent("pi-voicekit TTS")}`,
 			` ${dim("Voice output ready. Resize to ≥60 cols for the full hint.")}`,
 			` ${accent("[↵]")} ${dim("test")}   ${accent("[m]")} ${dim("pick")}   ${accent("[esc]")} ${dim("skip")}`,
 		];
