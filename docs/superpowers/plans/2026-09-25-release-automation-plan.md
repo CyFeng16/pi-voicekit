@@ -22,8 +22,9 @@
 - **Never weaken the fail-fast ordering:** extract → publish → pack/gate → release.
 - **Verification one-liners must fail loudly.** `bun -e` scripts that use `require(...)` swallow uncaught
   exceptions: the process exits 0, prints nothing, and the work is silently skipped (measured on bun
-  1.3.11; the `import` form, `await Bun.file(...)` and `node -e` all exit 1 correctly). Report failures with
-  `console.error(...)` + `process.exit(1)`, never a bare `throw`.
+  1.3.11; the `import` form, `await Bun.file(...)` and `node -e` all exit 1 correctly). The required shape is
+  the ESM import — `import * as fs from 'node:fs';` — plus `console.error(...)` + `process.exit(1)` for
+  failures. Never `require(...)`, and never rely on a bare `throw` alone.
 
 ## Review Focus
 
@@ -476,11 +477,11 @@ jobs:
 - [ ] **Step 2: Verify the YAML parses and every new `run:` block is valid shell**
 
 ```bash
-bun -e "const fs=require('node:fs'); const fail=(m)=>{console.error(m);process.exit(1)}; const d=Bun.YAML.parse(fs.readFileSync('.github/workflows/release.yml','utf8')); const s=d?.jobs?.publish?.steps??[]; const names=s.map((x)=>x.name??x.uses); const want=['Verify tag matches package.json version','Setup Bun','Extract release notes from CHANGELOG.md','Install dependencies','Typecheck + tests','Bump npm to latest (supports OIDC)','Publish to npm (Trusted Publishing + provenance)','Verify the packed tarball matches the published one','Publish the GitHub Release']; if (s.length!==11) fail('expected 11 steps (1 checkout + 10 named), got '+s.length); for (const w of want) if (!names.includes(w)) fail('missing step: '+w); console.log('yaml parses; steps:', s.length)"
+bun -e "import * as fs from 'node:fs'; const fail=(m)=>{console.error(m);process.exit(1)}; const d=Bun.YAML.parse(fs.readFileSync('.github/workflows/release.yml','utf8')); const s=d?.jobs?.publish?.steps??[]; const names=s.map((x)=>x.name??x.uses); const want=['Verify tag matches package.json version','Setup Bun','Extract release notes from CHANGELOG.md','Install dependencies','Typecheck + tests','Bump npm to latest (supports OIDC)','Publish to npm (Trusted Publishing + provenance)','Verify the packed tarball matches the published one','Publish the GitHub Release']; if (s.length!==11) fail('expected 11 steps (1 checkout + 10 named), got '+s.length); for (const w of want) if (!names.includes(w)) fail('missing step: '+w); console.log('yaml parses; steps:', s.length)"
 bunx tsc -p tsconfig.json
 # Syntax-check every inline script ON ITS OWN — concatenating them would hide exactly
 # the cross-step mistakes (an unexported variable) this pipeline must not have.
-bun -e "const fs=require('node:fs'); const fail=(m)=>{console.error(m);process.exit(1)}; const d=Bun.YAML.parse(fs.readFileSync('.github/workflows/release.yml','utf8')); const runs=d.jobs.publish.steps.filter((s)=>s.run); if (runs.length!==8) fail('expected 8 run blocks, got '+runs.length); d.jobs.publish.steps.forEach((s,i)=>{ if (s.run) { const f='/tmp/release-run-'+i+'.sh'; fs.writeFileSync(f, s.run); if (fs.statSync(f).size===0) fail('empty run block: '+f); } }); console.log('extracted', runs.length, 'run blocks')"
+bun -e "import * as fs from 'node:fs'; const fail=(m)=>{console.error(m);process.exit(1)}; const d=Bun.YAML.parse(fs.readFileSync('.github/workflows/release.yml','utf8')); const runs=d.jobs.publish.steps.filter((s)=>s.run); if (runs.length!==8) fail('expected 8 run blocks, got '+runs.length); d.jobs.publish.steps.forEach((s,i)=>{ if (s.run) { const f='/tmp/release-run-'+i+'.sh'; fs.writeFileSync(f, s.run); if (fs.statSync(f).size===0) fail('empty run block: '+f); } }); console.log('extracted', runs.length, 'run blocks')"
 for f in /tmp/release-run-*.sh; do bash -n "$f" || exit 1; done && echo "bash -n: ok"
 ```
 
@@ -536,7 +537,7 @@ output is not a tarball name.
 
 ```bash
 cd "$(git -C /home/feng/workspace/pi-voicekit rev-parse --show-toplevel)"   # the new workflow lives here
-bun -e "const fs=require('node:fs'); const fail=(m)=>{console.error(m);process.exit(1)}; const d=Bun.YAML.parse(fs.readFileSync('.github/workflows/release.yml','utf8')); const step=d.jobs.publish.steps.find((s)=>(s.name||'').startsWith('Verify the packed')); if (!step) fail('step not found: Verify the packed'); fs.writeFileSync('/tmp/gate.sh', step.run); console.log('extracted the identity gate:', step.run.split('\n').length, 'lines')"
+bun -e "import * as fs from 'node:fs'; const fail=(m)=>{console.error(m);process.exit(1)}; const d=Bun.YAML.parse(fs.readFileSync('.github/workflows/release.yml','utf8')); const step=d.jobs.publish.steps.find((s)=>(s.name||'').startsWith('Verify the packed')); if (!step) fail('step not found: Verify the packed'); fs.writeFileSync('/tmp/gate.sh', step.run); console.log('extracted the identity gate:', step.run.split('\n').length, 'lines')"
 
 REAL_NPM="$(command -v npm)"; export REAL_NPM
 mkdir -p /tmp/plan-stub-npm && cat > /tmp/plan-stub-npm/npm <<'NPMSTUB'
@@ -588,7 +589,7 @@ STUB
 chmod +x /tmp/plan-stub/gh
 
 # the guard block itself, taken straight out of the workflow — not a hand-kept copy
-bun -e "const fs=require('node:fs'); const fail=(m)=>{console.error(m);process.exit(1)}; const d=Bun.YAML.parse(fs.readFileSync('.github/workflows/release.yml','utf8')); const last=d.jobs.publish.steps.at(-1); if (!last?.run || !(last.name||'').startsWith('Publish the GitHub Release')) fail('last step is not the release step: '+(last?.name||last?.uses)); fs.writeFileSync('/tmp/plan-guard.sh', last.run); console.log('extracted the release guard:', last.run.split('\n').length, 'lines')"
+bun -e "import * as fs from 'node:fs'; const fail=(m)=>{console.error(m);process.exit(1)}; const d=Bun.YAML.parse(fs.readFileSync('.github/workflows/release.yml','utf8')); const last=d.jobs.publish.steps.at(-1); if (!last?.run || !(last.name||'').startsWith('Publish the GitHub Release')) fail('last step is not the release step: '+(last?.name||last?.uses)); fs.writeFileSync('/tmp/plan-guard.sh', last.run); console.log('extracted the release guard:', last.run.split('\n').length, 'lines')"
 echo hi > /tmp/release-notes.md
 
 for mode in absent published draft draft_no_asset apifail; do
