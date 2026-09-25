@@ -272,7 +272,7 @@ Models from [Handy](https://github.com/cjpais/handy) (`~/Library/Application Sup
 | **Pre-recording**                | Audio capture starts during warmup — you never miss the first word                       |
 | **Tail recording**               | Keeps recording 1.5s after release so your last word isn't clipped                       |
 | **Live streaming**               | Deepgram Nova 3 WebSocket (Nova 2 for Chinese locales) — live interim transcripts        |
-| **Transcript polish**            | Optional post-ASR cleanup — every dictation makes one extra model call; the last N conversation turns (default 2) are sent with it, and after a compaction the summary is sent too. Disable with `/voice-polish off` |
+| **Transcript polish**            | Optional post-ASR cleanup — every dictation makes one extra model call; the last N conversation turns (default 2) are sent with it, plus the compaction summary after one — both only while the turn count is above zero. Disable with `/voice-polish off` |
 | **56+ languages**                | Deepgram: 56+ with live streaming. Local: up to 57 depending on model.                   |
 | **Continuous dictation**         | `/voice dictate` for long-form input without holding keys                                |
 | **Typing cooldown**              | Space holds within 400ms of typing are ignored                                           |
@@ -346,13 +346,13 @@ Settings stored in Pi's settings files under the `voice` key:
 ```json
 {
 	"voice": {
-		"version": 2,
+		"version": 3,
 		"enabled": true,
 		"language": "en",
 		"backend": "local",
 		"localModel": "parakeet-v3",
 		"scope": "global",
-		"onboarding": { "completed": true, "schemaVersion": 2 }
+		"onboarding": { "completed": true, "schemaVersion": 3 }
 	}
 }
 ```
