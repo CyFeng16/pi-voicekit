@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Automatic GitHub Releases** — pushing a `vX.Y.Z` tag now opens the GitHub Release
+  from that version's `CHANGELOG.md` section, with a `**Full Changelog**` compare link
+  to the previous tag and the packed npm tarball as its only extra asset.
+
 ### Changed
 
 - **Brand unified to `pi-voicekit`** — repository text and runtime UI now use one
@@ -20,6 +26,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   except the Chinese one), icon and horizontal/vertical lockups live in `assets/brand/`; the settings
   screenshots moved to `assets/screenshots/`, the demo to `assets/demo/`, and the upstream-era images
   to `assets/legacy/`. `assets/banner.png` — a JPEG carrying a `.png` extension — was removed.
+- **Release procedure documented in `CONTRIBUTING.md`** — a release now fails before
+  publishing when the tagged version has no `## [X.Y.Z]` section.
+- **Local `bun run release` script removed** — publishing happens only through a pushed
+  tag and CI, so every release is tied to its tag and carries npm provenance.
 
 ## [0.1.3] - 2026-09-24
 
