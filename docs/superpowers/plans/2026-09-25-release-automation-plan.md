@@ -588,7 +588,7 @@ STUB
 chmod +x /tmp/plan-stub/gh
 
 # the guard block itself, taken straight out of the workflow — not a hand-kept copy
-bun -e "const fs=require('node:fs'); const fail=(m)=>{console.error(m);process.exit(1)}; const d=Bun.YAML.parse(fs.readFileSync('.github/workflows/release.yml','utf8')); const last=d.jobs.publish.steps.at(-1); if (!last?.run || !last.name.startsWith('Publish the GitHub Release')) fail('last step is not the release step: '+(last?.name||last?.uses)); fs.writeFileSync('/tmp/plan-guard.sh', last.run); console.log('extracted the release guard:', last.run.split('\n').length, 'lines')"
+bun -e "const fs=require('node:fs'); const fail=(m)=>{console.error(m);process.exit(1)}; const d=Bun.YAML.parse(fs.readFileSync('.github/workflows/release.yml','utf8')); const last=d.jobs.publish.steps.at(-1); if (!last?.run || !(last.name||'').startsWith('Publish the GitHub Release')) fail('last step is not the release step: '+(last?.name||last?.uses)); fs.writeFileSync('/tmp/plan-guard.sh', last.run); console.log('extracted the release guard:', last.run.split('\n').length, 'lines')"
 echo hi > /tmp/release-notes.md
 
 for mode in absent published draft draft_no_asset apifail; do
