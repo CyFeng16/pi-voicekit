@@ -3294,6 +3294,10 @@ export default function (pi: ExtensionAPI) {
 			},
 			resolveApiKey: () => resolveDeepgramApiKey(config) ?? undefined,
 			deepgramLanguages: LANGUAGES.map((l) => ({ name: l.name, code: l.code, popular: l.popular })),
+			// Polish tab: the picker rows come from the same helper /voice-polish uses, so
+			// the panel keeps making no Pi API calls of its own.
+			getPolishModels: getPolishModelChoices,
+			getLastDictation: () => recordingHistory.find((item) => item.polishedApplied),
 		};
 
 		let panel!: InstanceType<typeof VoiceSettingsPanel>;
