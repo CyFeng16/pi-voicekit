@@ -74,7 +74,8 @@ describe("assembleContext", () => {
 	test("truncates a long entry from the head and flags it", () => {
 		const long = "x".repeat(50);
 		const result = assembleContext([msg("user", long)], { turns: 1, perEntryChars: 10, totalChars: 4000 });
-		expect(result.turns[0]!.text).toBe("xxxxxxxxxx…");
+		// The cap now includes the elision marker: 9 kept characters + "…" = 10.
+		expect(result.turns[0]!.text).toBe("xxxxxxxxx…");
 		expect(result.truncated).toBe(true);
 	});
 
@@ -95,5 +96,67 @@ describe("assembleContext", () => {
 		];
 		expect(() => assembleContext(entries, limits)).not.toThrow();
 		expect(assembleContext(entries, limits).turns.map((t) => t.text)).toEqual(["ok"]);
+	});
+
+	test("gives the summary only the budget the turns leave, marker included", () => {
+		const entries: EntryLike[] = [{ type: "compaction", summary: "s".repeat(50) }, msg("user", "short")];
+		const caps = { turns: 1, perEntryChars: 500, totalChars: 20 };
+		const result = assembleContext(entries, caps);
+		// "short" leaves 15 characters, so the summary keeps 14 characters + "…".
+		expect(result.turns.map((t) => t.text)).toEqual(["short"]);
+		expect(result.summary).toBe("s".repeat(14) + "…");
+		expect(result.summary!.length).toBe(15);
+		expect(result.characters).toBe(20);
+		expect(result.characters).toBeLessThanOrEqual(caps.totalChars);
+		expect(result.truncated).toBe(true);
+	});
+
+	test("omits the summary when the turns use the whole budget", () => {
+		const entries: EntryLike[] = [{ type: "compaction", summary: "earlier context" }, msg("user", "exactly!!")];
+		const caps = { turns: 1, perEntryChars: 500, totalChars: 9 };
+		const result = assembleContext(entries, caps);
+		expect(result.turns.map((t) => t.text)).toEqual(["exactly!!"]);
+		expect(result.summary).toBeUndefined();
+		expect(result.characters).toBe(9);
+		expect(result.characters).toBeLessThanOrEqual(caps.totalChars);
+	});
+
+	test("drops whole turns, never an assistant entry without its user entry", () => {
+		const entries = [msg("user", "aaaa"), msg("assistant", "b"), msg("user", "cccc")];
+		// Entry-by-entry trimming would drop "aaaa" only and keep ["b", "cccc"].
+		const result = assembleContext(entries, { turns: 2, perEntryChars: 500, totalChars: 8 });
+		expect(result.turns.map((t) => t.text)).toEqual(["cccc"]);
+		expect(result.turns[0]!.role).toBe("user");
+		expect(result.characters).toBeLessThanOrEqual(8);
+	});
+
+	test("floors a fractional turn limit instead of losing it", () => {
+		const entries = [msg("user", "first"), msg("assistant", "one"), msg("user", "second"), msg("assistant", "two")];
+		// slice(1.5) would resolve to slice(0) and keep the whole history.
+		const result = assembleContext(entries, { turns: 1.5, perEntryChars: 500, totalChars: 4000 });
+		expect(result.turns.map((t) => t.text)).toEqual(["second", "two"]);
+	});
+
+	test("treats a non-finite turn limit as no context, not as no limit", () => {
+		const entries = [msg("user", "first"), msg("user", "second")];
+		const caps = { perEntryChars: 500, totalChars: 4000 };
+		expect(assembleContext(entries, { ...caps, turns: Number.NaN }).turns).toEqual([]);
+		expect(assembleContext(entries, { ...caps, turns: Number.POSITIVE_INFINITY }).turns).toEqual([]);
+	});
+
+	test("counts the elision marker so characters can equal the budget but never exceed it", () => {
+		const caps = { turns: 1, perEntryChars: 500, totalChars: 11 };
+		const result = assembleContext([msg("user", "x".repeat(30))], caps);
+		// 10 kept characters + "…" fills the 11-character budget exactly.
+		expect(result.turns[0]!.text).toBe("x".repeat(10) + "…");
+		expect(result.characters).toBe(caps.totalChars);
+		expect(result.characters).toBeLessThanOrEqual(caps.totalChars);
+	});
+
+	test("never emits a lone surrogate when the head cut splits a pair", () => {
+		// "abc😀def" — the cut at index 4 falls between the pair's code units.
+		const result = assembleContext([msg("user", "abc😀def")], { turns: 1, perEntryChars: 5, totalChars: 4000 });
+		expect(result.turns[0]!.text).toBe("abc…");
+		expect(result.turns[0]!.text).not.toMatch(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/);
 	});
 });
