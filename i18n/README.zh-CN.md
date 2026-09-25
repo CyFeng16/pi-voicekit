@@ -19,7 +19,7 @@
 > **v0.1.3 — 当前版本** — 当设置了 `PULSE_SERVER`（SSH 音频隧道 / 远端 PulseAudio）时，
 > 音频采集会优先使用 `ffmpeg`，因此远程麦克风能稳定录音。语音输入**和**语音输出：
 > 21 个离线语音识别模型、20 个本地 TTS 音色，外加 Deepgram Aura，全部由同一个
-> `/voice-settings` 面板（5 个标签页）驱动。0.1.x 版本线记录在[更新日志](../CHANGELOG.md)中。
+> `/voice-settings` 面板（6 个标签页）驱动。0.1.x 版本线记录在[更新日志](../CHANGELOG.md)中。
 
 ---
 
@@ -96,7 +96,7 @@ pi-voicekit 会自动检测你的音频工具。如果你已安装 sox 或 ffmpe
 
 ## 设置面板
 
-所有配置集中在一处：`/voice-settings`。五个标签页覆盖你需要的全部内容。
+所有配置集中在一处：`/voice-settings`。六个标签页覆盖你需要的全部内容。
 
 ### 通用 — 后端、语言、作用域
 
@@ -296,7 +296,7 @@ extensions/voice/tts-install-progress.ts    模型安装进度挂件
 extensions/voice/tts-playback-indicator.ts  朗读指示器挂件
 
 # settings and UI
-extensions/voice/settings-panel.ts          设置面板 — 浮层、5 个标签页
+extensions/voice/settings-panel.ts          设置面板 — 浮层、6 个标签页
 extensions/voice/ui-picker.ts               通用列表选择器
 extensions/voice/ui-help-overlay.ts         键盘与命令速查
 extensions/voice/ui-aura.ts                 视觉基元（Liquid Braille、Aurora）

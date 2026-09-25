@@ -21,7 +21,7 @@ lee en voz alta las respuestas del agente (Kitten, Kokoro, Piper o Deepgram Aura
 > `PULSE_SERVER` está definida (túnel de audio por SSH / PulseAudio remoto), de modo
 > que los micrófonos remotos graban de forma fiable. Voz de entrada **y** de salida:
 > 21 modelos STT sin conexión, 20 voces TTS locales más Deepgram Aura, controlados por
-> un único panel `/voice-settings` con 5 pestañas. La línea 0.1.x está documentada en el
+> un único panel `/voice-settings` con 6 pestañas. La línea 0.1.x está documentada en el
 > [registro de cambios](../CHANGELOG.md).
 
 ---
@@ -99,7 +99,7 @@ pi-voicekit detecta automáticamente tu herramienta de audio. No necesitas insta
 
 ## Panel de configuración
 
-Toda la configuración vive en un solo lugar: `/voice-settings`. Cinco pestañas cubren todo lo que necesitas.
+Toda la configuración vive en un solo lugar: `/voice-settings`. Seis pestañas cubren todo lo que necesitas.
 
 ### General — backend, idioma, alcance
 
@@ -300,7 +300,7 @@ extensions/voice/tts-install-progress.ts    Widget de progreso de instalación d
 extensions/voice/tts-playback-indicator.ts  Widget indicador de lectura en curso
 
 # settings and UI
-extensions/voice/settings-panel.ts          Panel de configuración — superposición, 5 pestañas
+extensions/voice/settings-panel.ts          Panel de configuración — superposición, 6 pestañas
 extensions/voice/ui-picker.ts               Selector de listas genérico
 extensions/voice/ui-help-overlay.ts         Referencia de teclado y comandos
 extensions/voice/ui-aura.ts                 Primitivas visuales (Liquid Braille, Aurora)
