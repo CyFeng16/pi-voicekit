@@ -1,4 +1,5 @@
-# Local working files (superpowers specs/plans). Not tracked, never published.
+# Local working files (superpowers specs/plans): `.gitignore` excludes them and `.gitattributes`
+# keeps them out of release archives, so they are never published.
 # Needed beyond `.pi-lens.json`'s `ignore`: pi-lens' autoformat phase does not
 # consult that matcher, it shells out to prettier with cwd set to the nearest
 # tool-config root (this repo root), so this file is what actually exempts it.
