@@ -229,6 +229,15 @@ function migrateConfig(rawVoice: any, source: VoiceConfigSource, globalVoice?: u
 
 	for (const key of ["postProcessEnabled", "postProcessModel", "deepgramApiKey", "localEndpoint"]) {
 		if (!projectScoped || rawVoice[key] === undefined) continue;
+		// A loopback project endpoint is honoured, not ignored — reporting it would
+		// cry wolf on the safe case and weaken the signal for the discarded ones.
+		if (
+			key === "localEndpoint" &&
+			typeof rawVoice.localEndpoint === "string" &&
+			isLoopbackEndpoint(rawVoice.localEndpoint)
+		) {
+			continue;
+		}
 		// Never print a key, even one that is being ignored.
 		const shown = key === "deepgramApiKey" ? "<redacted>" : JSON.stringify(rawVoice[key]);
 		process.stderr.write(`[pi-voicekit] Ignoring project-scoped voice.${key} (${shown}); using the global value\n`);

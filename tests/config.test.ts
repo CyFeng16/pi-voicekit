@@ -408,6 +408,28 @@ describe("post-processing config (v3)", () => {
 		expect(result.config.localEndpoint).toBe("http://127.0.0.1:8080");
 	});
 
+	test("does not report a honoured loopback project endpoint as ignored", () => {
+		const cwd = makeTempDir();
+		const agentDir = path.join(cwd, "agent-home");
+		writeSettings(agentDir, "settings.json", { version: 3 });
+		writeSettings(cwd, ".pi/settings.json", { version: 3, localEndpoint: "http://127.0.0.1:8080" });
+
+		const chunks: string[] = [];
+		const original = process.stderr.write;
+		process.stderr.write = ((chunk: string | Uint8Array) => {
+			chunks.push(typeof chunk === "string" ? chunk : Buffer.from(chunk).toString());
+			return true;
+		}) as typeof process.stderr.write;
+		try {
+			const result = loadConfigWithSource(cwd, { agentDir });
+			expect(result.config.localEndpoint).toBe("http://127.0.0.1:8080");
+		} finally {
+			process.stderr.write = original;
+		}
+
+		expect(chunks.join("")).not.toContain("localEndpoint");
+	});
+
 	test("does not write post-processing fields into a project-scoped config", () => {
 		const cwd = makeTempDir();
 		const path1 = saveConfig(
