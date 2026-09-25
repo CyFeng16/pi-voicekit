@@ -487,8 +487,8 @@ type GlobalVoiceFieldKey = "postProcessEnabled" | "postProcessModel" | "postProc
  * (TTS speed, auto-submit, hold threshold, …). This writer instead reads the
  * existing global file and merges only the named keys into its `voice` block:
  *
- * - an existing `version` is preserved; a block created here gets the current
- *   schema version,
+ * - the persisted schema version (`onboarding.schemaVersion`) is preserved; a
+ *   block created here gets the current schema version,
  * - no other key is created, changed or removed,
  * - a missing file or `voice` block is created,
  * - the write is atomic (temp file + rename), like `saveConfig`.
@@ -502,7 +502,16 @@ export function saveGlobalVoiceFields(
 	const existing = settings[SETTINGS_KEY];
 	const voice: Record<string, unknown> =
 		existing && typeof existing === "object" ? { ...(existing as Record<string, unknown>) } : {};
-	if (typeof voice.version !== "number") voice.version = VOICE_CONFIG_VERSION;
+	// The persisted schema version lives under `onboarding.schemaVersion` — that is
+	// the key `normalizeOnboarding` reads (defaulting when absent) and
+	// `serializeConfig` writes. `VoiceConfig.version` is an in-memory-only name and
+	// must not be introduced into the stored block.
+	const onboarding: Record<string, unknown> =
+		voice.onboarding && typeof voice.onboarding === "object"
+			? { ...(voice.onboarding as Record<string, unknown>) }
+			: {};
+	if (typeof onboarding.schemaVersion !== "number") onboarding.schemaVersion = VOICE_CONFIG_VERSION;
+	voice.onboarding = onboarding;
 	for (const [key, value] of Object.entries(fields)) {
 		if (value !== undefined) voice[key] = value;
 	}

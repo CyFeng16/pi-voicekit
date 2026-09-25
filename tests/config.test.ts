@@ -290,7 +290,7 @@ describe("saveGlobalVoiceFields", () => {
 		const cwd = makeTempDir();
 		const agentDir = path.join(cwd, "agent-home");
 		writeSettings(agentDir, "settings.json", {
-			version: 2,
+			onboarding: { schemaVersion: 2 },
 			ttsSpeed: 0.8,
 			autoSubmitOnSpeak: true,
 			holdThresholdMs: 450,
@@ -300,9 +300,11 @@ describe("saveGlobalVoiceFields", () => {
 
 		const savedPath = saveGlobalVoiceFields({ postProcessNoticeShown: true }, { agentDir });
 		const saved = JSON.parse(fs.readFileSync(savedPath, "utf8")) as { voice: Record<string, unknown> };
+		const onboarding = saved.voice.onboarding as Record<string, unknown>;
 
 		expect(saved.voice.postProcessNoticeShown).toBe(true);
-		expect(saved.voice.version).toBe(2); // the existing schema version is kept
+		expect(onboarding.schemaVersion).toBe(2); // the existing persisted schema version is kept
+		expect(saved.voice.version).toBeUndefined(); // the in-memory-only name is never written
 		expect(saved.voice.ttsSpeed).toBe(0.8);
 		expect(saved.voice.autoSubmitOnSpeak).toBe(true);
 		expect(saved.voice.holdThresholdMs).toBe(450);
@@ -338,8 +340,9 @@ describe("saveGlobalVoiceFields", () => {
 		const saved = JSON.parse(fs.readFileSync(savedPath, "utf8")) as { voice: Record<string, unknown> };
 
 		expect(saved.voice.postProcessNoticeShown).toBe(true);
-		expect(saved.voice.version).toBe(VOICE_CONFIG_VERSION);
-		expect(Object.keys(saved.voice).sort()).toEqual(["postProcessNoticeShown", "version"]);
+		expect((saved.voice.onboarding as Record<string, unknown>).schemaVersion).toBe(VOICE_CONFIG_VERSION);
+		expect(saved.voice.version).toBeUndefined(); // the stored key is `onboarding.schemaVersion`, not `version`
+		expect(Object.keys(saved.voice).sort()).toEqual(["onboarding", "postProcessNoticeShown"]);
 	});
 
 	test("preserves the other keys of the settings file when creating the voice block", () => {
