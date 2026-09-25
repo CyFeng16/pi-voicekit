@@ -5,7 +5,7 @@ on:
     tags: ["v*"]
 
 permissions:
-  contents: read
+  contents: write
   id-token: write
 
 jobs:
@@ -13,6 +13,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
 
       - name: Verify tag matches package.json version
         run: |
@@ -22,11 +24,29 @@ jobs:
             echo "::error::tag ${TAG} does not match package.json version ${VERSION}"
             exit 1
           fi
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.3.11
+
+      # Fails before anything is published: a release must be describable at the
+      # commit it points at. Step 4b (the compare link) is folded in here — it
+      # writes to the same file and adds no state of its own.
+      - name: Extract release notes from CHANGELOG.md
+        run: |
+          node scripts/changelog-entry.mjs "$VERSION" --file CHANGELOG.md \
+            > "$RUNNER_TEMP/release-notes.md"
+
+          PREV="$(git ls-remote --tags origin 'refs/tags/v*' \
+            | sed 's|.*refs/tags/||; s|\^{}||' | sort -u -V \
+            | awk -v cur="v$VERSION" '$0 == cur { exit } { last = $0 } END { print last }')"
+          if [ -n "$PREV" ]; then
+            printf '\n**Full Changelog**: %s/compare/%s...v%s\n' \
+              "https://github.com/${GITHUB_REPOSITORY}" "$PREV" "$VERSION" \
+              >> "$RUNNER_TEMP/release-notes.md"
+          fi
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
@@ -40,21 +60,65 @@ jobs:
           node-version: 24
           registry-url: https://registry.npmjs.org
 
-      # Trusted Publishing 走 OIDC 换 token，仓库无需任何 secrets。
-      # npm ≥ 11.5.1 才支持从 GitHub Actions OIDC 直接出 token（含 provenance）。
       - name: Bump npm to latest (supports OIDC)
         run: npm install -g npm@latest
 
       - name: Publish to npm (Trusted Publishing + provenance)
-        run: npm publish --provenance --access public
+        run: |
+          if npm view "pi-voicekit@$VERSION" version >/dev/null 2>&1; then
+            echo "$VERSION already on the registry — skipping publish"
+          else
+            npm publish --provenance --access public
+          fi
 
-      # 一次性前置（npmjs.com 后台，由维护者手动完成，不能在 CI 内配置）:
-      #   1. 首次认领/创建包 pi-voicekit（npm access public 可在 publish 时完成）
-      #   2. 为包配置 Trusted Publishing 发布者（npm 端按 owner/repo/workflow
-      #      文件精确绑定，大小写敏感，必须与本文件名一致）:
+      - name: Verify the packed tarball matches the published one
+        run: |
+          TGZ="$(npm pack --silent | tail -1)"
+          case "$TGZ" in
+            pi-voicekit-*.tgz) ;;
+            *) echo "::error::unexpected npm pack output: $TGZ"; exit 1 ;;
+          esac
+          echo "TGZ=$TGZ" >> "$GITHUB_ENV"
+          LOCAL="$(sha1sum "$TGZ" | cut -d' ' -f1)"
+          REMOTE="$(npm view "pi-voicekit@$VERSION" dist.shasum)"
+          if [ "$LOCAL" != "$REMOTE" ]; then
+            echo "::error::packed tarball $LOCAL != published $REMOTE"
+            exit 1
+          fi
+          echo "$TGZ sha1 $LOCAL matches the registry"
+
+      - name: Publish the GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if OUT="$(gh release view "v$VERSION" --json isDraft -q .isDraft 2>&1)"; then
+            if [ "$OUT" = "true" ]; then
+              # A draft left by an earlier run can carry an asset that is present by name and
+              # wrong: the upload endpoint documents that an upstream failure may leave an empty
+              # asset behind, and a same-named asset must be replaced before it can be
+              # re-uploaded. So never trust the name — re-upload the tarball just verified.
+              gh release upload "v$VERSION" "$TGZ" --clobber
+              gh release edit "v$VERSION" --notes-file "$RUNNER_TEMP/release-notes.md" --draft=false
+            else
+              echo "release v$VERSION already published — nothing to do"
+            fi
+          elif printf '%s' "$OUT" | grep -qi 'not found'; then
+            gh release create "v$VERSION" --draft --verify-tag --title "v$VERSION" \
+              --notes-file "$RUNNER_TEMP/release-notes.md" "$TGZ"
+            gh release edit "v$VERSION" --draft=false
+          else
+            # A transient API or permission failure is not "the release does not exist":
+            # falling through to create would collide with it or hide the real error.
+            echo "::error::cannot determine the state of v$VERSION: $OUT"
+            exit 1
+          fi
+
+      # One-time prerequisites (npmjs.com side, done by the maintainer, not in CI):
+      #   1. Claim/create the pi-voicekit package (npm access public happens at publish)
+      #   2. Configure Trusted Publishing for it — npm binds by owner/repo/workflow
+      #      FILE NAME, case-sensitive, so this file must stay release.yml:
       #      - Provider: GitHub Actions
       #      - Owner: CyFeng16     Repository: pi-voicekit
       #      - Workflow: release.yml
-      #   3. OIDC GA（2025-07-31）要求 npm ≥ 11.5.1 + Node ≥ 22.14.0；
-      #      本 workflow 用 Node 24 并显式升级 npm@latest。
-      #   在此之前本 workflow 会在 publish 步失败——属预期，非流程缺陷。
+      #   3. OIDC GA (2025-07-31) requires npm >= 11.5.1 + Node >= 22.14.0; this
+      #      workflow uses Node 24 and upgrades npm explicitly.
