@@ -7,7 +7,7 @@
 import { readFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 
-const VERSION_PATTERN = /^\[?(?:v?\d+\.\d+\.\d+|Unreleased)\]?$/;
+const VERSION_PATTERN = /^(?:v?\d+\.\d+\.\d+|\[v?\d+\.\d+\.\d+\]|Unreleased|\[Unreleased\])$/;
 const USAGE = "usage: node scripts/changelog-entry.mjs <version> [--file CHANGELOG.md]";
 
 export function normalizeVersion(input) {

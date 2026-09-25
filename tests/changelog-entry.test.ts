@@ -2,7 +2,9 @@
 import { expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
 import { extractEntry, normalizeVersion } from "../scripts/changelog-entry.mjs";
-import { readFileSync } from "node:fs";
+import { readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const FIXTURE = [
@@ -127,10 +129,12 @@ test("exits 2 with no version, an unknown option, an extra argument, or a bare -
 	expect(run("0.1.3", "--file").status).toBe(2);
 });
 
-test("exits 2 on an unrecognized version spelling", () => {
-	const result = run("latest");
-	expect(result.status).toBe(2);
-	expect(result.stderr).toContain("unrecognized version spelling");
+test("exits 2 on an unrecognized version spelling, including unpaired brackets", () => {
+	for (const spelling of ["latest", "[0.1.3", "0.1.3]", "[Unreleased"]) {
+		const result = run(spelling);
+		expect(result.stderr).toContain("unrecognized version spelling");
+		expect(result.status).toBe(2);
+	}
 });
 
 test("exits 1 when the section is missing, naming the version", () => {
@@ -138,6 +142,24 @@ test("exits 1 when the section is missing, naming the version", () => {
 	expect(result.status).toBe(1);
 	expect(result.stderr).toContain("no section for 9.9.9");
 	expect(result.stdout).toBe("");
+});
+
+test("exits 1 for a whitespace-only section, naming the version", () => {
+	const file = join(tmpdir(), `changelog-entry-${process.pid}.md`);
+	writeFileSync(
+		file,
+		["# Changelog", "", "## [0.9.9] - 2026-01-01", "", "   ", "", "## [0.9.8] - 2026-01-02", "", "- older", ""].join(
+			"\n"
+		)
+	);
+	try {
+		const result = run("0.9.9", "--file", file);
+		expect(result.stdout).toBe("");
+		expect(result.stderr).toContain("section present but empty: 0.9.9");
+		expect(result.status).toBe(1);
+	} finally {
+		unlinkSync(file);
+	}
 });
 
 test("exits 2 for an unreadable file, 0 with only the body on stdout for a real one", () => {
