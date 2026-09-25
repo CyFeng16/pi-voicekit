@@ -1,16 +1,18 @@
 # Design: Automatic release notes and release assets for pi-voicekit
 
-- **Status**: reviewed 2026-09-25 (two self-review passes); awaiting maintainer approval
+- **Status**: implemented, merged and released — first release `v0.1.4` on 2026-09-26 (run
+  [`36164550122`](https://github.com/CyFeng16/pi-voicekit/actions/runs/36164550122)); the measured
+  acceptance record is in §9
 - **Date**: 2026-09-24
 - **Scope owner**: repository maintainer
 - **Selected route**: A — the hand-written `CHANGELOG.md` is the single source of truth
   for release notes (chosen by the maintainer over the alternatives ruled out in §7).
 
-> This file lives under `docs/superpowers/`, which is intentionally **not committed**:
-> it is listed in `.gitignore`, excluded from Prettier via `.prettierignore`, and
-> excluded from pi-lens scans via `.pi-lens.json` → `ignore`. The brainstorming
-> skill's default of committing the spec is deliberately overridden by the
-> maintainer's local-isolation convention. Do not `git add` this file.
+> This file lives under `docs/superpowers/`, which `.gitignore` excludes by default. The spec, the
+> plan and the evidence package are nevertheless tracked **deliberately** (commits `55ec2af`,
+> `b740ab2`, `1174893`) so the design stays reviewable next to what it produced: `.gitattributes`
+> keeps them out of GitHub's source archives, `.prettierignore` keeps markdown out of Prettier, and
+> `.pi-lens.json` → `ignore` keeps them out of pi-lens scans.
 >
 > `[needs verification]` marks a statement that is not yet backed by current-repo,
 > current-environment, or primary-source evidence.
@@ -434,3 +436,5 @@ and the last layer is a real release:
 | Every published version came from CI | npm attestations for 0.1.1 / 0.1.2 / 0.1.3 all name `.github/workflows/release.yml` — local publishing is dead in practice, yet `package.json` still exposes it (§5, item 3) |
 | CI is green on the pushed tree | run `36152361654` for `bfd19d1`: Install dependencies / Typecheck + tests / Check formatting all succeeded |
 | A version bump cannot desync `bun.lock` | `bun.lock`'s root workspace entry carries `name`, deps, optionalDeps and peerDeps but **no `version`** field; `package-lock.json` carries the version twice (top level and `packages[""]`), which is exactly what every 0.1.x bump commit edited |
+| **The first release through this pipeline (v0.1.4)** | Run [`36164550122`](https://github.com/CyFeng16/pi-voicekit/actions/runs/36164550122) at head `0780033`. Publish succeeded; the identity gate then failed on the first attempt (see the next row) and stopped the run **before** any GitHub Release existed — the fail-closed shape worked. A re-run finished it. Release: [v0.1.4](https://github.com/CyFeng16/pi-voicekit/releases/tag/v0.1.4), not a draft, one extra asset `pi-voicekit-0.1.4.tgz` (174,964 B). Its body was compared line by line against `node scripts/changelog-entry.mjs 0.1.4` plus the appended `**Full Changelog**: …/compare/v0.1.3...v0.1.4` line; the asset downloaded from the Release hashes to `196a3e85c32c9f002a25a01d0bbee86976d57733`, equal to `npm view pi-voicekit@0.1.4 dist.shasum`; npm lists `latest = 0.1.4` with two attestations (`…/npm/attestation/…/publish/v0.1` and `https://slsa.dev/provenance/v1`); the source archives are reachable. |
+| **npm serves a fresh version only after a delay** | The gate read `npm view pi-voicekit@0.1.4 dist.shasum` about a second after publish and got `E404`, even though the publish log already said `+ pi-voicekit@0.1.4` and `Your package is being processed and may take a few minutes to become available`. The version became visible **~75 s later**, and its sha1 matched the locally packed tarball byte for byte — so the immediate 404 was propagation lag, not a mismatch. The gate now polls for up to five minutes (20 × 15 s) before deciding, and still exits non-zero when the version never appears; the three modes were exercised locally against the real registry and stubbed lookups (visible → one attempt, late → retries then success, never → bounded loud failure). Idempotency after the fact: re-running the same workflow logged `0.1.4 already on the registry — skipping publish` and `release v0.1.4 already published — nothing to do`, and the release was untouched (`publishedAt` unchanged). |
