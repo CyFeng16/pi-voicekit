@@ -133,6 +133,46 @@ You released SPACE before finishing your sentence. The tail recording feature (1
 - Finish speaking before releasing SPACE
 - Or use `/voice dictate` for continuous dictation (no hold needed)
 
+## Symptom: the polish pass changed nothing, or changed too much
+
+### What it means
+Transcript polish is fail-open: every failure path keeps the raw transcript, so
+"changed nothing" usually means the pass was skipped or rejected, not that you
+lost text. A result that changed too much is a model rewrite the size guardrails
+still accepted. If polish never seems to run at all, check `/voice-polish` — the
+status output should say `Voice polish: on`.
+
+### Read the result line
+Run with `PI_VOICE_DEBUG=1` and search the log for the `polish result` line:
+
+```
+[voice 12:34:56.789] polish result {"model":"session","status":"rejected","reason":"too-long","ms":812,"contextChars":340,"truncated":false}
+```
+
+- `status` — `applied`, `rejected` (raw text kept), or `skipped` (a newer
+  recording or session took over).
+- `reason` — why a result was not applied: `timeout`, `call-failed`,
+  `stop-reason:*`, `error-message`, `empty-output`, `scaffolding-echo`,
+  `too-short`, `too-long`, or `invalidated`.
+- `contextChars` — how much conversation context was sent, after the caps.
+
+### Compare and restore
+- `/voice-polish last` prints the `RAW` and `POLISHED` text of the most recent
+  polished dictation; the settings panel's Polish tab shows the same pair.
+- `/voice-polish restore` puts the raw transcript back into the editor — only if
+  the editor still holds exactly what the pass wrote.
+
+The raw/polished history is in-memory for the current Pi session only. It is not
+written to disk and is gone after a restart.
+
+### Two failures you may hit
+- A configured model that is unavailable or malformed keeps the raw transcript
+  and warns instead of silently switching provider. That is deliberate: the model
+  choice decides where your dictated text is sent.
+- If you edit the editor while a pass is still waiting for the model, the polished
+  result is discarded with a one-line notice. Your text is kept; nothing is
+  overwritten.
+
 ## Symptom: project config is ignored
 
 ### What it means

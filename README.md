@@ -21,7 +21,7 @@ speaks the agent's replies (Kitten, Kokoro, Piper, or Deepgram Aura).
 > `PULSE_SERVER` is set (SSH audio tunnel / remote PulseAudio), so remote
 > microphones record reliably. Voice in **and** voice out: 21 offline STT models,
 > 20 local TTS voices plus Deepgram Aura, driven by one `/voice-settings` panel
-> with 5 tabs. The 0.1.x line is documented in the [changelog](CHANGELOG.md).
+> with 6 tabs. The 0.1.x line is documented in the [changelog](CHANGELOG.md).
 
 ---
 
@@ -100,7 +100,7 @@ pi-voicekit auto-detects your audio tool. No manual install needed if you alread
 
 ## Settings Panel
 
-All configuration lives in one place: `/voice-settings`. Five tabs cover everything you need.
+All configuration lives in one place: `/voice-settings`. Six tabs cover everything you need.
 
 ### General — backend, language, scope
 
@@ -131,6 +131,16 @@ agent replies is toggled here.
 <img src="https://raw.githubusercontent.com/CyFeng16/pi-voicekit/main/assets/screenshots/settings-device.png" alt="Device tab — hardware profile, dependencies, disk space" width="600" />
 
 See your hardware profile (RAM, CPU, GPU), dependency status (sherpa-onnx runtime), available disk space, and total downloaded models. Model recommendations are based on this profile.
+
+### Polish — transcript cleanup
+
+Optional post-ASR cleanup, on by default. Toggle it, pick the model, set how many
+recent conversation turns accompany the transcript (0–10), and cap how long one
+pass may take (`1000`–`30000` ms). The last row shows the most recent polished
+dictation as a `RAW` / `POLISHED` pair — the same pair `/voice-polish last` prints.
+
+`/voice-polish` takes `on`, `off`, `model`, `turns <0-10>`, `last` and `restore`;
+run it with no argument for the current status.
 
 ---
 
@@ -165,6 +175,7 @@ See your hardware profile (RAM, CPU, GPU), dependency status (sherpa-onnx runtim
 | `/voice-stream`          | Toggle Deepgram streaming TTS (cloud)                     |
 | `/voice-speak-stop`      | Stop in-flight TTS playback                               |
 | `/voice-autosubmit`      | Toggle: STT text auto-sent to the agent (`on`/`off`)      |
+| `/voice-polish [sub]`    | Transcript polish: on, off, model, turns, last, restore   |
 | `/voice-hold-delay`      | Set hold-to-talk delay (200-3000 ms, default 700)         |
 | `/voice-speak-models`    | Browse / install TTS voice models                         |
 | `/voice-speak-info`      | Diagnose TTS state                                        |
@@ -261,6 +272,7 @@ Models from [Handy](https://github.com/cjpais/handy) (`~/Library/Application Sup
 | **Pre-recording**                | Audio capture starts during warmup — you never miss the first word                       |
 | **Tail recording**               | Keeps recording 1.5s after release so your last word isn't clipped                       |
 | **Live streaming**               | Deepgram Nova 3 WebSocket (Nova 2 for Chinese locales) — live interim transcripts        |
+| **Transcript polish**            | Optional post-ASR cleanup — every dictation makes one extra model call; the last N conversation turns (default 2) are sent with it, and after a compaction the summary is sent too. Disable with `/voice-polish off` |
 | **56+ languages**                | Deepgram: 56+ with live streaming. Local: up to 57 depending on model.                   |
 | **Continuous dictation**         | `/voice dictate` for long-form input without holding keys                                |
 | **Typing cooldown**              | Space holds within 400ms of typing are ignored                                           |
@@ -288,6 +300,11 @@ extensions/voice/sherpa-loader.ts           Lazy native module loading
 extensions/voice/model-download.ts          Download manager — resume, progress, verification, Handy import
 extensions/voice/device.ts                  Device profiling — RAM, GPU, CPU, container detection
 
+# transcript post-processing
+extensions/voice/post-process.ts            Polish pass — fail-open guardrails, model resolution, bounded call
+extensions/voice/post-process-context.ts    Context assembly — recent turns, compaction summary, character caps
+extensions/voice/post-process-prompt.ts     Fixed polish prompt and request shape
+
 # text-to-speech
 extensions/voice/speak.ts                   Speak entry point, auto-speak wiring
 extensions/voice/tts-engine.ts              sherpa-onnx TTS synthesis
@@ -301,7 +318,7 @@ extensions/voice/tts-install-progress.ts    Model install progress widget
 extensions/voice/tts-playback-indicator.ts  Speaking indicator widget
 
 # settings and UI
-extensions/voice/settings-panel.ts          Settings panel — overlay, 5 tabs
+extensions/voice/settings-panel.ts          Settings panel — overlay, 6 tabs
 extensions/voice/ui-picker.ts               Generic list picker
 extensions/voice/ui-help-overlay.ts         Keyboard and command reference
 extensions/voice/ui-aura.ts                 Visual primitives (Liquid Braille, Aurora)
@@ -345,6 +362,23 @@ into `~/.pi/agent/settings.json`. If you paste a key during onboarding, that is
 an explicit save and it still goes to `~/.env.secrets` or `~/.zshrc`.
 
 Hold-to-talk delay defaults to **700 ms** (`/voice-hold-delay` accepts 200–3000 ms).
+
+### Transcript polish
+
+| Setting                   | Scope              | Default     | Notes                                                   |
+| ------------------------- | ------------------ | ----------- | ------------------------------------------------------- |
+| `postProcessEnabled`      | global only        | `true`      | Master switch. A project `voice` block cannot flip it.  |
+| `postProcessModel`        | global only        | `"session"` | Reuses the session model, or `provider/modelId`.        |
+| `postProcessContextTurns` | global and project | `2`         | Conversation turns sent with the transcript, `0`–`10`.  |
+| `postProcessTimeoutMs`    | global and project | `8000`      | Per-pass timeout in milliseconds, `1000`–`30000`.       |
+
+The global-only fields resolve from `~/.pi/agent/settings.json` even when a
+repository provides its own `voice` block, so a cloned repo can neither turn the
+feature on nor redirect where dictated text goes. The model is chosen from a
+picker (`/voice-polish model`), never typed: a hand-typed reference is refused,
+and an unavailable or malformed model keeps the raw transcript instead of
+switching provider. `postProcessNoticeShown` is machine-local bookkeeping for the
+one-time notice, not a user setting.
 
 ---
 

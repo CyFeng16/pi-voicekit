@@ -21,6 +21,7 @@ pi-voicekit adds voice input and voice output to Pi. Hold SPACE to record, relea
 - `/voice-speak <text>` — Speak text out loud (TTS)
 - `/voice-speak-models` — Browse / install TTS voice models
 - `/voice-speak-info` — Diagnose TTS state
+- `/voice-polish [on|off|model|turns <0-10>|last|restore]` — Optional post-ASR transcript polish
 - `/voice test` — Full diagnostics (audio tool, mic, API key)
 - `/voice [on|off|dictate|stop|history]`
 
@@ -34,7 +35,10 @@ pi-voicekit adds voice input and voice output to Pi. Hold SPACE to record, relea
 - `extensions/voice/device.ts`: Device profiling, model fitness scoring
 - `extensions/voice/model-download.ts`: Download manager with resume, verification, Handy import
 - `extensions/voice/sherpa-engine.ts`: sherpa-onnx bindings, recognizer lifecycle
-- `extensions/voice/settings-panel.ts`: Settings panel overlay (5 tabs)
+- `extensions/voice/post-process.ts`: Polish pass — fail-open guardrails, model resolution, bounded call
+- `extensions/voice/post-process-context.ts`: Conversation-context assembly for the polish pass
+- `extensions/voice/post-process-prompt.ts`: Fixed polish prompt and request shape
+- `extensions/voice/settings-panel.ts`: Settings panel overlay (6 tabs)
 - `extensions/voice/tts-engine.ts`: TTS engine selection and synthesis
 - `extensions/voice/tts-local-models.ts`: Local TTS voice catalog (Kitten, Piper, Kokoro)
 - `extensions/voice/tts-deepgram.ts`: Deepgram Aura TTS (cloud)
