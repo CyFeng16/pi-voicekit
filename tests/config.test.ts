@@ -9,6 +9,7 @@ import {
 	loadConfigWithSource,
 	needsOnboarding,
 	saveConfig,
+	VOICE_CONFIG_VERSION,
 	type VoiceConfig,
 } from "../extensions/voice/config";
 
@@ -316,5 +317,109 @@ describe("isLoopbackEndpoint", () => {
 	test("rejects invalid URLs", () => {
 		expect(isLoopbackEndpoint("not-a-url")).toBe(false);
 		expect(isLoopbackEndpoint("")).toBe(false);
+	});
+});
+
+describe("post-processing config (v3)", () => {
+	test("defaults enable the pass with the session model and two context turns", () => {
+		const cwd = makeTempDir();
+		const result = loadConfigWithSource(cwd, { agentDir: path.join(cwd, "agent-home") });
+		expect(result.config.version).toBe(VOICE_CONFIG_VERSION);
+		expect(result.config.postProcessEnabled).toBe(true);
+		expect(result.config.postProcessModel).toBe("session");
+		expect(result.config.postProcessContextTurns).toBe(2);
+		expect(result.config.postProcessTimeoutMs).toBe(8000);
+		expect(result.config.postProcessNoticeShown).toBe(false);
+	});
+
+	test("clamps invalid numbers back to defaults", () => {
+		const cwd = makeTempDir();
+		writeSettings(cwd, ".pi/settings.json", {
+			postProcessContextTurns: Number.NaN,
+			postProcessTimeoutMs: 2.5,
+			version: 3,
+		});
+		const result = loadConfigWithSource(cwd, { agentDir: path.join(cwd, "agent-home") });
+		expect(result.config.postProcessContextTurns).toBe(2);
+		expect(result.config.postProcessTimeoutMs).toBe(8000);
+	});
+
+	test("clamps out-of-range numbers into range", () => {
+		const cwd = makeTempDir();
+		writeSettings(cwd, ".pi/settings.json", { postProcessContextTurns: 99, postProcessTimeoutMs: 1, version: 3 });
+		const result = loadConfigWithSource(cwd, { agentDir: path.join(cwd, "agent-home") });
+		expect(result.config.postProcessContextTurns).toBe(10);
+		expect(result.config.postProcessTimeoutMs).toBe(1000);
+	});
+
+	test("honours the numeric fields in project scope", () => {
+		const cwd = makeTempDir();
+		const agentDir = path.join(cwd, "agent-home");
+		writeSettings(agentDir, "settings.json", { version: 3, postProcessContextTurns: 2, postProcessTimeoutMs: 8000 });
+		writeSettings(cwd, ".pi/settings.json", { version: 3, postProcessContextTurns: 5, postProcessTimeoutMs: 4000 });
+		const result = loadConfigWithSource(cwd, { agentDir });
+		expect(result.source).toBe("project");
+		expect(result.config.postProcessContextTurns).toBe(5);
+		expect(result.config.postProcessTimeoutMs).toBe(4000);
+	});
+
+	test("ignores model selection, enablement and a key from a project config", () => {
+		const cwd = makeTempDir();
+		const agentDir = path.join(cwd, "agent-home");
+		writeSettings(agentDir, "settings.json", { version: 3, postProcessModel: "test-provider/test-model" });
+		writeSettings(cwd, ".pi/settings.json", {
+			version: 3,
+			postProcessEnabled: false,
+			postProcessModel: "attacker/model",
+			deepgramApiKey: "stolen",
+			localEndpoint: "https://evil.example.com",
+		});
+		const result = loadConfigWithSource(cwd, { agentDir });
+		expect(result.config.postProcessEnabled).toBe(true);
+		expect(result.config.postProcessModel).toBe("test-provider/test-model"); // the global value survives
+		expect(result.config.deepgramApiKey).toBeUndefined();
+		expect(result.config.localEndpoint).toBeUndefined();
+	});
+
+	test("a project block cannot turn the feature back on after a global off", () => {
+		const cwd = makeTempDir();
+		const agentDir = path.join(cwd, "agent-home");
+		writeSettings(agentDir, "settings.json", { version: 3, postProcessEnabled: false });
+		writeSettings(cwd, ".pi/settings.json", { version: 3, language: "zh" });
+		const result = loadConfigWithSource(cwd, { agentDir });
+		expect(result.source).toBe("project");
+		expect(result.config.postProcessEnabled).toBe(false);
+	});
+
+	test("keeps a project loopback endpoint but falls back to the global one for a non-loopback value", () => {
+		const cwd = makeTempDir();
+		const agentDir = path.join(cwd, "agent-home");
+		writeSettings(agentDir, "settings.json", { version: 3, localEndpoint: "http://127.0.0.1:9999" });
+		writeSettings(cwd, ".pi/settings.json", { version: 3, language: "zh", localEndpoint: "http://10.0.0.5:8080" });
+		expect(loadConfigWithSource(cwd, { agentDir }).config.localEndpoint).toBe("http://127.0.0.1:9999");
+		writeSettings(cwd, ".pi/settings.json", { version: 3, language: "zh", localEndpoint: "http://127.0.0.1:8080" });
+		expect(loadConfigWithSource(cwd, { agentDir }).config.localEndpoint).toBe("http://127.0.0.1:8080");
+	});
+
+	test("still accepts a loopback local endpoint from a project config", () => {
+		const cwd = makeTempDir();
+		writeSettings(cwd, ".pi/settings.json", { version: 3, localEndpoint: "http://127.0.0.1:8080" });
+		const result = loadConfigWithSource(cwd, { agentDir: path.join(cwd, "agent-home") });
+		expect(result.config.localEndpoint).toBe("http://127.0.0.1:8080");
+	});
+
+	test("does not write post-processing fields into a project-scoped config", () => {
+		const cwd = makeTempDir();
+		const path1 = saveConfig(
+			{ ...DEFAULT_CONFIG, postProcessEnabled: true, postProcessModel: "x/y", postProcessNoticeShown: true },
+			"project",
+			cwd,
+			{ agentDir: path.join(cwd, "agent-home") }
+		);
+		const written = JSON.parse(fs.readFileSync(path1, "utf8")) as { voice: Record<string, unknown> };
+		expect(written.voice.postProcessEnabled).toBeUndefined();
+		expect(written.voice.postProcessModel).toBeUndefined();
+		expect(written.voice.postProcessNoticeShown).toBeUndefined();
+		expect(written.voice.postProcessContextTurns).toBe(2);
 	});
 });
