@@ -82,11 +82,12 @@ jobs:
           echo "TGZ=$TGZ" >> "$GITHUB_ENV"
           LOCAL="$(sha1sum "$TGZ" | cut -d' ' -f1)"
 
-          # A freshly published version is not served immediately — npm reports "Your package",
-          # "is being processed and may take a few minutes to become available" — so an instant
-          # 404 here is propagation lag, not a mismatch. Measured on the 0.1.4 release: the
-          # version became visible about 75 s after publish, and reading it immediately failed
-          # the run after npm had already published.
+          # A freshly published version is not served immediately — npm reports "Your package is
+          # being processed and may take a few minutes to become available" — so a 404 right after
+          # publishing usually means the version is not visible yet, not that it is missing. On the
+          # 0.1.4 release the read that followed publish 404'd while the publish had already
+          # succeeded ("+ pi-voicekit@0.1.4"); a later poll found it, sha1 matching. A lookup can
+          # fail for other reasons too, so this stays fail-closed once the retries run out.
           REMOTE=""
           for attempt in $(seq 1 20); do
             REMOTE="$(npm view "pi-voicekit@$VERSION" dist.shasum 2>/dev/null || true)"
@@ -95,7 +96,7 @@ jobs:
             sleep 15
           done
           if [ -z "$REMOTE" ]; then
-            echo "::error::$VERSION did not become visible on the registry within 5 minutes"
+            echo "::error::$VERSION did not become visible on the registry after 20 attempts"
             exit 1
           fi
           if [ "$LOCAL" != "$REMOTE" ]; then
