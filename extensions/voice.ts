@@ -493,6 +493,10 @@ function startStreamingSession(
 	};
 
 	ws.onmessage = (event: MessageEvent) => {
+		// R22: once the session is finalized (finalizeSession / abortSession) the
+		// transport must stop writing the editor — a late Results message would
+		// otherwise overwrite what the user typed while the polish pass waited.
+		if (session.closed) return;
 		try {
 			const msg = typeof event.data === "string" ? JSON.parse(event.data) : null;
 			if (!msg) return;
@@ -782,25 +786,41 @@ export default function (pi: ExtensionAPI) {
 	async function runPolishPass(raw: string, editorSnapshot: string): Promise<PolishOutcome> {
 		const id = ++polishPassSeq;
 		activePolishPass = id;
-		const parsed = parseModelRef(config.postProcessModel);
-		const choice = resolveModelChoice(parsed, polishModelLookup, ctx?.model);
+		// R19: everything before the model call is fail-open too — a throw here
+		// (registry lookup, notify, status) must not cost the user their dictation.
+		let choice: ReturnType<typeof resolveModelChoice>;
+		try {
+			choice = resolveModelChoice(parseModelRef(config.postProcessModel), polishModelLookup, ctx?.model);
+		} catch (err) {
+			activePolishPass = null;
+			voiceDebug("polish model resolution threw — using the raw transcript", { error: String(err) });
+			return { action: "apply", text: raw };
+		}
 		if (!choice.model) {
 			voiceDebug("polish skipped", { ref: choice.ref, reason: choice.reason });
-			if (choice.reason === "malformed") {
-				ctx?.ui.notify(
-					`Voice polish: "${choice.ref}" is not a provider/modelId reference — pick a model with /voice-polish model. Using the raw transcript.`,
-					"warning"
-				);
-			} else if (choice.reason === "not-found" || choice.reason === "no-auth") {
-				const why = choice.reason === "not-found" ? "is not available" : "has no configured authentication";
-				ctx?.ui.notify(`Voice polish: model ${choice.ref} ${why} — using the raw transcript.`, "warning");
+			try {
+				if (choice.reason === "malformed") {
+					ctx?.ui.notify(
+						`Voice polish: "${choice.ref}" is not a provider/modelId reference — pick a model with /voice-polish model. Using the raw transcript.`,
+						"warning"
+					);
+				} else if (choice.reason === "not-found" || choice.reason === "no-auth") {
+					const why = choice.reason === "not-found" ? "is not available" : "has no configured authentication";
+					ctx?.ui.notify(`Voice polish: model ${choice.ref} ${why} — using the raw transcript.`, "warning");
+				}
+			} catch (err) {
+				voiceDebug("polish skip notify threw", { error: String(err) });
 			}
 			activePolishPass = null;
 			return { action: "apply", text: raw };
 		}
 		const model = choice.model;
 		const started = Date.now();
-		ctx?.ui.setStatus("voice", "polishing…");
+		try {
+			ctx?.ui.setStatus("voice", "polishing…");
+		} catch (err) {
+			voiceDebug("polish status write threw", { error: String(err) });
+		}
 		try {
 			const result = await polishTranscript({
 				raw,
@@ -842,8 +862,16 @@ export default function (pi: ExtensionAPI) {
 			}
 			return { action: "apply", text: result.status === "applied" ? result.text : raw };
 		} finally {
-			if (activePolishPass === id) activePolishPass = null;
-			updateVoiceStatus();
+			// R20: a stale pass must not restore its status text over the flow that
+			// replaced it — and a cosmetic status write is never allowed to throw.
+			if (activePolishPass === id) {
+				activePolishPass = null;
+				try {
+					updateVoiceStatus();
+				} catch (err) {
+					voiceDebug("polish status restore threw", { error: String(err) });
+				}
+			}
 		}
 	}
 
@@ -1460,18 +1488,41 @@ export default function (pi: ExtensionAPI) {
 
 				hideWidget();
 
+				// R23: the recorded duration is the recording length — the model wait
+				// below must not be counted as recording time.
+				const elapsed = ((Date.now() - recordingStart) / 1000).toFixed(1);
+
 				// Transcript polish: bounded, fail-open, never blocking the recording flow.
 				let spokenText = fullText;
 				let skipWrite = false;
 				if (ctx?.hasUI && config.postProcessEnabled !== false) {
-					const outcome = await runPolishPass(fullText, ctx.ui.getEditorText?.() ?? "");
+					// R18: the streaming transport can finalize itself (ws.onclose /
+					// finalizeTimer) without going through stopVoiceRecording, so the state
+					// may still be "recording" here. Hold the pass inside the finalizing
+					// window so every handler-reachable teardown early-returns or
+					// invalidates. Narrow on purpose: a late callback that arrives after an
+					// abort must not resurrect the state.
+					if (voiceState === "recording") setVoiceState("finalizing");
+					let outcome: PolishOutcome;
+					try {
+						outcome = await runPolishPass(fullText, ctx.ui.getEditorText?.() ?? "");
+					} catch (err) {
+						// R19: a rejected pass is still a successful dictation.
+						invalidatePolishPass("pass-threw");
+						voiceDebug("polish pass threw — using the raw transcript", { error: String(err) });
+						outcome = { action: "apply", text: fullText };
+					}
 					// A newer recording or session owns the flow now: touch nothing at all.
 					if (outcome.action === "abort") return;
 					spokenText = outcome.text;
 					// The editor changed while we waited: keep the user's text, say so once.
 					if (outcome.action === "discard") {
 						skipWrite = true;
-						ctx.ui.notify("Voice polish: the editor changed while I was working — kept your text.", "info");
+						try {
+							ctx.ui.notify("Voice polish: the editor changed while I was working — kept your text.", "info");
+						} catch (err) {
+							voiceDebug("polish discard notify threw", { error: String(err) });
+						}
 					}
 				}
 
@@ -1479,6 +1530,8 @@ export default function (pi: ExtensionAPI) {
 					const prefix = editorTextBeforeVoice ? editorTextBeforeVoice + " " : "";
 					const isLocal = config.backend === "local";
 					const finalText = prefix + spokenText;
+					// R21: history records what was actually written, not what was planned.
+					let wroteEditor = false;
 
 					// A discarded pass must not write.
 					if (!skipWrite) {
@@ -1486,12 +1539,14 @@ export default function (pi: ExtensionAPI) {
 							// Local backend (batch mode): no interim transcripts were sent to the editor,
 							// so we must always insert the final text. This is the ONLY place it arrives.
 							ctx.ui.setEditorText(finalText);
+							wroteEditor = true;
 						} else {
 							// Streaming backend: interim transcripts already updated the editor live.
 							// Only set final text if the editor still has content (user didn't hit Enter).
 							const currentEditorText = ctx.ui.getEditorText?.() ?? "";
 							if (currentEditorText.trim()) {
 								ctx.ui.setEditorText(finalText);
+								wroteEditor = true;
 							}
 						}
 					}
@@ -1580,11 +1635,10 @@ export default function (pi: ExtensionAPI) {
 						} // end else (agent not busy)
 					}
 
-					const elapsed = ((Date.now() - recordingStart) / 1000).toFixed(1);
 					addToHistory(fullText, parseFloat(elapsed), "hold", {
-						writtenText: skipWrite ? undefined : prefix + spokenText,
+						writtenText: wroteEditor ? finalText : undefined,
 						rawFullText: prefix + fullText,
-						polishedApplied: !skipWrite && spokenText !== fullText,
+						polishedApplied: wroteEditor && spokenText !== fullText,
 					});
 				}
 				playSound("stop");
