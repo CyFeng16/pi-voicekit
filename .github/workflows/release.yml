@@ -81,7 +81,23 @@ jobs:
           esac
           echo "TGZ=$TGZ" >> "$GITHUB_ENV"
           LOCAL="$(sha1sum "$TGZ" | cut -d' ' -f1)"
-          REMOTE="$(npm view "pi-voicekit@$VERSION" dist.shasum)"
+
+          # A freshly published version is not served immediately — npm reports "Your package",
+          # "is being processed and may take a few minutes to become available" — so an instant
+          # 404 here is propagation lag, not a mismatch. Measured on the 0.1.4 release: the
+          # version became visible about 75 s after publish, and reading it immediately failed
+          # the run after npm had already published.
+          REMOTE=""
+          for attempt in $(seq 1 20); do
+            REMOTE="$(npm view "pi-voicekit@$VERSION" dist.shasum 2>/dev/null || true)"
+            [ -n "$REMOTE" ] && break
+            echo "attempt $attempt/20: $VERSION is not visible on the registry yet; retrying in 15s"
+            sleep 15
+          done
+          if [ -z "$REMOTE" ]; then
+            echo "::error::$VERSION did not become visible on the registry within 5 minutes"
+            exit 1
+          fi
           if [ "$LOCAL" != "$REMOTE" ]; then
             echo "::error::packed tarball $LOCAL != published $REMOTE"
             exit 1
