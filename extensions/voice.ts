@@ -1014,6 +1014,9 @@ export default function (pi: ExtensionAPI) {
 	}
 
 	function voiceCleanup() {
+		// R17: a pass pending when teardown starts must never write after it
+		// (covers /voice off, the /voice toggle, the settings panel, shutdown).
+		invalidatePolishPass("voice-disabled");
 		// v7.1: cancel in-flight installs FIRST so their AbortControllers
 		// fire before we drop UI state. Without this, a session_shutdown
 		// during a download would leave the network/disk work running
