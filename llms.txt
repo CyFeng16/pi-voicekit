@@ -34,7 +34,7 @@ pi-voicekit adds voice input and voice output to Pi. Hold SPACE to record, relea
 - `extensions/voice/device.ts`: Device profiling, model fitness scoring
 - `extensions/voice/model-download.ts`: Download manager with resume, verification, Handy import
 - `extensions/voice/sherpa-engine.ts`: sherpa-onnx bindings, recognizer lifecycle
-- `extensions/voice/settings-panel.ts`: Settings panel overlay (4 tabs)
+- `extensions/voice/settings-panel.ts`: Settings panel overlay (5 tabs)
 - `extensions/voice/tts-engine.ts`: TTS engine selection and synthesis
 - `extensions/voice/tts-local-models.ts`: Local TTS voice catalog (Kitten, Piper, Kokoro)
 - `extensions/voice/tts-deepgram.ts`: Deepgram Aura TTS (cloud)
@@ -45,3 +45,4 @@ pi-voicekit adds voice input and voice output to Pi. Hold SPACE to record, relea
 - [README](https://github.com/CyFeng16/pi-voicekit/blob/main/README.md): Setup, usage, features, screenshots
 - [Changelog](https://github.com/CyFeng16/pi-voicekit/blob/main/CHANGELOG.md): Release history
 - [License](https://github.com/CyFeng16/pi-voicekit/blob/main/LICENSE): MIT
+- [Agent guidelines](https://github.com/CyFeng16/pi-voicekit/blob/main/AGENTS.md): Repository rules for coding agents (language policy, gates, releases)

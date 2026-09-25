@@ -1,164 +1,29 @@
 # pi-voicekit — Full Context for LLMs
 
-> Complete documentation for AI assistants working with the pi-voicekit codebase.
->
-> ⚠️ **Partially outdated:** the Architecture, File Reference, Commands and Key Constants sections
-> below still describe the v5.x-era design (Deepgram-only STT, four modules, no TTS, no offline
-> models). Treat `README.md` and `llms.txt` as authoritative for current behavior.
+> Entry point for AI assistants working with the pi-voicekit codebase.
 
-## Package Identity
+This file used to inline architecture notes, a file reference, command tables and key
+constants. That content was **removed** here: it had drifted — it still described the
+v5.x-era design (Deepgram-only STT, four modules, no TTS, no offline models) — and it
+duplicated `README.md`, which is the maintained source. A stale second copy is worse
+than a link to the real one, so this file now carries only what is stable and points at
+the rest.
 
-- **Name:** pi-voicekit (formerly `pi-listen-ng`; fork lineage `@codexstar/pi-listen`)
+## Package identity
+
+- **Name:** `pi-voicekit` (formerly `pi-listen-ng`; fork lineage `@codexstar/pi-listen`)
 - **npm:** https://www.npmjs.com/package/pi-voicekit
 - **GitHub:** https://github.com/CyFeng16/pi-voicekit
 - **License:** MIT
-- **Type:** Pi coding agent extension (pi-package)
-- **Language:** TypeScript
-- **STT Backend:** Deepgram Nova 3 (cloud, WebSocket streaming)
+- **Type:** Pi coding agent extension (`pi-package`), TypeScript, Bun toolchain
+- **STT:** Deepgram (cloud, WebSocket streaming) or local offline models
+- **TTS:** local (Kitten / Piper / Kokoro) or Deepgram Aura (cloud)
 
----
+## Authoritative sources
 
-## What pi-voicekit Does
+- [README](https://github.com/CyFeng16/pi-voicekit/blob/main/README.md): current behaviour, setup, features, full command table
+- [CHANGELOG](https://github.com/CyFeng16/pi-voicekit/blob/main/CHANGELOG.md): release history
+- [AGENTS.md](https://github.com/CyFeng16/pi-voicekit/blob/main/AGENTS.md): repository rules for coding agents — language policy, gates, release policy
+- [llms.txt](https://github.com/CyFeng16/pi-voicekit/blob/main/llms.txt): the short index for this repository
 
-1. **Audio fallback chain:** Tries sox, ffmpeg, arecord in order — works on most systems without extra installs.
-2. **Pre-recording:** Audio capture starts during the warmup countdown — the user never misses the first word.
-3. **Hold-to-talk:** User holds SPACE → audio tool streams to Deepgram → interim transcripts appear in editor in real time → release to finalize.
-4. **Tail recording:** Recording continues 1.5s after release so the last word isn't clipped.
-5. **56+ languages:** `/voice-language` fuzzy picker — Chinese auto-switches to Nova-2.
-6. **Continuous dictation:** `/voice dictate` for long-form speaking without holding keys.
-7. **Double-escape clear:** Two Escape presses within 500ms clears the editor.
-8. **First-run diagnostics:** Checks API key and audio capture tool on first launch. Shows what's ready, what's missing, and how to install. Auto-activates if everything is configured.
-9. **API validation:** `/voice test` validates audio tool, mic capture, and Deepgram key against the live API.
-10. **Reactive waveform:** Audio-level-driven animation with fast attack / slow decay smoothing.
-11. **Typing cooldown:** Space holds within 400ms of other keypresses are ignored — prevents false activation mid-sentence.
-12. **Sound feedback:** macOS system sounds (Tink/Pop/Basso) for start, stop, and error events.
-13. **Session corruption guard:** Overlapping recording requests abort the stale session before starting a new one.
-14. **Cross-platform:** Kitty protocol + non-Kitty gap-based fallback. macOS, Windows, Linux.
-
----
-
-## Architecture
-
-```
-Pi CLI (Node.js)
-  └── extensions/voice.ts (~2128 lines)
-        ├── extensions/voice/config.ts (~167 lines)
-        ├── extensions/voice/onboarding.ts (~163 lines)
-        └── extensions/voice/deepgram.ts (~30 lines)
-        │
-        │ Audio capture (sox → ffmpeg → arecord fallback)
-        │ WebSocket (streaming PCM audio)
-        ▼
-  Deepgram Nova 3 API (cloud STT)
-```
-
-### State Machine
-
-```
-idle → warmup → recording → finalizing → idle
-           ↑         │
-           └─────────┘  (rapid re-press recovery)
-```
-
-- **idle:** Waiting for space hold
-- **warmup:** Space held, countdown shown, pre-recording active (audio already streaming to Deepgram)
-- **recording:** Live transcripts updating editor, waveform animation
-- **finalizing:** Tail recording (1.5s) + CloseStream sent, waiting for final transcript
-
-### Hold Detection
-
-**A) Kitty protocol** (Ghostty, Kitty, WezTerm, Windows Terminal 1.22+):
-True key events. First press → warmup + pre-recording. Release → tail recording → stop.
-
-**B) Non-Kitty** (macOS Terminal, older terminals):
-Gap-based. Counts rapid presses to confirm hold (REPEAT_CONFIRM_COUNT=6). Gap > RELEASE_DETECT_MS = released.
-
----
-
-## File Reference
-
-| File | Lines | Purpose |
-|------|-------|---------|
-| `extensions/voice.ts` | ~2128 | Main: audio fallback chain (sox/ffmpeg/arecord), Deepgram WebSocket, pre-recording, tail recording, hold-to-talk state machine, waveform widget, sound feedback, double-escape, typing cooldown, session corruption guard, first-run diagnostics (API key + audio tool check), `/voice` commands |
-| `extensions/voice/config.ts` | ~167 | VoiceConfig type, load/save, schema migration, onboarding state |
-| `extensions/voice/onboarding.ts` | ~163 | Setup wizard — Deepgram key entry, scope selection, language picker (56+ languages) |
-| `extensions/voice/deepgram.ts` | ~30 | WebSocket URL builder, API key resolver |
-
----
-
-## Key Constants
-
-| Constant | Value | Purpose |
-|----------|-------|---------|
-| `HOLD_THRESHOLD_MS` | 1200 | Min hold before recording activates |
-| `TAIL_RECORDING_MS` | 1500 | Keep recording after space release |
-| `RELEASE_DETECT_MS` | 500 | Gap that means "released" (non-Kitty) |
-| `REPEAT_CONFIRM_COUNT` | 6 | Rapid presses to confirm hold |
-| `REPEAT_CONFIRM_MS` | 700 | Max gap between presses to count as rapid repeat |
-| `RECORDING_GRACE_MS` | 800 | Ignore release right after recording starts |
-| `TYPING_COOLDOWN_MS` | 400 | Ignore space holds within this window of typing |
-| `CORRUPTION_GUARD_MS` | 200 | Min gap between stop and restart |
-| `MAX_RECORDING_SECS` | 120 | Auto-stop safety cap |
-
----
-
-## Commands
-
-| Command | Description |
-|---------|-------------|
-| `/voice-setup` | Interactive setup wizard |
-| `/voice-language` | Change transcription language (56+ supported, fuzzy picker) |
-| `/voice-settings` | Show current voice config |
-| `/voice test` | Full diagnostics — audio tool, mic, API key validation |
-| `/voice` | Toggle on/off |
-| `/voice on` / `off` | Enable / disable |
-| `/voice dictate` | Continuous dictation |
-| `/voice stop` | Stop recording or dictation |
-| `/voice info` | Config + status |
-| `/voice history` | Recent transcriptions |
-
-## Keybindings
-
-| Key | Action |
-|-----|--------|
-| `SPACE` (hold ≥1.2s) | Record with pre-recording + tail recording |
-| `Ctrl+Shift+V` | Toggle recording |
-| `Escape` × 2 | Clear editor |
-
----
-
-## Configuration
-
-```typescript
-interface VoiceConfig {
-  version: 2;
-  enabled: boolean;
-  language: string;
-  scope: "global" | "project";
-  deepgramApiKey?: string;
-  onboarding: {
-    completed: boolean;
-    schemaVersion: number;
-    completedAt?: string;
-    source?: "first-run" | "setup-command" | "migration";
-    skippedAt?: string;
-  };
-}
-```
-
----
-
-## Setup
-
-```bash
-pi install npm:pi-voicekit   # Install extension
-export DEEPGRAM_API_KEY="your-key"            # https://dpgr.am/pi-voice
-# Audio capture auto-detected: sox → ffmpeg → arecord (Linux)
-# Install one if needed: brew install sox  OR  brew install ffmpeg
-```
-
-## Development
-
-```bash
-bun install && bun run typecheck && bun run test
-```
+When this file disagrees with any of those, they win.
