@@ -3,6 +3,7 @@ node_modules/
 .ralph/
 .bug-hunter/
 docs/superpowers/
+.worktrees/
 *.pyc
 __pycache__/
 .npm/
