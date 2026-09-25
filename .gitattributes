@@ -1,0 +1,3 @@
+# Keep local working material out of GitHub's auto-generated source archives.
+# .gitignore does not apply to tracked files; export-ignore does.
+docs/superpowers/ export-ignore
