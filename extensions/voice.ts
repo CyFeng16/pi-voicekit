@@ -101,7 +101,13 @@ import {
 import { shouldArmReleaseDetectOnRepeat, decideRecordingStartTimer } from "./voice/hold-to-talk";
 import { GapTimer, type TimerPort } from "./voice/release-controller";
 import { audioToolOrder, type AudioToolName } from "./voice/audio-tool";
-import { decideApply, parseModelRef, polishTranscript, resolveModelChoice } from "./voice/post-process";
+import {
+	decideApply,
+	parseModelRef,
+	polishModelOptions,
+	polishTranscript,
+	resolveModelChoice,
+} from "./voice/post-process";
 import { DEFAULT_CONTEXT_LIMITS } from "./voice/post-process-context";
 
 /** Adapter for the real event loop — lets GapTimer run under the real setTimeout. */
@@ -786,6 +792,28 @@ export default function (pi: ExtensionAPI) {
 	async function runPolishPass(raw: string, editorSnapshot: string): Promise<PolishOutcome> {
 		const id = ++polishPassSeq;
 		activePolishPass = id;
+		if (!config.postProcessNoticeShown && ctx?.hasUI) {
+			// D5: one-time disclosure. It sits in its own guard on purpose — a
+			// settings-write or notification failure must never reject this callback
+			// or skip the raw-text write. Persist the flag BEFORE notifying, per the
+			// house rule in tts-onboarding.
+			try {
+				config.postProcessNoticeShown = true;
+				saveConfig(config, "global", ctx.cwd);
+				ctx.ui.notify(
+					[
+						"Voice polish is on: every dictation makes one extra model call,",
+						`and the last ${config.postProcessContextTurns ?? 2} conversation turns are sent with it.`,
+						"After a compaction the summary is sent too — it is a digest that may",
+						"carry residues of earlier thinking and tool output.",
+						"Turn it off with /voice-polish off.",
+					].join(" "),
+					"info"
+				);
+			} catch (error) {
+				voiceDebug("polish notice failed", String(error));
+			}
+		}
 		// R19: everything before the model call is fail-open too — a throw here
 		// (registry lookup, notify, status) must not cost the user their dictation.
 		let choice: ReturnType<typeof resolveModelChoice>;
@@ -3724,6 +3752,132 @@ export default function (pi: ExtensionAPI) {
 			config.autoSubmitOnSpeak = next;
 			saveConfig(config, config.scope === "project" ? "project" : "global", currentCwd);
 			cmdCtx.ui.notify(`Auto-submit on speak: ${next ? "ON" : "OFF"}`, "info");
+		},
+	});
+
+	/**
+	 * Model choices for the /voice-polish picker: every text-capable model Pi
+	 * exposes, as canonical `provider/id` references. Task 7 reuses this for the
+	 * settings panel — do not duplicate the filter.
+	 */
+	function getPolishModelChoices(): { ref: string; label: string }[] {
+		const models =
+			ctx && ctx.scopedModels.length > 0
+				? ctx.scopedModels.map((entry) => entry.model)
+				: (ctx?.modelRegistry.getAvailable() ?? []);
+		return models
+			.filter((model) => model.input.includes("text"))
+			.map((model) => ({ ref: `${model.provider}/${model.id}`, label: model.name || model.id }));
+	}
+
+	pi.registerCommand("voice-polish", {
+		description: "Voice: /voice-polish [on|off|model|turns <0-10>|last|restore]",
+		handler: async (args, cmdCtx) => {
+			ctx = cmdCtx;
+			const sub = (args || "").trim();
+			const [verb, ...rest] = sub.split(/\s+/);
+			// D7: enablement and model choice are global-only, so they are always written to the
+			// GLOBAL file. Persisting them to a project block would be stripped by the
+			// serializer (and ignored on load) — the command would report success and the
+			// setting would silently revert on the next /reload.
+			const persistGlobal = () => saveConfig(config, "global", cmdCtx.cwd);
+
+			if (!verb || verb === "status") {
+				cmdCtx.ui.notify(
+					[
+						`Voice polish: ${config.postProcessEnabled !== false ? "on" : "off"}`,
+						`  model:   ${config.postProcessModel ?? "session"}`,
+						`  turns:   ${config.postProcessContextTurns ?? 2}`,
+						`  timeout: ${config.postProcessTimeoutMs ?? 8000} ms`,
+					].join("\n"),
+					"info"
+				);
+				return;
+			}
+			if (verb === "on" || verb === "off") {
+				config.postProcessEnabled = verb === "on";
+				persistGlobal();
+				cmdCtx.ui.notify(`Voice polish ${verb === "on" ? "enabled" : "disabled"}.`, "info");
+				return;
+			}
+			if (verb === "model") {
+				// Model selection is a picker, like /model and /workflow-model — never a
+				// hand-typed reference (maintainer decision, 2026-09-26).
+				if (rest.length > 0) {
+					cmdCtx.ui.notify(
+						"Voice polish: pick the model from the list — run /voice-polish model with no argument.",
+						"warning"
+					);
+					return;
+				}
+				const options = polishModelOptions(getPolishModelChoices(), config.postProcessModel);
+				if (!cmdCtx.hasUI || typeof cmdCtx.ui.select !== "function") {
+					cmdCtx.ui.notify(`Current polish model: ${config.postProcessModel ?? "session"}`, "info");
+					return;
+				}
+				const picked = await cmdCtx.ui.select(
+					"Polish model",
+					options.map((option) => option.label)
+				);
+				const chosen = options.find((option) => option.label === picked);
+				if (!chosen) return; // dismissed — keep the current value
+				config.postProcessModel = chosen.value;
+				persistGlobal();
+				cmdCtx.ui.notify(`Voice polish model set to ${chosen.value}.`, "info");
+				return;
+			}
+			if (verb === "turns") {
+				const turns = Number(rest[0]);
+				if (!Number.isInteger(turns) || turns < 0 || turns > 10) {
+					cmdCtx.ui.notify("Usage: /voice-polish turns <0-10>", "warning");
+					return;
+				}
+				config.postProcessContextTurns = turns;
+				persistGlobal();
+				cmdCtx.ui.notify(`Voice polish context turns set to ${turns}.`, "info");
+				return;
+			}
+			if (verb === "last") {
+				const entry = recordingHistory.find((item) => item.polishedApplied);
+				if (!entry) {
+					cmdCtx.ui.notify("No polished dictation in this session yet.", "info");
+					return;
+				}
+				cmdCtx.ui.notify(
+					[`RAW:      ${entry.rawFullText ?? entry.text}`, "", `POLISHED: ${entry.writtenText ?? entry.text}`].join(
+						"\n"
+					),
+					"info"
+				);
+				return;
+			}
+			if (verb === "restore") {
+				const entry = recordingHistory.find((item) => item.polishedApplied && item.writtenText !== undefined);
+				if (!entry || entry.writtenText === undefined || entry.rawFullText === undefined) {
+					cmdCtx.ui.notify("No polished dictation in this session yet.", "info");
+					return;
+				}
+				// Compare against the exact string this feature last wrote (`prefix + polished`) —
+				// which is why history stores it. Comparing against the bare transcript would
+				// always pass whenever the user had a draft, i.e. the guard would be a no-op.
+				const decision = decideApply({
+					tokenCurrent: true,
+					editorSnapshot: entry.writtenText,
+					currentEditor: cmdCtx.ui.getEditorText(),
+				});
+				if (!decision.apply) {
+					cmdCtx.ui.notify(
+						"Editor changed since that dictation — not restoring. Copy from /voice-polish last.",
+						"warning"
+					);
+					return;
+				}
+				// Write `prefix + raw`: a restore must not delete what the user typed before dictating.
+				cmdCtx.ui.setEditorText(entry.rawFullText);
+				cmdCtx.ui.notify("Restored the raw transcript into the editor.", "info");
+				return;
+			}
+			cmdCtx.ui.notify("Usage: /voice-polish [on|off|model|turns <0-10>|last|restore]", "warning");
 		},
 	});
 
