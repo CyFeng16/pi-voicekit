@@ -57,6 +57,18 @@ describe("validatePolishOutput", () => {
 		expect(validatePolishOutput("short", assistant("y".repeat(400))).accept).toBe(false);
 	});
 
+	test("rejects a scaffolding echo padded with a preamble (spec section 4.6 check 4)", () => {
+		// Long enough that only the structural check can catch it: the ratio stays inside
+		// [0.3, 2.0], and the text does not start with a tag.
+		const raw = "x".repeat(100);
+		const padded = `Here is the cleaned transcript:\n<TRANSCRIPT>\n${raw}\n</TRANSCRIPT>`;
+		expect(validatePolishOutput(raw, assistant(padded))).toEqual({
+			accept: false,
+			text: raw,
+			reason: "scaffolding-echo",
+		});
+	});
+
 	test("accepts legitimate dictation that merely looks suspicious", () => {
 		const raw = "explain the thinking behind this ``` fence and the </ tag";
 		const polished = "Explain the thinking behind this ``` fence and the </ tag.";
@@ -112,6 +124,29 @@ describe("resolveModelChoice", () => {
 		});
 	});
 
+	test("splits a multi-slash reference on the first slash and resolves it through the lookup", () => {
+		const parsed = parseModelRef("provider/anthropic/claude-x");
+		expect(parsed).toEqual({
+			kind: "explicit",
+			provider: "provider",
+			modelId: "anthropic/claude-x",
+			raw: "provider/anthropic/claude-x",
+		});
+		const model = { id: "claude-x" };
+		const seen: [string, string][] = [];
+		expect(
+			resolveModelChoice(
+				parsed,
+				(provider, modelId) => {
+					seen.push([provider, modelId]);
+					return { model, hasAuth: true };
+				},
+				undefined
+			)
+		).toEqual({ model, ref: "provider/anthropic/claude-x" });
+		expect(seen).toEqual([["provider", "anthropic/claude-x"]]);
+	});
+
 	test("never falls back to the session model when the explicit one is unusable", () => {
 		expect(resolveModelChoice(parseModelRef("p/x"), () => undefined, sessionModel)).toEqual({
 			ref: "p/x",
@@ -152,6 +187,7 @@ describe("polishTranscript", () => {
 	test("returns the polished text on the happy path", async () => {
 		const result = await polishTranscript({
 			...baseInput,
+			isCurrent: () => true,
 			call: async () => assistant("把 retry 改成三次"),
 		});
 		expect(result.status).toBe("applied");
@@ -161,6 +197,25 @@ describe("polishTranscript", () => {
 	test("keeps the raw text when the caller throws", async () => {
 		const result = await polishTranscript({
 			...baseInput,
+			call: async () => {
+				throw new Error("provider down");
+			},
+		});
+		expect(result).toEqual({
+			status: "rejected",
+			text: baseInput.raw,
+			reason: "call-failed",
+			contextChars: 0,
+			truncatedContext: false,
+		});
+	});
+
+	test("stays fail-open when the debug hook throws in the failure path", async () => {
+		const result = await polishTranscript({
+			...baseInput,
+			debug: () => {
+				throw new Error("debug exploded");
+			},
 			call: async () => {
 				throw new Error("provider down");
 			},

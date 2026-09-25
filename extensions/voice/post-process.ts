@@ -88,7 +88,11 @@ export function polishModelOptions(
 }
 
 const SCAFFOLD_START = /^\s*<(TRANSCRIPT|CONTEXT|CONTEXT_SUMMARY|SYSTEM_INSTRUCTIONS)[\s>]/;
-const SCAFFOLD_WRAPPED = /^\s*<TRANSCRIPT>[\s\S]*<\/TRANSCRIPT>\s*$/;
+// Spec section 4.6 check 4 is the authority: an output is a scaffolding echo when it starts
+// with one of our tags after trimming, OR when both the opening and the closing TRANSCRIPT
+// tag appear anywhere — a preamble followed by the wrapper is still an echo, not a rewrite.
+const SCAFFOLD_OPEN = "<TRANSCRIPT>";
+const SCAFFOLD_CLOSE = "</TRANSCRIPT>";
 const MIN_RATIO = 0.3;
 const MAX_RATIO = 2.0;
 
@@ -115,7 +119,7 @@ export function validatePolishOutput(
 		return { accept: false, text: raw, reason: "error-message" };
 	const text = textParts(message.content).join("\n").trim();
 	if (!text) return { accept: false, text: raw, reason: "empty-output" };
-	if (SCAFFOLD_START.test(text) || SCAFFOLD_WRAPPED.test(text))
+	if (SCAFFOLD_START.test(text) || (text.includes(SCAFFOLD_OPEN) && text.includes(SCAFFOLD_CLOSE)))
 		return { accept: false, text: raw, reason: "scaffolding-echo" };
 	const ratio = text.length / Math.max(1, raw.length);
 	if (ratio < MIN_RATIO) return { accept: false, text: raw, reason: "too-short" };
@@ -174,8 +178,13 @@ export async function polishTranscript(input: PolishInput): Promise<PolishResult
 		return { status: "applied", text: verdict.text, ...shape };
 	} catch (error) {
 		const reason = error instanceof Error && error.message === "polish-timeout" ? "timeout" : "call-failed";
-		input.debug?.(reason, { ...shape, error: error instanceof Error ? error.message : String(error) });
-		return { status: "rejected", text: input.raw, reason, ...shape };
+		const result: PolishResult = { status: "rejected", text: input.raw, reason, ...shape };
+		try {
+			input.debug?.(reason, { ...shape, error: error instanceof Error ? error.message : String(error) });
+		} catch {
+			// The debug hook is observational: a throw here must not break fail-open.
+		}
+		return result;
 	} finally {
 		if (timer) clearTimeout(timer);
 	}
