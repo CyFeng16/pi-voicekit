@@ -1,3 +1,5 @@
-# Keep local working material out of GitHub's auto-generated source archives.
-# .gitignore does not apply to tracked files; export-ignore does.
+# `docs/superpowers/` holds local working material (specs, plans, evidence packages) that is not
+# tracked: the last three files were untracked on 2026-09-26, so the directory now matches
+# `.gitignore`'s default. This rule is kept as a guard for the case where a design record is ever
+# force-added for review again — `.gitignore` does not apply to tracked files, `export-ignore` does.
 docs/superpowers/ export-ignore
