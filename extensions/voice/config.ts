@@ -441,17 +441,12 @@ function serializeConfig(config: VoiceConfig, scope: VoiceSettingsScope): VoiceC
 	};
 }
 
-export function saveConfig(
-	config: VoiceConfig,
-	scope: VoiceSettingsScope,
-	cwd: string,
-	options: ConfigPathOptions = {}
-): string {
-	const settingsPath = scope === "project" ? getProjectSettingsPath(cwd) : getGlobalSettingsPath(options);
-	const settings = readJsonFile(settingsPath);
-	settings[SETTINGS_KEY] = serializeConfig(config, scope);
+/**
+ * Atomic settings write: temp file + rename prevents corruption from partial
+ * writes. Shared by every writer in this module so the path cannot diverge.
+ */
+function writeSettingsFile(settingsPath: string, settings: Record<string, unknown>): void {
 	fs.mkdirSync(path.dirname(settingsPath), { recursive: true });
-	// Atomic write: temp file + rename prevents corruption from partial writes
 	const tmpPath = `${settingsPath}.${process.pid}.tmp`;
 	try {
 		fs.writeFileSync(tmpPath, JSON.stringify(settings, null, 2) + "\n");
@@ -461,6 +456,58 @@ export function saveConfig(
 			if (fs.existsSync(tmpPath)) fs.unlinkSync(tmpPath);
 		} catch {}
 	}
+}
+
+export function saveConfig(
+	config: VoiceConfig,
+	scope: VoiceSettingsScope,
+	cwd: string,
+	options: ConfigPathOptions = {}
+): string {
+	const settingsPath = scope === "project" ? getProjectSettingsPath(cwd) : getGlobalSettingsPath(options);
+	const settings = readJsonFile(settingsPath);
+	settings[SETTINGS_KEY] = serializeConfig(config, scope);
+	writeSettingsFile(settingsPath, settings);
+	return settingsPath;
+}
+
+/**
+ * The global-only keys `saveGlobalVoiceFields` accepts. A project block cannot
+ * carry them — `serializeConfig` strips them and the loader ignores them — so
+ * they always belong in the global file.
+ */
+type GlobalVoiceFieldKey = "postProcessEnabled" | "postProcessModel" | "postProcessNoticeShown";
+
+/**
+ * Field-level writer for the global-only voice settings (R26).
+ *
+ * `saveConfig(config, "global", …)` renders the WHOLE in-memory config, and in a
+ * project-scoped session that object also carries project and default values —
+ * writing it globally silently resets every unrelated machine-global setting
+ * (TTS speed, auto-submit, hold threshold, …). This writer instead reads the
+ * existing global file and merges only the named keys into its `voice` block:
+ *
+ * - an existing `version` is preserved; a block created here gets the current
+ *   schema version,
+ * - no other key is created, changed or removed,
+ * - a missing file or `voice` block is created,
+ * - the write is atomic (temp file + rename), like `saveConfig`.
+ */
+export function saveGlobalVoiceFields(
+	fields: Partial<Pick<VoiceConfig, GlobalVoiceFieldKey>>,
+	options: ConfigPathOptions = {}
+): string {
+	const settingsPath = getGlobalSettingsPath(options);
+	const settings = readJsonFile(settingsPath);
+	const existing = settings[SETTINGS_KEY];
+	const voice: Record<string, unknown> =
+		existing && typeof existing === "object" ? { ...(existing as Record<string, unknown>) } : {};
+	if (typeof voice.version !== "number") voice.version = VOICE_CONFIG_VERSION;
+	for (const [key, value] of Object.entries(fields)) {
+		if (value !== undefined) voice[key] = value;
+	}
+	settings[SETTINGS_KEY] = voice;
+	writeSettingsFile(settingsPath, settings);
 	return settingsPath;
 }
 

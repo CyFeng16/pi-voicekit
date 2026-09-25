@@ -9,6 +9,7 @@ import {
 	loadConfigWithSource,
 	needsOnboarding,
 	saveConfig,
+	saveGlobalVoiceFields,
 	VOICE_CONFIG_VERSION,
 	type VoiceConfig,
 } from "../extensions/voice/config";
@@ -281,6 +282,81 @@ describe("saveConfig", () => {
 
 		expect(tmpFiles).toHaveLength(0);
 		expect(JSON.parse(fs.readFileSync(savedPath, "utf8"))).toBeDefined();
+	});
+});
+
+describe("saveGlobalVoiceFields", () => {
+	test("patches one key and leaves every other key of the global voice block untouched", () => {
+		const cwd = makeTempDir();
+		const agentDir = path.join(cwd, "agent-home");
+		writeSettings(agentDir, "settings.json", {
+			version: 2,
+			ttsSpeed: 0.8,
+			autoSubmitOnSpeak: true,
+			holdThresholdMs: 450,
+			ttsLanguage: "zh",
+			ttsLocalVoiceId: 7,
+		});
+
+		const savedPath = saveGlobalVoiceFields({ postProcessNoticeShown: true }, { agentDir });
+		const saved = JSON.parse(fs.readFileSync(savedPath, "utf8")) as { voice: Record<string, unknown> };
+
+		expect(saved.voice.postProcessNoticeShown).toBe(true);
+		expect(saved.voice.version).toBe(2); // the existing schema version is kept
+		expect(saved.voice.ttsSpeed).toBe(0.8);
+		expect(saved.voice.autoSubmitOnSpeak).toBe(true);
+		expect(saved.voice.holdThresholdMs).toBe(450);
+		expect(saved.voice.ttsLanguage).toBe("zh");
+		expect(saved.voice.ttsLocalVoiceId).toBe(7);
+	});
+
+	test("writes a global-only key that a project-scoped save would strip", () => {
+		const cwd = makeTempDir();
+		const agentDir = path.join(cwd, "agent-home");
+		const config: VoiceConfig = {
+			...DEFAULT_CONFIG,
+			postProcessModel: "test-provider/test-model",
+			onboarding: { completed: true, schemaVersion: DEFAULT_CONFIG.version },
+		};
+
+		saveConfig(config, "project", cwd, { agentDir });
+		const project = JSON.parse(fs.readFileSync(path.join(cwd, ".pi", "settings.json"), "utf8")) as {
+			voice: Record<string, unknown>;
+		};
+		expect(project.voice.postProcessModel).toBeUndefined();
+
+		const savedPath = saveGlobalVoiceFields({ postProcessModel: "test-provider/test-model" }, { agentDir });
+		const saved = JSON.parse(fs.readFileSync(savedPath, "utf8")) as { voice: Record<string, unknown> };
+		expect(saved.voice.postProcessModel).toBe("test-provider/test-model");
+	});
+
+	test("creates the file and the voice block when neither exists", () => {
+		const cwd = makeTempDir();
+		const agentDir = path.join(cwd, "agent-home");
+
+		const savedPath = saveGlobalVoiceFields({ postProcessNoticeShown: true }, { agentDir });
+		const saved = JSON.parse(fs.readFileSync(savedPath, "utf8")) as { voice: Record<string, unknown> };
+
+		expect(saved.voice.postProcessNoticeShown).toBe(true);
+		expect(saved.voice.version).toBe(VOICE_CONFIG_VERSION);
+		expect(Object.keys(saved.voice).sort()).toEqual(["postProcessNoticeShown", "version"]);
+	});
+
+	test("preserves the other keys of the settings file when creating the voice block", () => {
+		const cwd = makeTempDir();
+		const agentDir = path.join(cwd, "agent-home");
+		const settingsPath = path.join(agentDir, "settings.json");
+		fs.mkdirSync(path.dirname(settingsPath), { recursive: true });
+		fs.writeFileSync(settingsPath, JSON.stringify({ theme: "dark" }, null, 2));
+
+		saveGlobalVoiceFields({ postProcessEnabled: false }, { agentDir });
+		const saved = JSON.parse(fs.readFileSync(settingsPath, "utf8")) as {
+			theme: string;
+			voice: Record<string, unknown>;
+		};
+
+		expect(saved.theme).toBe("dark");
+		expect(saved.voice.postProcessEnabled).toBe(false);
 	});
 });
 

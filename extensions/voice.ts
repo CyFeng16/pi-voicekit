@@ -71,6 +71,7 @@ import {
 	loadConfigWithSource,
 	loadGlobalToggleShortcut,
 	saveConfig,
+	saveGlobalVoiceFields,
 	type VoiceConfig,
 	type VoiceSettingsScope,
 } from "./voice/config";
@@ -799,13 +800,24 @@ export default function (pi: ExtensionAPI) {
 			// house rule in tts-onboarding.
 			try {
 				config.postProcessNoticeShown = true;
-				saveConfig(config, "global", ctx.cwd);
+				// R26: field-level global write — `config` also carries this project's values, so
+				// a whole-block write would reset unrelated machine-global settings.
+				saveGlobalVoiceFields({ postProcessNoticeShown: true });
+				const turns = config.postProcessContextTurns ?? DEFAULT_CONTEXT_LIMITS.turns;
 				ctx.ui.notify(
 					[
 						"Voice polish is on: every dictation makes one extra model call,",
-						`and the last ${config.postProcessContextTurns ?? 2} conversation turns are sent with it.`,
-						"After a compaction the summary is sent too — it is a digest that may",
-						"carry residues of earlier thinking and tool output.",
+						// R27: zero turns suppress the compaction summary as well, so the disclosure
+						// must not promise it; DEFAULT_CONTEXT_LIMITS.turns is the pass's own default.
+						turns > 0
+							? `and the last ${turns} conversation turns are sent with it.`
+							: "and no conversation context is sent with it.",
+						...(turns > 0
+							? [
+									"After a compaction the summary is sent too — it is a digest that may",
+									"carry residues of earlier thinking and tool output.",
+								]
+							: []),
 						"Turn it off with /voice-polish off.",
 					].join(" "),
 					"info"
@@ -3775,19 +3787,16 @@ export default function (pi: ExtensionAPI) {
 		handler: async (args, cmdCtx) => {
 			ctx = cmdCtx;
 			const sub = (args || "").trim();
-			const [verb, ...rest] = sub.split(/\s+/);
-			// D7: enablement and model choice are global-only, so they are always written to the
-			// GLOBAL file. Persisting them to a project block would be stripped by the
-			// serializer (and ignored on load) — the command would report success and the
-			// setting would silently revert on the next /reload.
-			const persistGlobal = () => saveConfig(config, "global", cmdCtx.cwd);
+			// R27: subcommand names are case-insensitive, like /voice-autosubmit.
+			const [rawVerb, ...rest] = sub.split(/\s+/);
+			const verb = rawVerb.toLowerCase();
 
 			if (!verb || verb === "status") {
 				cmdCtx.ui.notify(
 					[
 						`Voice polish: ${config.postProcessEnabled !== false ? "on" : "off"}`,
 						`  model:   ${config.postProcessModel ?? "session"}`,
-						`  turns:   ${config.postProcessContextTurns ?? 2}`,
+						`  turns:   ${config.postProcessContextTurns ?? DEFAULT_CONTEXT_LIMITS.turns}`,
 						`  timeout: ${config.postProcessTimeoutMs ?? 8000} ms`,
 					].join("\n"),
 					"info"
@@ -3796,7 +3805,11 @@ export default function (pi: ExtensionAPI) {
 			}
 			if (verb === "on" || verb === "off") {
 				config.postProcessEnabled = verb === "on";
-				persistGlobal();
+				// D7/R26: enablement is global-only, so it is written field by field to the
+				// GLOBAL file. A project block would be stripped by the serializer (and ignored
+				// on load) — the command would report success and the setting would silently
+				// revert on the next /reload.
+				saveGlobalVoiceFields({ postProcessEnabled: config.postProcessEnabled });
 				cmdCtx.ui.notify(`Voice polish ${verb === "on" ? "enabled" : "disabled"}.`, "info");
 				return;
 			}
@@ -3810,11 +3823,13 @@ export default function (pi: ExtensionAPI) {
 					);
 					return;
 				}
-				const options = polishModelOptions(getPolishModelChoices(), config.postProcessModel);
+				// R27: guard the headless path BEFORE building the rows — the list would call
+				// the model registry for a list nobody can see.
 				if (!cmdCtx.hasUI || typeof cmdCtx.ui.select !== "function") {
 					cmdCtx.ui.notify(`Current polish model: ${config.postProcessModel ?? "session"}`, "info");
 					return;
 				}
+				const options = polishModelOptions(getPolishModelChoices(), config.postProcessModel);
 				const picked = await cmdCtx.ui.select(
 					"Polish model",
 					options.map((option) => option.label)
@@ -3822,7 +3837,8 @@ export default function (pi: ExtensionAPI) {
 				const chosen = options.find((option) => option.label === picked);
 				if (!chosen) return; // dismissed — keep the current value
 				config.postProcessModel = chosen.value;
-				persistGlobal();
+				// R26: model choice is global-only — field-level write to the global file.
+				saveGlobalVoiceFields({ postProcessModel: chosen.value });
 				cmdCtx.ui.notify(`Voice polish model set to ${chosen.value}.`, "info");
 				return;
 			}
@@ -3833,7 +3849,10 @@ export default function (pi: ExtensionAPI) {
 					return;
 				}
 				config.postProcessContextTurns = turns;
-				persistGlobal();
+				// R25: the turn count is honoured in both scopes, so it is persisted at the scope
+				// this session loads from — a global write would be overridden by the project
+				// block on the next /reload and report a success that does not stick.
+				saveConfig(config, config.scope === "project" ? "project" : "global", currentCwd);
 				cmdCtx.ui.notify(`Voice polish context turns set to ${turns}.`, "info");
 				return;
 			}
@@ -3853,8 +3872,12 @@ export default function (pi: ExtensionAPI) {
 			}
 			if (verb === "restore") {
 				const entry = recordingHistory.find((item) => item.polishedApplied && item.writtenText !== undefined);
-				if (!entry || entry.writtenText === undefined || entry.rawFullText === undefined) {
+				if (!entry) {
 					cmdCtx.ui.notify("No polished dictation in this session yet.", "info");
+					return;
+				}
+				if (entry.rawFullText === undefined) {
+					cmdCtx.ui.notify("That dictation stored no raw transcript — nothing to restore.", "warning");
 					return;
 				}
 				// Compare against the exact string this feature last wrote (`prefix + polished`) —
@@ -3862,7 +3885,8 @@ export default function (pi: ExtensionAPI) {
 				// always pass whenever the user had a draft, i.e. the guard would be a no-op.
 				const decision = decideApply({
 					tokenCurrent: true,
-					editorSnapshot: entry.writtenText,
+					// `writtenText` is guaranteed by the lookup above (R27) — no runtime re-check.
+					editorSnapshot: entry.writtenText!,
 					currentEditor: cmdCtx.ui.getEditorText(),
 				});
 				if (!decision.apply) {
