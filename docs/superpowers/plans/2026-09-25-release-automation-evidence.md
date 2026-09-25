@@ -71,3 +71,54 @@ All declared questions are dispositioned. Both throwaway spikes finished inside 
 and their artifacts live only in `/tmp/ev-spike`. Further evidence would not change the plan's
 task boundaries; what remains is consumed at the first real release and has named closure
 paths. This package is ADVISORY and carries no phase-gate authority.
+
+---
+
+## Revision 1 — after the plan review (2026-09-25)
+
+Written after the implementation plan was drafted and then reviewed against this package. The
+original findings and the WRITE_PLAN recommendation stand; nothing below contradicts them. It
+records what the review changed.
+
+### New measured facts
+
+| fact | measured how | effect |
+| --- | --- | --- |
+| 0.1.0 was published to npm but never tagged in git, and its registry entry has no `gitHead` | `git ls-remote --tags origin 'refs/tags/v*'` gives v0.1.1–v0.1.3 only; `npm view pi-voicekit@0.1.0 gitHead` is empty; `.../releases/tag/v0.1.0` returns **404** | The spec's "add the missing link definitions" cannot cover 0.1.0 — it is left undefined on purpose. The other four links were fetched individually: all 200. |
+| the release job has 11 steps, not 10 — `steps[]` includes the checkout | `Bun.YAML.parse` of the workflow: `steps: 11` (1 `uses:` + 10 named) | The plan asserts 11 and checks the 9 named steps by name, so a vanished or reordered step fails locally. |
+| `npm version X.Y.Z --no-git-tag-version` bumps `package.json` plus exactly the two root version fields of `package-lock.json` | run on a throwaway clone of HEAD: 2 fields changed, `node_modules/prettier` still `3.3.3`, `bun.lock` untouched, two files modified | Replaces the plan's earlier hand-rolled rewrite, whose pattern matched **183** version entries in that file (measured) — the defect this review caught before it could reach a release commit. |
+
+### Two gaps in the spec that the plan now closes
+
+Both concern the GitHub-Release step's failure handling and were found by executing the guard
+rather than reading it.
+
+1. **A draft whose asset is missing.** `gh release create --draft <asset>` can leave a draft behind
+   when the upload dies, and the spec's recovery (§4.6) said only to "finish" a leftover draft.
+   Doing that verbatim publishes a release whose tarball is absent. The plan's guard checks
+   `gh release view --json assets`, refills with `gh release upload --clobber` when the asset is
+   missing, refreshes the body, and only then flips `--draft=false`.
+2. **A failed query is not an absent release.** The spec's guard read "view failed" as "does not
+   exist" and would fall through to `create` on a transient API or permission error. The plan
+   matches the failure text for `not found` instead and exits non-zero otherwise.
+
+Both are closed in the plan and remain **open in the spec**: §4.6 and the step-9 sketch need
+matching lines, which is why this revision carries an UPDATE_SPEC recommendation alongside
+WRITE_PLAN. The guard's five states were rehearsed against a stubbed `gh` (`absent`, `published`,
+`draft`, `draft_no_asset`, `apifail`) with the block extracted from the workflow file itself, so
+the table in the plan is measured rather than asserted.
+
+### Verification performed against the plan's own text
+
+- the extractor and its suite, pulled out of the plan's code fences and run: **15 tests pass, 0
+  fail** (module cases plus real subprocess exit-code cases).
+- the workflow YAML, parsed from the plan's fence: 11 steps, 8 `run` blocks, every block passes
+  `bash -n` on its own.
+- the release-state guard, extracted from that YAML and run under the five stub modes: behaviour
+  matches the plan's table in every row.
+
+### Revised recommendation
+
+- **action**: WRITE_PLAN (unchanged, and now executed) — the next gate is plan review and approval.
+- **secondary**: UPDATE_SPEC for the two gaps above, before implementation starts.
+- **authority**: ADVISORY
