@@ -2,6 +2,7 @@ node_modules/
 .DS_Store
 .ralph/
 .bug-hunter/
+docs/superpowers/
 *.pyc
 __pycache__/
 .npm/

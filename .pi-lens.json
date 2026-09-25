@@ -1,4 +1,5 @@
 {
+  "ignore": ["docs/superpowers/**"],
   "format": {
     "enabled": true
   }
