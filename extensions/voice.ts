@@ -1026,7 +1026,14 @@ export default function (pi: ExtensionAPI) {
 	}
 
 	function hideWidget() {
-		if (ctx?.hasUI) ctx.ui.setWidget("voice-recording", undefined);
+		if (!ctx?.hasUI) return;
+		// R24: hiding the widget is cosmetic — a UI throw here must not reject the
+		// completion callback before its write, its history record and its tail.
+		try {
+			ctx.ui.setWidget("voice-recording", undefined);
+		} catch (err) {
+			voiceDebug("hideWidget threw", { error: String(err) });
+		}
 	}
 
 	/** Reset all hold-to-talk state to idle. Call after any recording stop/error/cancel. */
@@ -1475,14 +1482,24 @@ export default function (pi: ExtensionAPI) {
 					playSound("error");
 					// Full state reset on empty result
 					resetHoldState({ cooldown: 3000 });
-					if (!meta.hadAudio) {
-						ctx?.ui.notify("Microphone captured no audio. Check mic permissions.", "error");
-					} else if (!meta.hadSpeech) {
-						ctx?.ui.notify("Microphone captured silence — no speech detected.", "warning");
-					} else {
-						ctx?.ui.notify("No speech detected.", "warning");
+					try {
+						if (!meta.hadAudio) {
+							ctx?.ui.notify("Microphone captured no audio. Check mic permissions.", "error");
+						} else if (!meta.hadSpeech) {
+							ctx?.ui.notify("Microphone captured silence — no speech detected.", "warning");
+						} else {
+							ctx?.ui.notify("No speech detected.", "warning");
+						}
+					} catch (err) {
+						// R24: a failed notification must never skip the idle transition.
+						voiceDebug("no-speech notify threw", { error: String(err) });
 					}
-					setVoiceState("idle");
+					// R24: the transition renders the status bar — keep it non-fatal too.
+					try {
+						setVoiceState("idle");
+					} catch (err) {
+						voiceDebug("idle transition threw", { error: String(err) });
+					}
 					return;
 				}
 
@@ -1502,7 +1519,17 @@ export default function (pi: ExtensionAPI) {
 					// window so every handler-reachable teardown early-returns or
 					// invalidates. Narrow on purpose: a late callback that arrives after an
 					// abort must not resurrect the state.
-					if (voiceState === "recording") setVoiceState("finalizing");
+					// R24: the transition renders the status bar (setVoiceState →
+					// updateVoiceStatus → ctx.ui.setStatus), so a UI throw here used to reject
+					// this callback and skip the write, the history record and the tail.
+					// Wrap it — the state field is already assigned before the render.
+					if (voiceState === "recording") {
+						try {
+							setVoiceState("finalizing");
+						} catch (err) {
+							voiceDebug("finalizing transition threw — continuing", { error: String(err) });
+						}
+					}
 					let outcome: PolishOutcome;
 					try {
 						outcome = await runPolishPass(fullText, ctx.ui.getEditorText?.() ?? "");
@@ -1535,19 +1562,25 @@ export default function (pi: ExtensionAPI) {
 
 					// A discarded pass must not write.
 					if (!skipWrite) {
-						if (isLocal) {
-							// Local backend (batch mode): no interim transcripts were sent to the editor,
-							// so we must always insert the final text. This is the ONLY place it arrives.
-							ctx.ui.setEditorText(finalText);
-							wroteEditor = true;
-						} else {
-							// Streaming backend: interim transcripts already updated the editor live.
-							// Only set final text if the editor still has content (user didn't hit Enter).
-							const currentEditorText = ctx.ui.getEditorText?.() ?? "";
-							if (currentEditorText.trim()) {
+						// R24: the editor read/write is a UI call — a throw must leave
+						// `wroteEditor` false and still reach the history record and the tail.
+						try {
+							if (isLocal) {
+								// Local backend (batch mode): no interim transcripts were sent to the editor,
+								// so we must always insert the final text. This is the ONLY place it arrives.
 								ctx.ui.setEditorText(finalText);
 								wroteEditor = true;
+							} else {
+								// Streaming backend: interim transcripts already updated the editor live.
+								// Only set final text if the editor still has content (user didn't hit Enter).
+								const currentEditorText = ctx.ui.getEditorText?.() ?? "";
+								if (currentEditorText.trim()) {
+									ctx.ui.setEditorText(finalText);
+									wroteEditor = true;
+								}
 							}
+						} catch (err) {
+							voiceDebug("editor write threw — continuing the completion", { error: String(err) });
 						}
 					}
 
@@ -1626,11 +1659,16 @@ export default function (pi: ExtensionAPI) {
 								}
 							} else {
 								voiceDebug("autoSubmitOnSpeak: pi.sendUserMessage not available on this Pi version");
-								ctx.ui.notify(
-									"Auto-submit ON but unavailable on this Pi version (need pi.sendUserMessage). " +
-										"Press [enter] to send, or update Pi.",
-									"warning"
-								);
+								try {
+									ctx.ui.notify(
+										"Auto-submit ON but unavailable on this Pi version (need pi.sendUserMessage). " +
+											"Press [enter] to send, or update Pi.",
+										"warning"
+									);
+								} catch (err) {
+									// R24: a failed warning must not skip the history record or the tail.
+									voiceDebug("auto-submit unavailable notify threw", { error: String(err) });
+								}
 							}
 						} // end else (agent not busy)
 					}
@@ -1644,7 +1682,13 @@ export default function (pi: ExtensionAPI) {
 				playSound("stop");
 				// Full state reset on successful completion
 				resetHoldState();
-				setVoiceState("idle");
+				// R24: the last call of the callback is a UI render via setVoiceState —
+				// swallow it so the float promise cannot reject after the tail.
+				try {
+					setVoiceState("idle");
+				} catch (err) {
+					voiceDebug("idle transition threw", { error: String(err) });
+				}
 			},
 			onError: (err: string) => {
 				activeSession = null;
