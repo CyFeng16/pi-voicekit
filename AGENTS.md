@@ -13,8 +13,9 @@ text is **English-first**.
   their localized renderings — they are product copy, not comments.
 - **Docs & README**: English.
 
-This file is the rule of record for agents and humans; the machine-readable
-formatting baseline lives in `.prettierrc.json` + `.editorconfig`.
+This file is the rule of record for agents and humans — there is deliberately no
+`CLAUDE.md` companion; the machine-readable formatting baseline lives in
+`.prettierrc.json` + `.editorconfig`.
 
 ## Development
 
@@ -25,6 +26,16 @@ formatting baseline lives in `.prettierrc.json` + `.editorconfig`.
   Markdown is intentionally not gated — hand-format docs.
 - History hygiene: one commit = one logical change; keep diffs minimal and
   unrelated edits out.
+
+## Releases
+
+- **Tag-driven, never local.** Pushing a `vX.Y.Z` tag _is_ the release: CI publishes
+  to npm (Trusted Publishing + provenance) and opens the GitHub Release. There is no
+  local publish path — never run `bun publish` / `npm publish` by hand.
+- **One source for release notes:** the `CHANGELOG.md` section for that version.
+  A missing section fails the release, by design.
+- **One release commit:** `chore: release X.Y.Z` bumps `package.json` **and** moves
+  `[Unreleased]` into `## [x.y.z] - <date>`, in the commit that gets tagged.
 
 ## Project context
 
