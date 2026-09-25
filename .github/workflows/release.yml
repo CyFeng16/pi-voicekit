@@ -36,6 +36,7 @@ jobs:
       # writes to the same file and adds no state of its own.
       - name: Extract release notes from CHANGELOG.md
         run: |
+          set -o pipefail
           node scripts/changelog-entry.mjs "$VERSION" --file CHANGELOG.md \
             > "$RUNNER_TEMP/release-notes.md"
 
