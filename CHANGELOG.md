@@ -1055,6 +1055,10 @@ single source of truth per row.
 - VAD pre-filtering
 - Pompom/Lumo creature companion (now separate package)
 
+[Unreleased]: https://github.com/CyFeng16/pi-voicekit/compare/v0.1.3...HEAD
+[0.1.3]: https://github.com/CyFeng16/pi-voicekit/compare/v0.1.2...v0.1.3
+[0.1.2]: https://github.com/CyFeng16/pi-voicekit/compare/v0.1.1...v0.1.2
+[0.1.1]: https://github.com/CyFeng16/pi-voicekit/releases/tag/v0.1.1
 [7.0.1]: https://github.com/codexstar69/pi-listen/releases/tag/v7.0.1
 [7.0.0]: https://github.com/codexstar69/pi-listen/releases/tag/v7.0.0
 [6.0.0]: https://github.com/codexstar69/pi-listen/releases/tag/v6.0.0
