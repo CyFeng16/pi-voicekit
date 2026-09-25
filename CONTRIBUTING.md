@@ -11,6 +11,7 @@ Thank you for your interest in contributing to pi-voicekit! This document provid
 - [Making Changes](#making-changes)
 - [Testing](#testing)
 - [Pull Request Process](#pull-request-process)
+- [Release](#release)
 - [Coding Standards](#coding-standards)
 - [Reporting Issues](#reporting-issues)
 
@@ -134,6 +135,46 @@ bun run check  # typecheck + test
 - [ ] CHANGELOG.md updated
 - [ ] Documentation updated (if applicable)
 - [ ] No secrets or tokens in code
+
+## Release
+
+Releases are tag-driven. Nothing is published from a workstation.
+
+1. **Land the change with its note.** Every pull request updates the `[Unreleased]`
+   section of `CHANGELOG.md`.
+2. **Cut the release in one commit** — `chore: release X.Y.Z`:
+   - `package.json` → `version` (required),
+   - `package-lock.json` → both `version` fields (convention: keeps the two lockfiles
+     telling the same story; nothing gates it, since CI installs with Bun),
+   - move `[Unreleased]` into a new `## [X.Y.Z] - <YYYY-MM-DD>` section and leave
+     `[Unreleased]` empty for the next cycle,
+   - add that version's link definition at the bottom and repoint `[Unreleased]` at it
+     (`[Unreleased]: .../compare/vX.Y.Z...HEAD`) — cosmetic, and nothing checks it, which
+     is exactly why it belongs in this same commit.
+3. **Push `main`, then the tag:** `git tag vX.Y.Z && git push origin vX.Y.Z`.
+4. **CI does the rest.** `.github/workflows/release.yml` publishes to npm (Trusted
+   Publishing + provenance) and opens the GitHub Release: its body is the changelog
+   section for that version plus a `**Full Changelog**` compare link, and its only
+   extra asset is the packed npm tarball (GitHub adds the source archives itself).
+
+A release **fails before publishing** when the tagged commit has no `## [X.Y.Z]`
+section. That is deliberate: a release must be describable at the commit it points at,
+and the notes are the changelog — never a generated summary.
+
+Never publish by hand. A locally published version carries no provenance and is not tied to its
+tag, and npm's unpublish policy is deliberately restrictive — in practice a published version is
+permanent.
+
+### If a release fails
+
+The tag is already public, so never move or delete it: fix forward with the next patch version.
+
+| Symptom | What it means | What to do |
+| --- | --- | --- |
+| `Extract release notes` fails | The tagged commit has no `## [X.Y.Z]` section | Add the section, commit, and cut the next patch version |
+| `Publish to npm` fails | Nothing reached the registry | Fix the cause and re-run the workflow — the publish step skips a version that already exists |
+| `Verify the packed tarball` fails | The registry holds bytes you cannot reproduce from the tag | Treat the release as broken and investigate before doing anything else |
+| `Publish the GitHub Release` fails | npm already has the version; only the GitHub Release is missing | Re-run the workflow — the release step finishes a leftover draft, refills a missing tarball, refreshes the body, or skips a published release |
 
 ## Coding Standards
 

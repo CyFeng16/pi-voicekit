@@ -48,8 +48,7 @@
     "check": "bun run typecheck && bun run test",
     "format": "prettier --write \"**/*.{ts,json,yml,yaml}\"",
     "format:check": "prettier --check \"**/*.{ts,json,yml,yaml}\"",
-    "release:dry": "bun run check && bun publish --dry-run",
-    "release": "bun run check && bun publish --access public"
+    "release:dry": "bun run check && bun publish --dry-run"
   },
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": "*",
