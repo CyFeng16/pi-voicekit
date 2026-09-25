@@ -1117,8 +1117,12 @@ export class VoiceSettingsPanel {
 					break;
 				}
 				case 3: {
+					// Step 1000 but clamp to the documented maximum: the loader accepts any
+					// integer in [1000, 30000], so a hand-edited value off the 1000 grid can
+					// otherwise advance straight past the maximum and render a value the
+					// next load silently clamps back.
 					const current = config.postProcessTimeoutMs ?? 8000;
-					config.postProcessTimeoutMs = current >= 30000 ? 1000 : current + 1000;
+					config.postProcessTimeoutMs = current >= 30000 ? 1000 : Math.min(current + 1000, 30000);
 					this.save();
 					break;
 				}
