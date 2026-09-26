@@ -378,14 +378,15 @@ function joinReferences(parts: readonly string[]): string {
  * present, ffmpeg produces the raw stream instead of downloading or writing anything. Selection is
  * sorted and stops once the target duration is covered.
  */
-export function buildPcm(audioDir: string, targetSeconds: number, gapMs = 350): AudioCorpus {
+export function buildPcm(audioDir: string, targetSeconds: number, gapMs = 350, skipFiles = 0): AudioCorpus {
 	if (!fs.existsSync(audioDir)) {
 		throw new Error(`no evaluation audio at ${audioDir} — fetch the corpus first`);
 	}
 	const files = walkFiles(audioDir).sort();
 	const pcmFiles = files.filter((file) => file.endsWith(".pcm"));
 	const wavFiles = files.filter((file) => file.endsWith(".wav"));
-	const sources = pcmFiles.length > 0 ? pcmFiles : wavFiles;
+	const allSources = pcmFiles.length > 0 ? pcmFiles : wavFiles;
+	const sources = allSources.slice(Math.max(0, skipFiles));
 	if (sources.length === 0) throw new Error(`no .pcm or .wav files under ${audioDir}`);
 	const usedFfmpeg = pcmFiles.length === 0;
 	const references = loadReferences(audioDir);
@@ -588,6 +589,8 @@ interface PipelineArgs {
 	maxSpeech?: number;
 	mergeK?: number;
 	gapMs: number;
+	/** Skip this many sorted source files, so one corpus yields several disjoint long audios. */
+	skipFiles: number;
 }
 
 export function parseArgs(argv: readonly string[]): PipelineArgs {
@@ -604,6 +607,7 @@ export function parseArgs(argv: readonly string[]): PipelineArgs {
 		help: false,
 		split: "vad",
 		gapMs: 350,
+		skipFiles: 0,
 	};
 	for (let index = 0; index < argv.length; index += 1) {
 		const flag = argv[index];
@@ -630,6 +634,7 @@ export function parseArgs(argv: readonly string[]): PipelineArgs {
 		else if (flag === "--max-speech") args.maxSpeech = Number(next() ?? 10);
 		else if (flag === "--merge-k") args.mergeK = Number(next() ?? 1);
 		else if (flag === "--gap-ms") args.gapMs = Number(next() ?? args.gapMs);
+		else if (flag === "--skip-files") args.skipFiles = Number(next() ?? 0);
 	}
 	return args;
 }
@@ -648,6 +653,7 @@ const USAGE = [
 	"  --max-speech <secs>        hard cap on one segment (default: 10, the shipped value)",
 	"  --merge-k <n>              glue n consecutive VAD pieces into one decode (default: 1)",
 	"  --gap-ms <n>               silence inserted between corpus clips (default: 350)",
+	"  --skip-files <n>           skip the first n sorted clips, to build a different long audio",
 	"  --timeout-ms <n>           per-segment polish timeout (default: 8000)",
 	"  --caller fake|openai       fake is deterministic and offline (default: fake)",
 	"  --fake-fail <mode>         timeout|error|rejected-status|empty, to exercise fallbacks",
@@ -726,7 +732,7 @@ async function main(): Promise<number> {
 			"refusing to call a model over the network without --allow-network (the run costs money and sends transcript text)"
 		);
 	}
-	const corpus = buildPcm(args.audioDir, args.seconds, args.gapMs);
+	const corpus = buildPcm(args.audioDir, args.seconds, args.gapMs, args.skipFiles);
 	console.log(
 		`pcm:        ${corpus.files.length} file(s), ${corpus.durationSec.toFixed(1)} s${corpus.usedFfmpeg ? " (decoded with ffmpeg from wav)" : ""}`
 	);
