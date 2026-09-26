@@ -75,17 +75,19 @@ describe("polishMaxTokens", () => {
 	test("keeps a floor a reasoning model can think inside, and grows with the transcript", () => {
 		// Measured on the acceptance corpus: a 29-character transcript spent 813 tokens on
 		// reasoning before it answered, and the old 256 floor truncated a fifth of the samples.
-		expect(polishMaxTokens(1)).toBe(1024);
-		expect(polishMaxTokens(29)).toBe(1024);
-		expect(polishMaxTokens(256)).toBe(1024);
-		expect(polishMaxTokens(257)).toBeGreaterThan(1024);
+		// The floor covers thinking, which is not bounded by the input length: a 76-character
+		// dictation spent about 1,200 reasoning tokens, so the floor is 2048 now.
+		expect(polishMaxTokens(1)).toBe(2048);
+		expect(polishMaxTokens(76)).toBe(2048);
+		expect(polishMaxTokens(256)).toBe(2048);
+		expect(polishMaxTokens(1000)).toBeGreaterThan(2048);
 		expect(polishMaxTokens(1000)).toBeGreaterThan(polishMaxTokens(100));
 		expect(polishMaxTokens(1_000_000)).toBe(4096);
 	});
 
 	test("treats a nonsense length as the floor instead of returning NaN", () => {
-		expect(polishMaxTokens(Number.NaN)).toBe(1024);
-		expect(polishMaxTokens(Number.POSITIVE_INFINITY)).toBe(1024);
-		expect(polishMaxTokens(-5)).toBe(1024);
+		expect(polishMaxTokens(Number.NaN)).toBe(2048);
+		expect(polishMaxTokens(Number.POSITIVE_INFINITY)).toBe(2048);
+		expect(polishMaxTokens(-5)).toBe(2048);
 	});
 });

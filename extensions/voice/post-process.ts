@@ -240,6 +240,14 @@ export interface PolishAudit {
 	latencyMs?: number;
 	contextChars?: number;
 	truncated?: boolean;
+	/** Characters of the dictation itself, excluding text already in the editor. */
+	transcriptChars?: number;
+	/** Characters of the editor prefix, which is not part of the transcript. */
+	editorPrefixChars?: number;
+	/** True when the pass asked the model not to think. */
+	thinkingOff?: boolean;
+	/** The output-token cap the request carried, a cap and not a spend. */
+	maxTokens?: number;
 }
 
 export function buildPolishAudit(input: {
@@ -248,6 +256,10 @@ export function buildPolishAudit(input: {
 	status?: string;
 	disposition?: string;
 	reason?: string;
+	transcriptChars?: number;
+	editorPrefixChars?: number;
+	thinkingOff?: boolean;
+	maxTokens?: number;
 	telemetry?: {
 		model?: string;
 		configured?: string;
@@ -266,6 +278,10 @@ export function buildPolishAudit(input: {
 	if (input.status !== undefined) audit.status = input.status;
 	if (input.disposition !== undefined) audit.disposition = input.disposition;
 	if (input.reason !== undefined) audit.reason = input.reason;
+	if (input.transcriptChars !== undefined) audit.transcriptChars = input.transcriptChars;
+	if (input.editorPrefixChars !== undefined) audit.editorPrefixChars = input.editorPrefixChars;
+	if (input.thinkingOff !== undefined) audit.thinkingOff = input.thinkingOff;
+	if (input.maxTokens !== undefined) audit.maxTokens = input.maxTokens;
 	const telemetry = input.telemetry;
 	if (telemetry) {
 		if (telemetry.model !== undefined) audit.model = telemetry.model;

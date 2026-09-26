@@ -114,6 +114,7 @@ import {
 	resolveModelChoice,
 } from "./voice/post-process";
 import { DEFAULT_CONTEXT_LIMITS } from "./voice/post-process-context";
+import { polishMaxTokens } from "./voice/post-process-prompt";
 
 /** Adapter for the real event loop — lets GapTimer run under the real setTimeout. */
 const realTimerPort: TimerPort = {
@@ -883,6 +884,9 @@ export default function (pi: ExtensionAPI) {
 		ms: number;
 		contextChars?: number;
 		truncated?: boolean;
+		/** Recorded so a slow or truncated pass can be diagnosed without reading code. */
+		thinkingOff?: boolean;
+		maxTokens?: number;
 		reason?: string;
 		error?: string;
 	};
@@ -987,6 +991,10 @@ export default function (pi: ExtensionAPI) {
 			const telemetry = {
 				model: polishModelLabel(choice),
 				configured: choice.ref,
+				// Pure and cheap, so computing it twice (here and in the call options) is fine, and it
+				// keeps the audit entry honest about what the pass decided.
+				thinkingOff: Boolean(polishSamplingOptions(model as { reasoning?: boolean }, raw.length).samplingParams),
+				maxTokens: polishMaxTokens(raw.length),
 				status: result.status,
 				ms: Date.now() - started,
 				contextChars: result.contextChars,
@@ -1818,6 +1826,10 @@ export default function (pi: ExtensionAPI) {
 								"voice-polish",
 								buildPolishAudit({
 									raw: prefix + fullText,
+									transcriptChars: fullText.length,
+									editorPrefixChars: prefix.length,
+									thinkingOff: polishTelemetry?.thinkingOff,
+									maxTokens: polishTelemetry?.maxTokens,
 									written: wroteEditor ? finalText : undefined,
 									status: final.status,
 									disposition: final.disposition,

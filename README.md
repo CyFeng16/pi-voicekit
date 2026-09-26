@@ -399,6 +399,9 @@ Every dictation also writes one `voice-polish` entry into the session file: the 
 transcript, what reached the editor and why the pass decided that. The model never sees
 these entries — they are not part of the conversation context — so they are there for
 analysis, and they do keep the raw text on disk for as long as the session file exists.
+Each entry also records how the pass was configured: the transcript length on its own
+(separate from any text already in the editor), whether thinking was turned off for it,
+and the output-token cap it carried.
 
 | Setting                   | Scope              | Default     | Notes                                                   |
 | ------------------------- | ------------------ | ----------- | ------------------------------------------------------- |

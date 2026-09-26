@@ -334,6 +334,25 @@ describe("buildPolishAudit", () => {
 		expect("reason" in audit).toBe(false);
 	});
 
+	test("records the transcript length apart from the editor prefix and the pass settings", () => {
+		const audit = buildPolishAudit({
+			raw: "已有前缀 加上这次转写",
+			written: "已有前缀，加上这次转写。",
+			status: "applied",
+			transcriptChars: 7,
+			editorPrefixChars: 6,
+			thinkingOff: false,
+			maxTokens: 2048,
+			telemetry: { model: "test-model", configured: "session", ms: 300, contextChars: 0, truncated: false },
+		});
+		expect(audit.transcriptChars).toBe(7);
+		expect(audit.editorPrefixChars).toBe(6);
+		expect(audit.thinkingOff).toBe(false);
+		expect(audit.maxTokens).toBe(2048);
+		// Omitted when nobody reported them, so a record that never set them stays distinguishable.
+		expect("thinkingOff" in buildPolishAudit({ raw: "x" })).toBe(false);
+	});
+
 	test("a fallback keeps the raw text and is not applied", () => {
 		const audit = buildPolishAudit({ raw: "原文", status: "rejected", reason: "stop-reason:length" });
 		expect(audit.applied).toBe(false);

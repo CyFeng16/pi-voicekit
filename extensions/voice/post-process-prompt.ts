@@ -69,7 +69,10 @@ If nothing in <TRANSCRIPT> can be cleaned, return it unchanged.
  */
 export function polishMaxTokens(rawChars: number): number {
 	const bounded = Number.isFinite(rawChars) ? Math.max(1, Math.floor(rawChars)) : 1;
-	return Math.min(4096, Math.max(1024, Math.ceil(bounded * 2) + 512));
+	// The floor is 2048 because thinking is not bounded by the input length: a 76-character
+	// dictation spent about 1,200 reasoning tokens, so the earlier 1024 floor truncated it and
+	// dropped the pass back to the raw transcript after a 7.6 s wait.
+	return Math.min(4096, Math.max(2048, Math.ceil(bounded * 2) + 512));
 }
 
 function renderContext(context: AssembledContext): string {
