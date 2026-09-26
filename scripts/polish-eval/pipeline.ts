@@ -195,6 +195,8 @@ export interface PipelineQuality {
 	rawCer: number;
 	/** Punctuation marks in the reference, so an F1 of 0 against an unpunctuated corpus is readable. */
 	referenceMarks: number;
+	/** Samples where a number, identifier or wording changed relative to what was heard. */
+	flagged: number;
 }
 
 function punctuationMarks(text: string): number {
@@ -333,7 +335,7 @@ function decodeWavWithFfmpeg(file: string): Buffer {
 }
 
 /** Key an audio file by name without its extension: the harness reads `.pcm`, the manifest lists `.wav`. */
-function audioStem(file: string): string {
+export function audioStem(file: string): string {
 	return path.basename(file).replace(/\.(pcm|wav)$/i, "");
 }
 
@@ -357,7 +359,7 @@ function loadReferences(audioDir: string): Map<string, string> {
 }
 
 /** Join reference sentences like the audio ran: no space inside CJK, one space between latin runs. */
-function joinReferences(parts: readonly string[]): string {
+export function joinReferences(parts: readonly string[]): string {
 	let out = "";
 	for (const part of parts) {
 		const text = part.trim();

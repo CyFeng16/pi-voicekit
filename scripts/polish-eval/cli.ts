@@ -305,9 +305,9 @@ async function main(): Promise<number> {
 	const selected: PolishCaller =
 		args.reasoningEffort === "auto" && longCaller
 			? (request, signal) =>
-					polishSamplingOptions({ reasoning: true }, extractTranscript(request).length).samplingParams
-						? longCaller(request, signal)
-						: resolved.caller(request, signal)
+					// The product forces thinking off for every polish call now, so 'auto' means: send the same
+					// sampling fields the extension sends, on every request.
+					longCaller(request, signal)
 			: resolved.caller;
 	// A budget override, for measuring what the shipped formula costs on a model that thinks
 	// before it answers. maxTokens is a cap, not a spend: the model stops when it is done.
