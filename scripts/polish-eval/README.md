@@ -112,6 +112,53 @@ Gates first, then the numbers, then the queue of samples a human should look at.
 Latency is always reported over **successful** passes only, separately from the
 fallback share: an all-fallback run must not look fast.
 
+## Pipeline measurement
+
+The `run` command measures the pass as a text-in/text-out function: one call per
+sample, no recogniser and no segments. `pipeline.ts` measures the shipped product
+path instead — the real local recogniser, the real bounded queue, and the same
+transcript through a single call for comparison:
+
+```bash
+# offline: build ~80 s of corpus audio, recognise it, polish with the fake caller
+bun run scripts/polish-eval/pipeline.ts --repeats 3
+
+# exercise the fallback accounting without a network: every call times out
+bun run scripts/polish-eval/pipeline.ts --fake-fail timeout --timeout-ms 500
+
+# real numbers (same POLISH_EVAL_* variables as `run`, explicitly allowed to call out)
+POLISH_EVAL_BASE_URL=https://example.invalid/v1 POLISH_EVAL_MODEL=... POLISH_EVAL_API_KEY=... \
+bun run scripts/polish-eval/pipeline.ts --caller openai --allow-network --repeats 3 --out /tmp/pipeline
+```
+
+What it does:
+
+- Concatenates `~/.pi/voicekit-eval/audio` (16 kHz mono s16le `.pcm`, sorted) into
+  `--seconds` of audio. If only `.wav` files sit there, ffmpeg decodes them to raw
+  PCM in memory and the run says so; nothing is downloaded or written to the corpus.
+- Runs the **real** `transcribeBufferSegmented` and pushes each segment into the
+  **real** `createPolishQueue` while recognition continues, then finishes the queue
+  and — on the same transcript — runs one `polishTranscript` call as the baseline.
+- Reports per-run wall clock, recognition time and polish tail, per-segment
+  latency p50/p95, RTFx (`wall / audio duration`), retries, fallback reasons, and
+  whether a failed segment kept its raw text while neighbours stayed polished.
+  `--out <dir>` also writes the raw `pipeline.json` (including every segment
+  outcome) for the acceptance record.
+
+The comparison point is the recorded single-call round of 2026-09-26 (70
+utterances, sensevoice-small, deepseek-flash): **28.6 % fallback, 4341 ms p95** —
+the numbers the segmented pipeline has to beat.
+
+Notes for the maintainer:
+
+- sherpa-onnx is native and can only be loaded **once per process**: run this file
+  as its own entry point, never import it from a script that already loaded sherpa.
+- The harness never downloads a model — that is what
+  `--local-model <id>` picks from what is installed (default `sensevoice-small`,
+  or `POLISH_EVAL_LOCAL_MODEL`).
+- The credentials are read only by `resolveCaller`, only when `--caller openai` is
+  asked for, and never printed.
+
 ## What this does not prove
 
 - **Synthetic errors are not real recognition errors.** The injector degrades text
