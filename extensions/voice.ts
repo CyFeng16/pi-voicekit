@@ -817,6 +817,19 @@ export default function (pi: ExtensionAPI) {
 		return config.scope === "project" ? "project" : "global";
 	}
 
+	/**
+	 * The model the pass actually ran on, as `provider/id`. The configured value is the
+	 * "session" marker whenever the session model is in play, so a telemetry line built
+	 * from it alone cannot be grouped per model.
+	 */
+	function polishModelLabel(choice: { model?: unknown; ref: string }): string {
+		const model = choice.model as { provider?: unknown; id?: unknown } | undefined;
+		if (model && typeof model.provider === "string" && typeof model.id === "string") {
+			return `${model.provider}/${model.id}`;
+		}
+		return choice.ref;
+	}
+
 	/** What the polish pass did with one dictation — recorded on the history entry for `last`. */
 	type PolishOutcomeStatus = "applied" | "discarded" | "failed";
 
@@ -932,23 +945,33 @@ export default function (pi: ExtensionAPI) {
 					),
 				debug: (reason, data) => voiceDebug(`polish ${reason}`, data),
 			});
-			voiceDebug("polish result", {
-				model: choice.ref,
+			const telemetry = {
+				model: polishModelLabel(choice),
+				configured: choice.ref,
 				status: result.status,
-				reason: result.reason,
 				ms: Date.now() - started,
 				contextChars: result.contextChars,
 				truncated: result.truncatedContext,
-			});
+			};
 			// A newer recording or session owns the editor now: change nothing at all.
-			if (activePolishPass !== id) return { action: "abort", text: raw };
+			if (activePolishPass !== id) {
+				voiceDebug("polish result", { ...telemetry, disposition: "aborted", reason: "invalidated" });
+				return { action: "abort", text: raw };
+			}
 			const decision = decideApply({
 				tokenCurrent: true,
 				editorSnapshot,
 				currentEditor: readEditorOrFailed(),
 			});
+			// One record per pass, after the ownership decision, so the disposition — what
+			// happened to the editor — and its reason are final and a log can be grouped by
+			// model and disposition.
+			voiceDebug("polish result", {
+				...telemetry,
+				disposition: !decision.apply ? "discarded" : result.status === "applied" ? "applied" : "raw-fallback",
+				reason: decision.apply ? result.reason : decision.reason,
+			});
 			if (!decision.apply) {
-				voiceDebug("polish discarded", { reason: decision.reason });
 				return { action: "discard", text: raw, status: "discarded" };
 			}
 			return {
@@ -967,10 +990,14 @@ export default function (pi: ExtensionAPI) {
 				editorSnapshot,
 				currentEditor: readEditorOrFailed(),
 			});
-			voiceDebug("polish pass threw — deciding by ownership", {
+			voiceDebug("polish result", {
+				model: polishModelLabel(choice),
+				configured: choice.ref,
+				status: "failed",
+				ms: Date.now() - started,
+				disposition: decision.apply ? "raw-fallback" : "discarded",
+				reason: decision.reason ?? "pass-threw",
 				error: String(err),
-				apply: decision.apply,
-				reason: decision.reason ?? "raw-fallback",
 			});
 			if (!decision.apply) return { action: "discard", text: raw, status: "discarded" };
 			return { action: "apply", text: raw, status: "failed" };
