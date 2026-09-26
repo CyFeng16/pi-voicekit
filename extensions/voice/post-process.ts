@@ -142,7 +142,7 @@ export type EditorRead = string | typeof EDITOR_READ_FAILED;
  * while the pass still owns the flow AND the editor still holds the value the pass
  * snapshotted. Used by the normal path and by the pass's own throw path.
  */
-export function decideApply(input: { tokenCurrent: boolean; editorSnapshot: string; currentEditor: EditorRead }): {
+export function decideApply(input: { tokenCurrent: boolean; editorSnapshot: EditorRead; currentEditor: EditorRead }): {
 	apply: boolean;
 	reason?: string;
 } {
@@ -180,6 +180,12 @@ export async function polishTranscript(input: PolishInput): Promise<PolishResult
 	const context = assembleContext(input.entries, input.limits);
 	const shape = { contextChars: context.characters, truncatedContext: context.truncated };
 	const request = buildPolishRequest(context, input.raw, input.timestamp);
+	// Invalidation stops scheduling, not merely the write: a cancelled or superseded pass must
+	// not send transcript text to the provider at all, so the check in front of the call is as
+	// important as the one after it.
+	if (input.isCurrent && !input.isCurrent()) {
+		return { status: "skipped", text: input.raw, reason: "invalidated", ...shape };
+	}
 	const controller = new AbortController();
 	let timer: ReturnType<typeof setTimeout> | undefined;
 

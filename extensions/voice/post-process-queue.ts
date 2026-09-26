@@ -81,7 +81,11 @@ export interface PolishQueueOptions {
 	model?: { reasoning?: boolean } | undefined | null;
 	/** Defaults to POLISH_QUEUE_CONCURRENCY; clamped to at least one. */
 	concurrency?: number;
-	/** One pass id for the whole queue: checked after each call, exactly like the single pass. */
+	/**
+	 * One pass id for the whole queue. Checked before each attempt is scheduled (first try and
+	 * retry), so an invalidated pass stops sending new requests instead of merely discarding
+	 * the answers; `polishTranscript` checks it again before and after every call.
+	 */
 	isCurrent?: () => boolean;
 	/** Injected clock, so tests can pin latency without waiting. */
 	now?: () => number;
@@ -99,10 +103,12 @@ interface LiveCall {
 	orphaned: boolean;
 }
 
-/** One attempt: its result, whether a request really went out, or that no slot ever freed. */
+/** One attempt: its result, whether a request really went out, or that no request was sent. */
 interface AttemptRun {
 	issued: boolean;
 	denied: boolean;
+	/** The pass lost ownership before this attempt could send anything. */
+	stale: boolean;
 	result: PolishResult | null;
 	error?: unknown;
 }
@@ -330,11 +336,22 @@ export function createPolishQueue(options: PolishQueueOptions): PolishQueue {
 	}
 
 	function reasonOf(run: AttemptRun): string | undefined {
+		if (run.stale) return "invalidated";
 		if (run.error !== undefined) {
 			return run.error instanceof Error && run.error.message ? run.error.message : "segment-error";
 		}
 		if (run.denied) return "no-capacity";
 		return run.result?.reason;
+	}
+
+	/** True once the pass that owns this queue has been invalidated. A throwing check keeps
+	 * fail-open intact: it must never block a dictation that might still be valid. */
+	function stale(): boolean {
+		try {
+			return options.isCurrent?.() === false;
+		} catch {
+			return false;
+		}
 	}
 
 	/**
@@ -364,7 +381,15 @@ export function createPolishQueue(options: PolishQueueOptions): PolishQueue {
 	 * once the transport settles.
 	 */
 	async function runAttempt(job: SegmentJob, forceOff: boolean): Promise<AttemptRun> {
-		if (!tryTakeSlot() && !(await waitForSlot())) return { issued: false, denied: true, result: null };
+		// Invalidation is checked before a slot is taken: a cancelled or superseded pass must stop
+		// scheduling requests, not just ignore their answers.
+		if (stale()) return { issued: false, denied: false, stale: true, result: null };
+		if (!tryTakeSlot() && !(await waitForSlot())) return { issued: false, denied: true, stale: false, result: null };
+		// The pass may have died while this segment waited for a slot.
+		if (stale()) {
+			releaseSlot(false);
+			return { issued: false, denied: false, stale: true, result: null };
+		}
 		const call: LiveCall = { settled: false, orphaned: false };
 		let issued = false;
 		try {
@@ -388,13 +413,13 @@ export function createPolishQueue(options: PolishQueueOptions): PolishQueue {
 				debug: debugFor(job.index),
 			});
 			if (!call.settled) markOrphaned(call);
-			return { issued, denied: false, result };
+			return { issued, denied: false, stale: false, result };
 		} catch (error) {
 			// `polishTranscript` normally reports through its result; this only covers a fault
 			// thrown before it could invoke the caller.
 			if (!issued) releaseSlot(false);
 			else if (!call.settled) markOrphaned(call);
-			return { issued, denied: false, result: null, error };
+			return { issued, denied: false, stale: false, result: null, error };
 		}
 	}
 
@@ -405,6 +430,8 @@ export function createPolishQueue(options: PolishQueueOptions): PolishQueue {
 			if (first.result?.status === "applied") return appliedOutcome(job, first.result.text, false, started);
 			const firstReason = reasonOf(first);
 			if (!isRetryable(first)) return fallbackOutcome(job, firstReason, false, started);
+			// Never retry for a pass that lost ownership while the first attempt ran.
+			if (stale()) return fallbackOutcome(job, "invalidated", false, started);
 			const second = await runAttempt(job, true);
 			if (second.result?.status === "applied") return appliedOutcome(job, second.result.text, second.issued, started);
 			// A retry that never reached the transport leaves the first failure as the reason.

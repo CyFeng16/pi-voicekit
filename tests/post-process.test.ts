@@ -282,11 +282,36 @@ describe("polishTranscript", () => {
 		expect(result.text).toBe(baseInput.raw);
 	});
 
-	test("discards a result that arrived after invalidation", async () => {
+	test("sends nothing once invalidation has already happened", async () => {
+		let called = false;
 		const result = await polishTranscript({
 			...baseInput,
 			isCurrent: () => false,
-			call: async () => assistant("把 retry 改成三次"),
+			call: async () => {
+				called = true;
+				return assistant("把 retry 改成三次");
+			},
+		});
+		expect(called).toBe(false);
+		expect(result).toEqual({
+			status: "skipped",
+			text: baseInput.raw,
+			reason: "invalidated",
+			contextChars: 0,
+			truncatedContext: false,
+		});
+	});
+
+	test("discards a result that arrived after invalidation", async () => {
+		let current = true;
+		const result = await polishTranscript({
+			...baseInput,
+			isCurrent: () => current,
+			call: async () => {
+				// The pass dies while the request is in flight: the answer must stay inert.
+				current = false;
+				return assistant("把 retry 改成三次");
+			},
 		});
 		expect(result).toEqual({
 			status: "skipped",

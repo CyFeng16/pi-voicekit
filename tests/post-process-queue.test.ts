@@ -246,4 +246,58 @@ describe("createPolishQueue", () => {
 		expect(requests[0]).not.toHaveProperty("samplingParams");
 		expect(requests[1]!.samplingParams).toEqual({ reasoning_effort: "none" });
 	});
+
+	test("stops issuing requests once the pass is invalidated", async () => {
+		let current = true;
+		const requests: string[] = [];
+		const releases: (() => void)[] = [];
+		const queue = createPolishQueue({
+			timeoutMs: 500,
+			concurrency: 1,
+			isCurrent: () => current,
+			call: (request) => {
+				requests.push(requestedRaw(request));
+				return new Promise<AssistantLike>((resolve) => {
+					releases.push(() => resolve(assistant(`P-${requestedRaw(request)}`)));
+				});
+			},
+		});
+		queue.push(0, "RAW-0");
+		queue.push(1, "RAW-1");
+		queue.push(2, "RAW-2");
+		expect(requests).toEqual(["RAW-0"]);
+		// The first request is already out and answers; the pass dies before the next segment can
+		// take its slot, so the remaining segments must never reach the caller.
+		current = false;
+		releases.shift()?.();
+		const result = await queue.finish();
+		expect(requests).toEqual(["RAW-0"]);
+		// The first answer arrived after invalidation, so it is inert too: no segment writes
+		// polished text once the pass has lost ownership.
+		expect(result.segments.map((segment) => segment.status)).toEqual(["fallback", "fallback", "fallback"]);
+		expect(result.segments[0]).toMatchObject({ text: "RAW-0", reason: "invalidated", retried: false });
+		expect(result.segments[1]).toMatchObject({ text: "RAW-1", reason: "invalidated", retried: false });
+		expect(result.segments[2]).toMatchObject({ text: "RAW-2", reason: "invalidated", retried: false });
+	});
+
+	test("does not retry a timed-out segment once the pass is invalidated", async () => {
+		let current = true;
+		let calls = 0;
+		const queue = createPolishQueue({
+			timeoutMs: 20,
+			isCurrent: () => current,
+			call: () => {
+				calls += 1;
+				// The pass dies while the first attempt burns its deadline: no retry may be scheduled.
+				current = false;
+				return new Promise<AssistantLike>(() => {});
+			},
+		});
+		queue.push(0, "取消中的段");
+		const result = await queue.finish();
+		expect(calls).toBe(1);
+		expect(result.segments[0]).toMatchObject({ status: "fallback", text: "取消中的段", retried: false });
+		expect(result.segments[0]!.reason).toBe("invalidated");
+		expect(result.retried).toBe(0);
+	});
 });
