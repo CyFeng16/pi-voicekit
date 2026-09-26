@@ -918,13 +918,31 @@ export default function (pi: ExtensionAPI) {
 			const decision = decideApply({
 				tokenCurrent: true,
 				editorSnapshot,
-				currentEditor: ctx?.ui.getEditorText?.() ?? "",
+				currentEditor: readEditorOrFailed(),
 			});
 			if (!decision.apply) {
 				voiceDebug("polish discarded", { reason: decision.reason });
 				return { action: "discard", text: raw };
 			}
 			return { action: "apply", text: result.status === "applied" ? result.text : raw };
+		} catch (err) {
+			// Item 3: a throw here is decided by ownership, not by convenience. The pass's
+			// verdict is unavailable, so the raw transcript is the fallback — but only while
+			// the pass still owns a matching editor: an editor that changed, and equally one
+			// that could not be read, means discard (no write, no dispatch, the dictation is
+			// still recorded by the caller).
+			const decision = decideApply({
+				tokenCurrent: activePolishPass === id,
+				editorSnapshot,
+				currentEditor: readEditorOrFailed(),
+			});
+			voiceDebug("polish pass threw — deciding by ownership", {
+				error: String(err),
+				apply: decision.apply,
+				reason: decision.reason ?? "raw-fallback",
+			});
+			if (!decision.apply) return { action: "discard", text: raw };
+			return { action: "apply", text: raw };
 		} finally {
 			// R20: a stale pass must not restore its status text over the flow that
 			// replaced it — and a cosmetic status write is never allowed to throw.
@@ -1599,10 +1617,16 @@ export default function (pi: ExtensionAPI) {
 					try {
 						outcome = await runPolishPass(fullText, ctx.ui.getEditorText?.() ?? "");
 					} catch (err) {
-						// R19: a rejected pass is still a successful dictation.
+						// Item 3: the pass decides its own throws by ownership; only a failure that
+						// never reached that decision lands here, for example a throwing editor
+						// snapshot read (the pass's own ownership read cannot throw). Ownership was
+						// never established, so the raw text may not overwrite the editor: discard.
+						// The dictation is still recorded and the completion tail still runs.
 						invalidatePolishPass("pass-threw");
-						voiceDebug("polish pass threw — using the raw transcript", { error: String(err) });
-						outcome = { action: "apply", text: fullText };
+						voiceDebug("polish pass threw before ownership — discarding the editor write", {
+							error: String(err),
+						});
+						outcome = { action: "discard", text: fullText };
 					}
 					// A newer recording or session owns the flow now: touch nothing at all.
 					if (outcome.action === "abort") return;
