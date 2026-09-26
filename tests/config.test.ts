@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, spyOn, test } from "bun:test";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -359,6 +359,28 @@ describe("saveGlobalVoiceFields", () => {
 
 		expect(saved.theme).toBe("dark");
 		expect(saved.voice.postProcessEnabled).toBe(false);
+	});
+
+	test("merges the validated read without reading settings again", () => {
+		const agentDir = makeTempDir();
+		const settingsPath = path.join(agentDir, "settings.json");
+		fs.writeFileSync(settingsPath, JSON.stringify({ theme: "dark", voice: { ttsSpeed: 0.8 } }));
+		const read = fs.readFileSync;
+		let reads = 0;
+		const spy = spyOn(fs, "readFileSync").mockImplementation(((file: unknown, ...args: unknown[]) => {
+			if (file === settingsPath && ++reads > 1) throw new Error("second read failed");
+			return (read as Function)(file, ...args);
+		}) as typeof fs.readFileSync);
+		try {
+			saveGlobalVoiceFields({ postProcessEnabled: false }, { agentDir });
+			expect(reads).toBe(1);
+		} finally {
+			spy.mockRestore();
+		}
+		expect(JSON.parse(fs.readFileSync(settingsPath, "utf8"))).toMatchObject({
+			theme: "dark",
+			voice: { ttsSpeed: 0.8, postProcessEnabled: false },
+		});
 	});
 
 	test("leaves a damaged settings file untouched instead of replacing it", () => {

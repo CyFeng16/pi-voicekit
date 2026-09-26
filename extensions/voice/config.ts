@@ -504,16 +504,16 @@ export function saveGlobalVoiceFields(
 	// settings file with a fresh object and lose every other key. An existing file that
 	// cannot be read is logged and left untouched; throwing hands the failure to the
 	// caller's guard instead of silently reporting a write that never happened.
+	let settings: Record<string, unknown> = {};
 	if (fs.existsSync(settingsPath)) {
 		try {
-			JSON.parse(fs.readFileSync(settingsPath, "utf8"));
+			settings = JSON.parse(fs.readFileSync(settingsPath, "utf8"));
 		} catch (err) {
 			const reason = err instanceof Error ? err.message : String(err);
 			process.stderr.write(`[pi-voicekit] Warning: not writing ${settingsPath}: ${reason}\n`);
 			throw new Error(`Refusing to overwrite an unreadable settings file: ${settingsPath}`);
 		}
 	}
-	const settings = readJsonFile(settingsPath);
 	const existing = settings[SETTINGS_KEY];
 	const voice: Record<string, unknown> =
 		existing && typeof existing === "object" ? { ...(existing as Record<string, unknown>) } : {};
