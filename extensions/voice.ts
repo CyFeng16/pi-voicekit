@@ -2717,6 +2717,20 @@ export default function (pi: ExtensionAPI) {
 		}
 	});
 
+	// A submitted user message and a branch navigation both end the window in which a
+	// pending pass may still write. On the local backend the pass has written nothing
+	// yet, so the editor-equality guard passes after the user types a message and
+	// submits it (the editor returns to empty), and branch navigation fires
+	// session_tree rather than session_start — either way a stale transcript could
+	// reappear and auto-send. Invalidating twice is harmless: the operation is
+	// idempotent.
+	pi.on("input", async () => {
+		invalidatePolishPass("user-input");
+	});
+	pi.on("session_tree", async () => {
+		invalidatePolishPass("session-tree");
+	});
+
 	// Note: pi-mono < 0.65.0 fired a discrete "session_switch" event for
 	// /new, /resume, /fork. That event was removed in 0.65.0 in favor of the
 	// session_shutdown → session_start (with reason) flow handled above.
