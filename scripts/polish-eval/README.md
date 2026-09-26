@@ -41,7 +41,11 @@ non-zero when a gate fails.
 
 `run` options: `--caller fake|oracle|openai`, `--arms no-context,last-2-turns`,
 `--turns N`, `--timeout-ms N`, `--max-tokens N` (a budget override, for measuring what the
-shipped formula costs on a model that thinks before it answers), `--out <dir>`, `--full`,
+shipped formula costs on a model that thinks before it answers), `--reasoning-effort none`
+(what the extension sends to a reasoning model on a long dictation — thinking off, which took a
+309-character dictation from 10.2 s to 1.2 s with the same punctuation; below 200 characters
+the extension keeps thinking on), `--accepted t1,t2` (sample ids a human has reviewed, so gate 1
+counts only unreviewed flags), `--out <dir>`, `--full`,
 `--base-url URL`, `--model NAME`, `--allow-network`.
 
 ## Corpus

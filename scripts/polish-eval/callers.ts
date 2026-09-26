@@ -166,7 +166,9 @@ export function resolveCaller(
 		.filter(Boolean)
 		.join(", ");
 	return {
-		caller: openAiCompatibleCaller({ baseUrl, apiKey, model }),
+		// `body` carries caller-level request fields such as reasoning_effort, so a measured run can
+		// send exactly what the extension sends.
+		caller: openAiCompatibleCaller({ baseUrl, apiKey, model, body: options.body }),
 		description: `openai-compatible (network; configured: ${configured || "nothing"})`,
 		modelRef: model ?? "unset",
 		usesNetwork: true,

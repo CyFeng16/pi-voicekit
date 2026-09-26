@@ -46,6 +46,8 @@ export function buildArm(name: ArmName, entry: CorpusEntry, base: ContextLimits 
 }
 
 export interface RunOptions {
+	/** Sample ids a human has reviewed and accepted, so gate 1 counts only unreviewed flags. */
+	accepted?: readonly string[];
 	entries: readonly CorpusEntry[];
 	caller: PolishCaller;
 	callerDescription: string;
@@ -187,20 +189,25 @@ export interface Gate {
  */
 export function evaluateGates(
 	summary: ArmSummary,
-	options: { backend: string; configurationHash?: string; comparedAgainstHash?: string }
+	options: { backend: string; configurationHash?: string; comparedAgainstHash?: string; accepted?: readonly string[] }
 ): Gate[] {
+	const reviewed = new Set(options.accepted ?? []);
 	const flagged = summary.samples.filter((sample) => sample.safetyFlagged);
+	const unreviewed = flagged.filter((sample) => !reviewed.has(sample.id));
 	const gates: Gate[] = [
 		{
 			id: 1,
 			title: "No sample loses or changes meaning",
-			status: flagged.length === 0 ? "pass" : "fail",
+			status: unreviewed.length === 0 ? "pass" : "fail",
 			detail:
 				flagged.length === 0
 					? `no meaning flags across ${summary.count} samples`
-					: `${flagged.length} sample(s) flagged: ${flagged
-							.map((sample) => `${sample.id} (${flagList(sample)})`)
-							.join(", ")}`,
+					: unreviewed.length === 0
+						? `${flagged.length} flagged sample(s), all human-reviewed: ${flagged.map((sample) => sample.id).join(", ")}`
+						: `${unreviewed.length} unreviewed sample(s) flagged: ${unreviewed
+								.map((sample) => `${sample.id} (${flagList(sample)})`)
+								.join(", ")}` +
+							(flagged.length > unreviewed.length ? ` (${flagged.length - unreviewed.length} reviewed)` : ""),
 		},
 		{
 			id: 2,
@@ -321,6 +328,7 @@ export async function runEvaluation(
 			backend,
 			configurationHash: hash,
 			comparedAgainstHash: options.compareTo?.configurationHash,
+			accepted: options.accepted,
 		}),
 		corpusSize: options.entries.length,
 	};
