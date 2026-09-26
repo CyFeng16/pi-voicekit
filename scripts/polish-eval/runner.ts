@@ -30,8 +30,8 @@ import { median, p95, scoreSample, type SampleScore } from "./score";
  * `configurationHash` is meant to cover everything that makes two runs incomparable, and
  * the output-token cap is one of those things.
  */
-export function budgetFingerprint(): { floor: number; ceiling: number; at500: number } {
-	return { floor: polishMaxTokens(1), ceiling: polishMaxTokens(1_000_000), at500: polishMaxTokens(500) };
+export function budgetFingerprint(): { floor: number; ceiling: number; at1000: number } {
+	return { floor: polishMaxTokens(1), ceiling: polishMaxTokens(1_000_000), at1000: polishMaxTokens(1000) };
 }
 
 export const ARM_NAMES = ["no-context", "last-2-turns"] as const;

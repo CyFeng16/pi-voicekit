@@ -266,9 +266,9 @@ describe("gates", () => {
 	});
 
 	test("the budget fingerprint pins the shipped token formula, so a budget change invalidates numbers", () => {
-		// The floor covers thinking, the ceiling bounds a runaway, and the middle is linear:
-		// 500 characters -> 2 * 500 + 512.
-		expect(budgetFingerprint()).toEqual({ floor: 2048, ceiling: 4096, at500: 1512 });
+		// The floor covers thinking, the ceiling bounds a runaway, and 1000 characters sits in
+		// the linear middle (2 * 1000 + 512), above the point where the floor stops binding.
+		expect(budgetFingerprint()).toEqual({ floor: 2048, ceiling: 4096, at1000: 2512 });
 	});
 });
 
