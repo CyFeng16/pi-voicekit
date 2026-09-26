@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.3] - 2026-09-26
+
+### Added
+
+- **Audit entries record the dictation length and the backend** — `durationSec` (audio
+  seconds, measured before the model call so it is real recording time) and `backend`, so
+  polish time can be read as a speedup (RTFx), per recogniser, instead of being estimated.
+
+### Fixed
+
+- **The evaluation harness's configuration hash now covers the token-budget formula.** Two
+  runs made across a budget change used to share a hash, so comparing them would have
+  compared numbers that are not comparable.
+
 ## [0.2.2] - 2026-09-26
 
 ### Added
