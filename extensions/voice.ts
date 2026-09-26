@@ -104,6 +104,7 @@ import { GapTimer, type TimerPort } from "./voice/release-controller";
 import { audioToolOrder, type AudioToolName } from "./voice/audio-tool";
 import {
 	decideApply,
+	EDITOR_READ_FAILED,
 	parseModelRef,
 	polishModelOptions,
 	polishTranscript,
@@ -771,10 +772,30 @@ export default function (pi: ExtensionAPI) {
 	// token below is what makes a late result inert (spec §4.1.1).
 	let polishPassSeq = 0;
 	let activePolishPass: number | null = null;
+	/**
+	 * Editor value the pending pass started from, or null when no pass is pending. The
+	 * escape handler compares the live editor against it: a pending pass has written
+	 * nothing, so a difference is text the user typed while waiting.
+	 */
+	let polishPassEditorSnapshot: string | null = null;
 
 	function invalidatePolishPass(reason: string): void {
 		if (activePolishPass !== null) voiceDebug("polish pass invalidated", { reason });
 		activePolishPass = null;
+		polishPassEditorSnapshot = null;
+	}
+
+	/**
+	 * Ownership reads go through here: a throwing editor read is a failed read and
+	 * never an unchanged editor (spec invariant 2).
+	 */
+	function readEditorOrFailed(): string | typeof EDITOR_READ_FAILED {
+		try {
+			return ctx?.ui.getEditorText?.() ?? "";
+		} catch (err) {
+			voiceDebug("editor read threw — treating the text as unreadable", { error: String(err) });
+			return EDITOR_READ_FAILED;
+		}
 	}
 
 	function polishModelLookup(provider: string, modelId: string): { model: unknown; hasAuth: boolean } | undefined {
@@ -793,6 +814,7 @@ export default function (pi: ExtensionAPI) {
 	async function runPolishPass(raw: string, editorSnapshot: string): Promise<PolishOutcome> {
 		const id = ++polishPassSeq;
 		activePolishPass = id;
+		polishPassEditorSnapshot = editorSnapshot;
 		if (!config.postProcessNoticeShown && ctx?.hasUI) {
 			// D5: one-time disclosure. It sits in its own guard on purpose — a
 			// settings-write or notification failure must never reject this callback
@@ -833,6 +855,7 @@ export default function (pi: ExtensionAPI) {
 			choice = resolveModelChoice(parseModelRef(config.postProcessModel), polishModelLookup, ctx?.model);
 		} catch (err) {
 			activePolishPass = null;
+			polishPassEditorSnapshot = null;
 			voiceDebug("polish model resolution threw — using the raw transcript", { error: String(err) });
 			return { action: "apply", text: raw };
 		}
@@ -852,6 +875,7 @@ export default function (pi: ExtensionAPI) {
 				voiceDebug("polish skip notify threw", { error: String(err) });
 			}
 			activePolishPass = null;
+			polishPassEditorSnapshot = null;
 			return { action: "apply", text: raw };
 		}
 		const model = choice.model;
@@ -906,6 +930,7 @@ export default function (pi: ExtensionAPI) {
 			// replaced it — and a cosmetic status write is never allowed to throw.
 			if (activePolishPass === id) {
 				activePolishPass = null;
+				polishPassEditorSnapshot = null;
 				try {
 					updateVoiceStatus();
 				} catch (err) {
@@ -2441,8 +2466,14 @@ export default function (pi: ExtensionAPI) {
 						clearInterval(statusTimer);
 						statusTimer = null;
 					}
-					// Restore editor text to what it was before recording
-					if (ctx?.hasUI) ctx.ui.setEditorText(editorTextBeforeVoice);
+					// Restore editor text to what it was before recording — but only while the
+					// extension still owns the editor. A pending pass has written nothing, so an
+					// editor that differs from the pass snapshot holds text the user typed while
+					// waiting; restoring would delete it. With no pass pending, the old behaviour
+					// stands: the live interim text is cleared.
+					const passSnapshot = activePolishPass !== null ? polishPassEditorSnapshot : null;
+					const userEditedDuringPass = passSnapshot !== null && readEditorOrFailed() !== passSnapshot;
+					if (ctx?.hasUI && !userEditedDuringPass) ctx.ui.setEditorText(editorTextBeforeVoice);
 					resetHoldState();
 					playSound("error");
 					setVoiceState("idle");
