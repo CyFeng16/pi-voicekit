@@ -127,11 +127,26 @@ export function validatePolishOutput(
 	return { accept: true, text };
 }
 
-export function decideApply(input: { tokenCurrent: boolean; editorSnapshot: string; currentEditor: string }): {
+/**
+ * Marker for "the editor text could not be read". A failed read is never treated as an
+ * unchanged editor: not being able to confirm the user's text does not grant permission
+ * to overwrite it (spec invariant 2).
+ */
+export const EDITOR_READ_FAILED = Symbol("editor-read-failed");
+
+export type EditorRead = string | typeof EDITOR_READ_FAILED;
+
+/**
+ * Invariant 2: text — the accepted rewrite or the raw fallback — may be written only
+ * while the pass still owns the flow AND the editor still holds the value the pass
+ * snapshotted. Used by the normal path and by the pass's own throw path.
+ */
+export function decideApply(input: { tokenCurrent: boolean; editorSnapshot: string; currentEditor: EditorRead }): {
 	apply: boolean;
 	reason?: string;
 } {
 	if (!input.tokenCurrent) return { apply: false, reason: "invalidated" };
+	if (input.currentEditor === EDITOR_READ_FAILED) return { apply: false, reason: "editor-unreadable" };
 	if (input.currentEditor !== input.editorSnapshot) return { apply: false, reason: "editor-changed" };
 	return { apply: true };
 }

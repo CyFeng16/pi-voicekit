@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
 	decideApply,
+	EDITOR_READ_FAILED,
 	parseModelRef,
 	polishTranscript,
 	resolveModelChoice,
@@ -175,10 +176,24 @@ describe("decideApply", () => {
 		expect(decideApply({ tokenCurrent: true, editorSnapshot: "draft", currentEditor: "draft" })).toEqual({
 			apply: true,
 		});
-		expect(decideApply({ tokenCurrent: false, editorSnapshot: "draft", currentEditor: "draft" }).apply).toBe(false);
 		expect(decideApply({ tokenCurrent: true, editorSnapshot: "draft", currentEditor: "edited" })).toEqual({
 			apply: false,
 			reason: "editor-changed",
+		});
+	});
+
+	test("refuses a stale token even when the editor still matches the snapshot", () => {
+		expect(decideApply({ tokenCurrent: false, editorSnapshot: "draft", currentEditor: "draft" })).toEqual({
+			apply: false,
+			reason: "invalidated",
+		});
+	});
+
+	test("refuses to write when the editor could not be read", () => {
+		// A failed read is not an unchanged editor: ownership was never established.
+		expect(decideApply({ tokenCurrent: true, editorSnapshot: "draft", currentEditor: EDITOR_READ_FAILED })).toEqual({
+			apply: false,
+			reason: "editor-unreadable",
 		});
 	});
 });
