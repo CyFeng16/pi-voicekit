@@ -816,6 +816,21 @@ export function localLanguageDisplayName(code: string): string {
 
 // ─── Local session type ──────────────────────────────────────────────────────
 
+/**
+ * Callbacks a local recording session accepts. `onSegment` is optional, so callers that do
+ * not pipeline recogniser segments keep today's transcript-only behaviour.
+ */
+export interface LocalSessionCallbacks {
+	onTranscript: (interim: string, finals: string[]) => void;
+	onDone: (fullText: string, meta: { hadAudio: boolean; hadSpeech: boolean }) => void;
+	onError: (err: string) => void;
+	/**
+	 * Called as each recogniser segment decodes, before the next segment starts, with the
+	 * segment's zero-based index. Observational: it never changes the transcript.
+	 */
+	onSegment?: (text: string, index: number) => void;
+}
+
 export interface LocalSession {
 	backend: "local";
 	recProcess: ChildProcess;
@@ -825,6 +840,8 @@ export interface LocalSession {
 	onTranscript: (interim: string, finals: string[]) => void;
 	onDone: (fullText: string, meta: { hadAudio: boolean; hadSpeech: boolean }) => void;
 	onError: (err: string) => void;
+	/** Optional per-segment observer; forwarded to the in-process recogniser on stop. */
+	onSegment?: (text: string, index: number) => void;
 }
 
 // ─── WAV encoding ────────────────────────────────────────────────────────────
@@ -956,14 +973,7 @@ export async function transcribeWithServer(wavBuffer: Buffer, config: VoiceConfi
  * Start a local recording session. Audio is buffered in memory.
  * Transcription happens when stopLocalSession() is called.
  */
-export function startLocalSession(
-	recProcess: ChildProcess,
-	callbacks: {
-		onTranscript: (interim: string, finals: string[]) => void;
-		onDone: (fullText: string, meta: { hadAudio: boolean; hadSpeech: boolean }) => void;
-		onError: (err: string) => void;
-	}
-): LocalSession {
+export function startLocalSession(recProcess: ChildProcess, callbacks: LocalSessionCallbacks): LocalSession {
 	const session: LocalSession = {
 		backend: "local",
 		recProcess,
@@ -973,6 +983,7 @@ export function startLocalSession(
 		onTranscript: callbacks.onTranscript,
 		onDone: callbacks.onDone,
 		onError: callbacks.onError,
+		onSegment: callbacks.onSegment,
 	};
 
 	recProcess.stdout?.on("data", (chunk: Buffer) => {
@@ -1042,7 +1053,7 @@ export async function stopLocalSession(session: LocalSession, config: VoiceConfi
 			// In-process via sherpa-onnx (default, 120s timeout)
 			let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
 			text = await Promise.race([
-				transcribeInProcess(pcmData, config),
+				transcribeInProcess(pcmData, config, session.onSegment),
 				new Promise<never>((_, reject) => {
 					timeoutHandle = setTimeout(() => reject(new Error("Transcription timed out (120s)")), 120_000);
 				}),
@@ -1087,7 +1098,11 @@ export function abortLocalSession(session: LocalSession | null): void {
  * Transcribe PCM audio using sherpa-onnx in-process.
  * Auto-downloads model on first use.
  */
-async function transcribeInProcess(pcmData: Buffer, config: VoiceConfig): Promise<string> {
+async function transcribeInProcess(
+	pcmData: Buffer,
+	config: VoiceConfig,
+	onSegment?: (text: string, index: number) => void
+): Promise<string> {
 	const {
 		initSherpa,
 		isSherpaAvailable,
@@ -1118,9 +1133,19 @@ async function transcribeInProcess(pcmData: Buffer, config: VoiceConfig): Promis
 	const recognizer = getOrCreateRecognizer(model, modelDir, config.language || "en");
 	// Qwen3-ASR caps context at 512 tokens (~18s); segment long audio via VAD before decode.
 	if (model.sherpaModel.type === "qwen3_asr") {
-		return transcribeBufferSegmented(pcmData, recognizer);
+		return transcribeBufferSegmented(pcmData, recognizer, undefined, onSegment);
 	}
-	return transcribeBuffer(pcmData, recognizer);
+	const text = await transcribeBuffer(pcmData, recognizer);
+	// Every other in-process model decodes the whole buffer as a single segment. Report it so
+	// a pipelining caller sees one segment for any in-process dictation (a short qwen3
+	// dictation takes the same single-segment fast path). Observational, like the recogniser's
+	// callback: a throwing observer must not cost the transcript.
+	if (onSegment) {
+		try {
+			onSegment(text, 0);
+		} catch {}
+	}
+	return text;
 }
 
 /** Check if a local transcription server is reachable. */

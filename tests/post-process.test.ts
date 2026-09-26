@@ -282,11 +282,36 @@ describe("polishTranscript", () => {
 		expect(result.text).toBe(baseInput.raw);
 	});
 
-	test("discards a result that arrived after invalidation", async () => {
+	test("sends nothing once invalidation has already happened", async () => {
+		let called = false;
 		const result = await polishTranscript({
 			...baseInput,
 			isCurrent: () => false,
-			call: async () => assistant("把 retry 改成三次"),
+			call: async () => {
+				called = true;
+				return assistant("把 retry 改成三次");
+			},
+		});
+		expect(called).toBe(false);
+		expect(result).toEqual({
+			status: "skipped",
+			text: baseInput.raw,
+			reason: "invalidated",
+			contextChars: 0,
+			truncatedContext: false,
+		});
+	});
+
+	test("discards a result that arrived after invalidation", async () => {
+		let current = true;
+		const result = await polishTranscript({
+			...baseInput,
+			isCurrent: () => current,
+			call: async () => {
+				// The pass dies while the request is in flight: the answer must stay inert.
+				current = false;
+				return assistant("把 retry 改成三次");
+			},
 		});
 		expect(result).toEqual({
 			status: "skipped",
@@ -357,6 +382,24 @@ describe("buildPolishAudit", () => {
 		expect("thinkingOff" in buildPolishAudit({ raw: "x" })).toBe(false);
 	});
 
+	test("records the per-segment outcome of the segmented pipeline", () => {
+		const audit = buildPolishAudit({
+			raw: "分段转录的原文",
+			written: "分段转录的原文。",
+			status: "applied",
+			disposition: "written",
+			segments: { count: 4, polished: 3, failed: 1, retried: 1 },
+			telemetry: { model: "test-model", configured: "session", ms: 1200, contextChars: 0, truncated: false },
+		});
+		expect(audit.segments).toEqual({ count: 4, polished: 3, failed: 1, retried: 1 });
+		// latencyMs stays wall clock (the whole queue), so it stays comparable with durationSec.
+		expect(audit.latencyMs).toBe(1200);
+	});
+
+	test("omits the segment outcome for the single-call path", () => {
+		expect("segments" in buildPolishAudit({ raw: "x" })).toBe(false);
+	});
+
 	test("a fallback keeps the raw text and is not applied", () => {
 		const audit = buildPolishAudit({ raw: "原文", status: "rejected", reason: "stop-reason:length" });
 		expect(audit.applied).toBe(false);
@@ -378,6 +421,15 @@ describe("polishSamplingOptions", () => {
 		expect(polishSamplingOptions({ reasoning: true }, THINKING_MAX_CHARS + 1)).toEqual({
 			samplingParams: { reasoning_effort: "none" },
 		});
+	});
+
+	test("forces thinking off for a retry even on a short transcript", () => {
+		expect(polishSamplingOptions({ reasoning: true }, 10, true)).toEqual({
+			samplingParams: { reasoning_effort: "none" },
+		});
+		// The default and an explicit false keep today's length gate.
+		expect(polishSamplingOptions({ reasoning: true }, 10)).toEqual({});
+		expect(polishSamplingOptions({ reasoning: true }, 10, false)).toEqual({});
 	});
 
 	test("turns thinking off when the length is not a number, erring towards not truncating", () => {

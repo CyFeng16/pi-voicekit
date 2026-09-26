@@ -142,7 +142,7 @@ export type EditorRead = string | typeof EDITOR_READ_FAILED;
  * while the pass still owns the flow AND the editor still holds the value the pass
  * snapshotted. Used by the normal path and by the pass's own throw path.
  */
-export function decideApply(input: { tokenCurrent: boolean; editorSnapshot: string; currentEditor: EditorRead }): {
+export function decideApply(input: { tokenCurrent: boolean; editorSnapshot: EditorRead; currentEditor: EditorRead }): {
 	apply: boolean;
 	reason?: string;
 } {
@@ -180,6 +180,12 @@ export async function polishTranscript(input: PolishInput): Promise<PolishResult
 	const context = assembleContext(input.entries, input.limits);
 	const shape = { contextChars: context.characters, truncatedContext: context.truncated };
 	const request = buildPolishRequest(context, input.raw, input.timestamp);
+	// Invalidation stops scheduling, not merely the write: a cancelled or superseded pass must
+	// not send transcript text to the provider at all, so the check in front of the call is as
+	// important as the one after it.
+	if (input.isCurrent && !input.isCurrent()) {
+		return { status: "skipped", text: input.raw, reason: "invalidated", ...shape };
+	}
 	const controller = new AbortController();
 	let timer: ReturnType<typeof setTimeout> | undefined;
 
@@ -219,6 +225,17 @@ export async function polishTranscript(input: PolishInput): Promise<PolishResult
 }
 
 /**
+ * Per-segment outcome of the pipelined pass, one summary per dictation. Absent for the
+ * single-call path, where there are no recogniser segments to report.
+ */
+export interface PolishAuditSegments {
+	count: number;
+	polished: number;
+	failed: number;
+	retried: number;
+}
+
+/**
  * One durable record of what a pass did, written into the session file by the caller.
  *
  * `pi.appendEntry` stores it as a CustomEntry, which never enters the model's context, so
@@ -248,6 +265,8 @@ export interface PolishAudit {
 	durationSec?: number;
 	/** Which recogniser produced it, so results are never pooled across backends. */
 	backend?: string;
+	/** Per-segment outcome when the segmented queue produced this dictation. */
+	segments?: PolishAuditSegments;
 	/** True when the pass asked the model not to think. */
 	thinkingOff?: boolean;
 	/** The output-token cap the request carried, a cap and not a spend. */
@@ -265,6 +284,7 @@ export function buildPolishAudit(input: {
 	thinkingOff?: boolean;
 	durationSec?: number;
 	backend?: string;
+	segments?: PolishAuditSegments;
 	maxTokens?: number;
 	telemetry?: {
 		model?: string;
@@ -290,6 +310,7 @@ export function buildPolishAudit(input: {
 	if (input.maxTokens !== undefined) audit.maxTokens = input.maxTokens;
 	if (input.durationSec !== undefined) audit.durationSec = input.durationSec;
 	if (input.backend !== undefined) audit.backend = input.backend;
+	if (input.segments !== undefined) audit.segments = input.segments;
 	const telemetry = input.telemetry;
 	if (telemetry) {
 		if (telemetry.model !== undefined) audit.model = telemetry.model;
@@ -319,14 +340,19 @@ export function buildPolishAudit(input: {
  *
  * `samplingParams` is applied by OpenAI-compatible adapters only, and the `reasoning` gate keeps
  * the field away from models with no thinking at all.
+ *
+ * `forceOff` is the segmented queue's retry: the attempt already burned its deadline, so it runs
+ * small and cheap regardless of length. It overrides the length gate only - a model with no
+ * thinking still gets no sampling fields at all.
  */
 export const THINKING_MAX_CHARS = 200;
 
 export function polishSamplingOptions(
 	model: { reasoning?: boolean } | undefined | null,
-	rawLength: number
+	rawLength: number,
+	forceOff = false
 ): { samplingParams?: { reasoning_effort: string } } {
 	if (!model || model.reasoning !== true) return {};
-	if (Number.isFinite(rawLength) && rawLength <= THINKING_MAX_CHARS) return {};
+	if (!forceOff && Number.isFinite(rawLength) && rawLength <= THINKING_MAX_CHARS) return {};
 	return { samplingParams: { reasoning_effort: "none" } };
 }

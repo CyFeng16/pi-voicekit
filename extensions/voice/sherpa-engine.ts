@@ -433,32 +433,56 @@ export function segmentPcmForLongAudio(samples: Float32Array, sampleRate: number
 }
 
 /**
+ * Decode VAD segments in order, calling `onSegment(text, index)` as soon as a segment's text
+ * is available and before the next segment starts decoding. Returns the non-empty trimmed
+ * texts in order — the parts `transcribeBufferSegmented` joins.
+ *
+ * The recognizer is already a parameter, so this seam can be driven with a stub in tests.
+ * `onSegment` is observational: a throwing callback is swallowed, because an observer must
+ * never cost the user their transcript.
+ */
+export async function decodeSegmentsInOrder(
+	recognizer: SherpaRecognizer,
+	segments: readonly Float32Array[],
+	onSegment?: (text: string, index: number) => void
+): Promise<string[]> {
+	const parts: string[] = [];
+	for (const [index, segment] of segments.entries()) {
+		const stream = recognizer.createStream();
+		stream.acceptWaveform({ sampleRate: 16000, samples: segment });
+		await recognizer.decodeAsync(stream);
+		const r = recognizer.getResult(stream);
+		const t = (r?.text || "").trim();
+		if (onSegment) {
+			try {
+				onSegment(t, index);
+			} catch {}
+		}
+		if (t) parts.push(t);
+	}
+	return parts;
+}
+
+/**
  * Transcribe PCM with automatic VAD segmentation for long recordings.
  * Byte-identical fast path (single decode) for audio ≤ thresholdSecs.
+ *
+ * `onSegment` is called for every decoded segment — the fast path's single segment included —
+ * as soon as it decodes and before the next decode starts. Leaving it out keeps today's exact
+ * return value (docs/superpowers/specs/2026-09-26-polish-pipeline-design.md §4.1).
  */
 export async function transcribeBufferSegmented(
 	pcmData: Buffer,
 	recognizer: SherpaRecognizer,
-	thresholdSecs = 10
+	thresholdSecs = 10,
+	onSegment?: (text: string, index: number) => void
 ): Promise<string> {
 	getSherpaModule();
 	const samples = pcmToFloat32(pcmData);
+	// The fast path is one segment too, so a pipelining caller sees exactly one segment and a
+	// short dictation keeps today's one-call behaviour.
 	if (samples.length / 16000 <= thresholdSecs) {
-		const stream = recognizer.createStream();
-		stream.acceptWaveform({ sampleRate: 16000, samples });
-		await recognizer.decodeAsync(stream);
-		const r = recognizer.getResult(stream);
-		return (r?.text || "").trim();
+		return (await decodeSegmentsInOrder(recognizer, [samples], onSegment)).join(" ");
 	}
-
-	const parts: string[] = [];
-	for (const seg of segmentPcmForLongAudio(samples, 16000)) {
-		const stream = recognizer.createStream();
-		stream.acceptWaveform({ sampleRate: 16000, samples: seg });
-		await recognizer.decodeAsync(stream);
-		const r = recognizer.getResult(stream);
-		const t = (r?.text || "").trim();
-		if (t) parts.push(t);
-	}
-	return parts.join(" ");
+	return (await decodeSegmentsInOrder(recognizer, segmentPcmForLongAudio(samples, 16000), onSegment)).join(" ");
 }
