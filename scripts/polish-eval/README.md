@@ -146,7 +146,7 @@ What it does:
   outcome) for the acceptance record.
 
 The comparison point is the recorded single-call round of 2026-09-26 (70
-utterances, sensevoice-small, deepseek-flash): **28.6 % fallback, 4341 ms p95** —
+utterances, sensevoice-small, a remote OpenAI-compatible model): **28.6 % fallback, 4341 ms p95** —
 the numbers the segmented pipeline has to beat.
 
 Notes for the maintainer:

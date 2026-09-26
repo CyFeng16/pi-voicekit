@@ -344,7 +344,7 @@ describe("buildPolishAudit", () => {
 			status: "applied",
 			disposition: "written",
 			reason: undefined,
-			telemetry: { model: "deepseek-flash", configured: "session", ms: 812, contextChars: 0, truncated: false },
+			telemetry: { model: "test-model", configured: "session", ms: 812, contextChars: 0, truncated: false },
 		});
 		expect(audit.version).toBe(1);
 		expect(audit.rawText).toBe("把端口改成九零九零");

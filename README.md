@@ -260,6 +260,34 @@ Models from [Handy](https://github.com/cjpais/handy) (`~/Library/Application Sup
 
 ---
 
+## Performance
+
+Measured on the maintainer's machine, local CPU, no network, over 70 published utterances
+(28 Chinese, 28 English, 14 mixed Chinese–English). RTF is processing time divided by audio
+duration — lower is better, and below 1.0 is faster than real time.
+
+| Recogniser           | Chinese RTF | English RTF | Mixed RTF | Characters per second |
+| -------------------- | ----------- | ----------- | --------- | --------------------- |
+| **paraformer-zh**    | 0.014       | 0.013       | 0.016     | 247–983               |
+| **sensevoice-small** | 0.028       | 0.029       | 0.040     | 134–451               |
+| **whisper-turbo**    | 0.372       | 0.369       | 0.395     | 7–27                  |
+
+End to end — local recognition plus the remote polish call — four real dictations of
+8.1–28.0 s came back in an estimated 0.56–2.98 s, an RTF of 0.07–0.15 (recognition time is
+derived from the measured recognition RTF, not timed per dictation: see docs/BENCHMARKS.md).
+The segmented polish pass is what
+keeps that together: the 0.2.x line polished in one call over the whole transcript, so one
+slow call returned the dictation unpolished, while against a degraded endpoint the segmented
+pipeline polished 35 of 35 segments where the old path fell back on 100% of the run.
+`whisper-turbo` is the slowest of the three by an order of magnitude and the least accurate
+on this corpus — measured for comparison, not recommended for CPU-only use.
+
+Protocol, all result tables, reproduction commands and the honest limits live in
+[docs/BENCHMARKS.md](docs/BENCHMARKS.md) — GitHub only, because npm ships the extension and
+this README.
+
+---
+
 ## Features
 
 | Feature                          | Description                                                                              |

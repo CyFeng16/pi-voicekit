@@ -20,6 +20,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   went from 100% fallback on the old single-call path to 35 of 35 segments polished. One audit
   entry per dictation now carries a `segments` summary and the recogniser.
 
+### Performance
+
+- **Measured performance, and what the segmented pass changed.** Against a degraded
+  endpoint the 0.2.x single-call path fell back on 100% of a 79.6 s / 35-segment run,
+  while the segmented pipeline polished 35 of 35 segments (0% fallback). Real
+  dictations run at end-to-end RTF 0.07–0.15 on the local backend, recognition
+  included. Protocol, all result tables and the honest limits:
+  [docs/BENCHMARKS.md](docs/BENCHMARKS.md).
+
 ### Fixed
 
 - **One slow polish call no longer costs the whole dictation.** The pass used to be a single
