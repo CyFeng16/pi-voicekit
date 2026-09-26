@@ -71,6 +71,7 @@ import {
 	loadConfigWithSource,
 	loadGlobalToggleShortcut,
 	saveConfig,
+	saveGlobalVoiceFields,
 	type VoiceConfig,
 	type VoiceSettingsScope,
 } from "./voice/config";
@@ -101,6 +102,16 @@ import {
 import { shouldArmReleaseDetectOnRepeat, decideRecordingStartTimer } from "./voice/hold-to-talk";
 import { GapTimer, type TimerPort } from "./voice/release-controller";
 import { audioToolOrder, type AudioToolName } from "./voice/audio-tool";
+import {
+	decideApply,
+	finalizePolishDisposition,
+	EDITOR_READ_FAILED,
+	parseModelRef,
+	polishModelOptions,
+	polishTranscript,
+	resolveModelChoice,
+} from "./voice/post-process";
+import { DEFAULT_CONTEXT_LIMITS } from "./voice/post-process-context";
 
 /** Adapter for the real event loop — lets GapTimer run under the real setTimeout. */
 const realTimerPort: TimerPort = {
@@ -491,6 +502,10 @@ function startStreamingSession(
 	};
 
 	ws.onmessage = (event: MessageEvent) => {
+		// R22: once the session is finalized (finalizeSession / abortSession) the
+		// transport must stop writing the editor — a late Results message would
+		// otherwise overwrite what the user typed while the polish pass waited.
+		if (session.closed) return;
 		try {
 			const msg = typeof event.data === "string" ? JSON.parse(event.data) : null;
 			if (!msg) return;
@@ -752,6 +767,299 @@ export default function (pi: ExtensionAPI) {
 
 	// Streaming session state
 	let activeSession: VoiceSession | null = null;
+
+	// ─── Transcript polish (post-processing) ─────────────────────────────────
+	// One bounded pass between the final transcript and the editor write. The
+	// token below is what makes a late result inert (spec §4.1.1).
+	type PolishPassToken = { invalidated: "discard" | "abort" | null };
+	let activePolishPass: PolishPassToken | null = null;
+	/**
+	 * Editor value the pending pass started from, or null when no pass is pending. The
+	 * escape handler compares the live editor against it: a pending pass has written
+	 * nothing, so a difference is text the user typed while waiting.
+	 */
+	let polishPassEditorSnapshot: string | null = null;
+
+	function invalidatePolishPass(reason: string, cleanup: "complete" | "relinquish" = "relinquish"): void {
+		const pass = activePolishPass;
+		if (!pass) return;
+		const disposition = cleanup === "complete" ? "discard" : "abort";
+		if (pass.invalidated !== disposition) voiceDebug("polish pass invalidated", { reason });
+		pass.invalidated = disposition;
+		// Retain a discarded pass until its tail completes, or a later teardown takes
+		// ownership. The awaiting callback retains this token even after relinquishing.
+		if (cleanup === "relinquish") {
+			activePolishPass = null;
+			polishPassEditorSnapshot = null;
+		}
+	}
+
+	/**
+	 * Ownership reads go through here: a throwing editor read is a failed read and
+	 * never an unchanged editor (spec invariant 2).
+	 */
+	function readEditorOrFailed(): string | typeof EDITOR_READ_FAILED {
+		try {
+			return ctx?.ui.getEditorText?.() ?? "";
+		} catch (err) {
+			voiceDebug("editor read threw — treating the text as unreadable", { error: String(err) });
+			return EDITOR_READ_FAILED;
+		}
+	}
+
+	function polishModelLookup(provider: string, modelId: string): { model: unknown; hasAuth: boolean } | undefined {
+		const found = ctx?.modelRegistry.find(provider, modelId);
+		if (!found) return undefined;
+		return { model: found, hasAuth: ctx!.modelRegistry.hasConfiguredAuth(found) };
+	}
+
+	/**
+	 * Scope the polish numbers are persisted to. `config.scope` is an in-memory field a
+	 * project file can set itself, so reading it can write to one file while the loader
+	 * keeps reading the other: the command reports success and a reload shows the old
+	 * value. `configSource` is where this session's config was actually loaded from; only
+	 * a session with no file at all (defaults) falls back to the field. Polish settings
+	 * only — the pre-existing commands keep their own rule.
+	 */
+	function polishWriteScope(): VoiceSettingsScope {
+		if (configSource === "global" || configSource === "project") return configSource;
+		return config.scope === "project" ? "project" : "global";
+	}
+
+	/**
+	 * R30: `saveGlobalVoiceFields` refuses to overwrite a settings file it cannot read and
+	 * throws. Every user-reachable caller reports that refusal in plain words instead of
+	 * letting it surface as an unhandled error; the in-memory value is only updated when
+	 * the write actually succeeded.
+	 */
+	function saveGlobalVoiceFieldsOrNotify(
+		fields: Parameters<typeof saveGlobalVoiceFields>[0],
+		notify: (message: string) => void
+	): boolean {
+		try {
+			saveGlobalVoiceFields(fields);
+			return true;
+		} catch {
+			notify("Voice polish: the settings file could not be read — nothing was changed.");
+			return false;
+		}
+	}
+
+	/**
+	 * The model the pass actually ran on, as `provider/id`. The configured value is the
+	 * "session" marker whenever the session model is in play, so a telemetry line built
+	 * from it alone cannot be grouped per model.
+	 */
+	function polishModelLabel(choice: { model?: unknown; ref: string }): string {
+		const model = choice.model as { provider?: unknown; id?: unknown } | undefined;
+		if (model && typeof model.provider === "string" && typeof model.id === "string") {
+			return `${model.provider}/${model.id}`;
+		}
+		return choice.ref;
+	}
+
+	/** What the polish pass did with one dictation — recorded on the history entry for `last`. */
+	type PolishOutcomeStatus = "applied" | "discarded" | "failed";
+
+	/**
+	 * Outcome of one polish pass.
+	 * - `apply`: write `text` (the pass's rewrite, or the raw transcript on any failure).
+	 * - `discard`: the editor changed while we waited — write NOTHING, send NOTHING.
+	 * - `abort`: a newer recording or session owns the flow — leave the state alone.
+	 * `status` is provisional until the caller attempts the write. History and the
+	 * telemetry disposition are finalized together from the actual write result.
+	 */
+	type PolishOutcome = (
+		| { action: "apply"; text: string; status: "applied" | "failed" }
+		| { action: "discard"; text: string; status: "discarded" }
+		| { action: "abort"; text: string }
+	) & { telemetry?: PolishTelemetry };
+	type PolishTelemetry = {
+		model: string;
+		configured: string;
+		status: string;
+		ms: number;
+		contextChars?: number;
+		truncated?: boolean;
+		reason?: string;
+		error?: string;
+	};
+	async function runPolishPass(raw: string, editorSnapshot: string): Promise<PolishOutcome> {
+		const id: PolishPassToken = { invalidated: null };
+		activePolishPass = id;
+		polishPassEditorSnapshot = editorSnapshot;
+		if (!config.postProcessNoticeShown && ctx?.hasUI) {
+			// D5: one-time disclosure. The flag is set in memory first (an assignment cannot
+			// throw); the write and the notification then sit in guards of their own. A
+			// read-only config directory must cost the flag's persistence, never the
+			// disclosure — the in-memory flag still suppresses a repeat in this process.
+			config.postProcessNoticeShown = true;
+			try {
+				// R26: field-level global write — `config` also carries this project's values, so
+				// a whole-block write would reset unrelated machine-global settings. Persist the
+				// flag BEFORE notifying, per the house rule in tts-onboarding.
+				saveGlobalVoiceFields({ postProcessNoticeShown: true });
+			} catch (error) {
+				voiceDebug("polish notice setting write failed", String(error));
+			}
+			try {
+				const turns = config.postProcessContextTurns ?? DEFAULT_CONTEXT_LIMITS.turns;
+				ctx.ui.notify(
+					[
+						"Voice polish is on: every dictation makes one extra model call,",
+						// R27: zero turns suppress the compaction summary as well, so the disclosure
+						// must not promise it; DEFAULT_CONTEXT_LIMITS.turns is the pass's own default.
+						turns > 0
+							? `and the last ${turns} conversation turns are sent with it.`
+							: "and no conversation context is sent with it.",
+						...(turns > 0
+							? [
+									"After a compaction the summary is sent too — it is a digest that may",
+									"carry residues of earlier thinking and tool output.",
+								]
+							: []),
+						"Turn it off with /voice-polish off.",
+					].join(" "),
+					"info"
+				);
+			} catch (error) {
+				voiceDebug("polish notice notification failed", String(error));
+			}
+		}
+		// R19: everything before the model call is fail-open too — a throw here
+		// (registry lookup, notify, status) must not cost the user their dictation.
+		let choice: ReturnType<typeof resolveModelChoice>;
+		try {
+			choice = resolveModelChoice(parseModelRef(config.postProcessModel), polishModelLookup, ctx?.model);
+		} catch (err) {
+			activePolishPass = null;
+			polishPassEditorSnapshot = null;
+			voiceDebug("polish model resolution threw — using the raw transcript", { error: String(err) });
+			return { action: "apply", text: raw, status: "failed" };
+		}
+		if (!choice.model) {
+			voiceDebug("polish skipped", { ref: choice.ref, reason: choice.reason });
+			try {
+				if (choice.reason === "malformed") {
+					ctx?.ui.notify(
+						`Voice polish: "${choice.ref}" is not a provider/modelId reference — pick a model with /voice-polish model. Using the raw transcript.`,
+						"warning"
+					);
+				} else if (choice.reason === "not-found" || choice.reason === "no-auth") {
+					const why = choice.reason === "not-found" ? "is not available" : "has no configured authentication";
+					ctx?.ui.notify(`Voice polish: model ${choice.ref} ${why} — using the raw transcript.`, "warning");
+				}
+			} catch (err) {
+				voiceDebug("polish skip notify threw", { error: String(err) });
+			}
+			activePolishPass = null;
+			polishPassEditorSnapshot = null;
+			return { action: "apply", text: raw, status: "failed" };
+		}
+		const model = choice.model;
+		const started = Date.now();
+		try {
+			ctx?.ui.setStatus("voice", "polishing…");
+		} catch (err) {
+			voiceDebug("polish status write threw", { error: String(err) });
+		}
+		try {
+			const result = await polishTranscript({
+				raw,
+				entries: ctx?.sessionManager.buildContextEntries() ?? [],
+				limits: {
+					turns: config.postProcessContextTurns ?? DEFAULT_CONTEXT_LIMITS.turns,
+					perEntryChars: DEFAULT_CONTEXT_LIMITS.perEntryChars,
+					totalChars: DEFAULT_CONTEXT_LIMITS.totalChars,
+				},
+				timeoutMs: config.postProcessTimeoutMs ?? 8000,
+				timestamp: Date.now(),
+				isCurrent: () => activePolishPass === id && id.invalidated === null,
+				call: (request, signal) =>
+					ctx!.modelRegistry.complete(
+						model as never,
+						{ systemPrompt: request.systemPrompt, messages: request.messages as never },
+						{ signal, maxTokens: request.maxTokens }
+					),
+				debug: (reason, data) => voiceDebug(`polish ${reason}`, data),
+			});
+			const telemetry = {
+				model: polishModelLabel(choice),
+				configured: choice.ref,
+				status: result.status,
+				ms: Date.now() - started,
+				contextChars: result.contextChars,
+				truncated: result.truncatedContext,
+			};
+			// A newer recording or session owns the editor now: change nothing at all.
+			if (activePolishPass !== id) {
+				voiceDebug("polish result", { ...telemetry, disposition: "aborted", reason: "invalidated" });
+				return { action: "abort", text: raw };
+			}
+			const decision = decideApply({
+				tokenCurrent: id.invalidated === null,
+				editorSnapshot,
+				currentEditor: readEditorOrFailed(),
+			});
+			// The caller finalizes telemetry after the editor write, not at this decision.
+			const pendingTelemetry = { ...telemetry, reason: decision.apply ? result.reason : decision.reason };
+			if (!decision.apply) {
+				return { action: "discard", text: raw, status: "discarded", telemetry: pendingTelemetry };
+			}
+			return {
+				action: "apply",
+				text: result.status === "applied" ? result.text : raw,
+				status: result.status === "applied" ? "applied" : "failed",
+				telemetry: pendingTelemetry,
+			};
+		} catch (err) {
+			// Item 3: a throw here is decided by ownership, not by convenience. The pass's
+			// verdict is unavailable, so the raw transcript is the fallback — but only while
+			// the pass still owns a matching editor: an editor that changed, and equally one
+			// that could not be read, means discard (no write, no dispatch, the dictation is
+			// still recorded by the caller).
+			if (activePolishPass !== id) {
+				voiceDebug("polish result", {
+					model: polishModelLabel(choice),
+					configured: choice.ref,
+					status: "failed",
+					disposition: "aborted",
+					reason: "invalidated",
+					ms: Date.now() - started,
+					error: String(err),
+				});
+				return { action: "abort", text: raw };
+			}
+			const decision = decideApply({
+				tokenCurrent: id.invalidated === null,
+				editorSnapshot,
+				currentEditor: readEditorOrFailed(),
+			});
+			const telemetry: PolishTelemetry = {
+				model: polishModelLabel(choice),
+				configured: choice.ref,
+				status: "failed",
+				ms: Date.now() - started,
+				reason: decision.reason ?? "pass-threw",
+				error: String(err),
+			};
+			if (!decision.apply) return { action: "discard", text: raw, status: "discarded", telemetry };
+			return { action: "apply", text: raw, status: "failed", telemetry };
+		} finally {
+			// R20: a stale pass must not restore its status text over the flow that
+			// replaced it — and a cosmetic status write is never allowed to throw.
+			if (activePolishPass === id) {
+				activePolishPass = null;
+				polishPassEditorSnapshot = null;
+				try {
+					updateVoiceStatus();
+				} catch (err) {
+					voiceDebug("polish status restore threw", { error: String(err) });
+				}
+			}
+		}
+	}
+
 	let preRecordingSession: StreamingSession | null = null; // Started during warmup, promoted on confirm (Deepgram only)
 
 	let lastStopTime = 0; // For Escape-to-clear-editor within 30s of recording
@@ -780,13 +1088,35 @@ export default function (pi: ExtensionAPI) {
 		timestamp: number;
 		duration: number;
 		mode: "hold" | "toggle" | "dictate";
+		/** The exact string this feature wrote to the editor, when it wrote one. */
+		writtenText?: string;
+		/** `prefix + raw ASR output` — what a restore puts back. */
+		rawFullText?: string;
+		/** True when a polish rewrite replaced the raw text; the Polish tab's Last dictation row looks for these. */
+		polishedApplied?: boolean;
+		/**
+		 * What the pass did with this dictation, including a discarded one. Set whenever a
+		 * pass ran, so `/voice-polish last` can show the newest dictation it processed
+		 * rather than the newest one it wrote. Absent when no pass ran at all.
+		 */
+		polishOutcome?: PolishOutcomeStatus;
 	}
 
 	const recordingHistory: RecordingHistoryEntry[] = [];
 	const MAX_HISTORY = 50;
 
-	function addToHistory(text: string, duration: number, mode: "hold" | "toggle" | "dictate" = "hold") {
-		recordingHistory.unshift({ text, timestamp: Date.now(), duration, mode });
+	function addToHistory(
+		text: string,
+		duration: number,
+		mode: "hold" | "toggle" | "dictate" = "hold",
+		extra: {
+			writtenText?: string;
+			rawFullText?: string;
+			polishedApplied?: boolean;
+			polishOutcome?: PolishOutcomeStatus;
+		} = {}
+	) {
+		recordingHistory.unshift({ text, timestamp: Date.now(), duration, mode, ...extra });
 		if (recordingHistory.length > MAX_HISTORY) recordingHistory.pop();
 	}
 
@@ -892,7 +1222,14 @@ export default function (pi: ExtensionAPI) {
 	}
 
 	function hideWidget() {
-		if (ctx?.hasUI) ctx.ui.setWidget("voice-recording", undefined);
+		if (!ctx?.hasUI) return;
+		// R24: hiding the widget is cosmetic — a UI throw here must not reject the
+		// completion callback before its write, its history record and its tail.
+		try {
+			ctx.ui.setWidget("voice-recording", undefined);
+		} catch (err) {
+			voiceDebug("hideWidget threw", { error: String(err) });
+		}
 	}
 
 	/** Reset all hold-to-talk state to idle. Call after any recording stop/error/cancel. */
@@ -908,6 +1245,9 @@ export default function (pi: ExtensionAPI) {
 	}
 
 	function voiceCleanup() {
+		// R17: a pass pending when teardown starts must never write after it
+		// (covers /voice off, the /voice toggle, the settings panel, shutdown).
+		invalidatePolishPass("voice-disabled");
 		// v7.1: cancel in-flight installs FIRST so their AbortControllers
 		// fire before we drop UI state. Without this, a session_shutdown
 		// during a download would leave the network/disk work running
@@ -1242,6 +1582,7 @@ export default function (pi: ExtensionAPI) {
 			// This prevents the "slow connection overlaps new recording" bug.
 			if (voiceState === "finalizing" || voiceState === "recording") {
 				abortSession(activeSession);
+				invalidatePolishPass("new-recording");
 				activeSession = null;
 				clearRecordingAnimTimer();
 				clearWarmupWidget();
@@ -1321,7 +1662,7 @@ export default function (pi: ExtensionAPI) {
 				updateLiveTranscriptWidget(interim, finals);
 				updateVoiceStatus();
 			},
-			onDone: (fullText: string, meta: { hadAudio: boolean; hadSpeech: boolean }) => {
+			onDone: async (fullText: string, meta: { hadAudio: boolean; hadSpeech: boolean }) => {
 				voiceDebug("onDone callback", { fullText: fullText.slice(0, 100), meta, voiceState, spaceConsumed });
 				activeSession = null;
 				clearRecordingAnimTimer();
@@ -1337,34 +1678,133 @@ export default function (pi: ExtensionAPI) {
 					playSound("error");
 					// Full state reset on empty result
 					resetHoldState({ cooldown: 3000 });
-					if (!meta.hadAudio) {
-						ctx?.ui.notify("Microphone captured no audio. Check mic permissions.", "error");
-					} else if (!meta.hadSpeech) {
-						ctx?.ui.notify("Microphone captured silence — no speech detected.", "warning");
-					} else {
-						ctx?.ui.notify("No speech detected.", "warning");
+					try {
+						if (!meta.hadAudio) {
+							ctx?.ui.notify("Microphone captured no audio. Check mic permissions.", "error");
+						} else if (!meta.hadSpeech) {
+							ctx?.ui.notify("Microphone captured silence — no speech detected.", "warning");
+						} else {
+							ctx?.ui.notify("No speech detected.", "warning");
+						}
+					} catch (err) {
+						// R24: a failed notification must never skip the idle transition.
+						voiceDebug("no-speech notify threw", { error: String(err) });
 					}
-					setVoiceState("idle");
+					// R24: the transition renders the status bar — keep it non-fatal too.
+					try {
+						setVoiceState("idle");
+					} catch (err) {
+						voiceDebug("idle transition threw", { error: String(err) });
+					}
 					return;
 				}
 
 				hideWidget();
 
+				// R23: the recorded duration is the recording length — the model wait
+				// below must not be counted as recording time.
+				const elapsed = ((Date.now() - recordingStart) / 1000).toFixed(1);
+
+				// Transcript polish: bounded, fail-open, never blocking the recording flow.
+				let spokenText = fullText;
+				let skipWrite = false;
+				let polishOutcome: PolishOutcomeStatus | undefined;
+				let polishTelemetry: PolishTelemetry | undefined;
+				if (ctx?.hasUI && config.postProcessEnabled !== false) {
+					// R18: the streaming transport can finalize itself (ws.onclose /
+					// finalizeTimer) without going through stopVoiceRecording, so the state
+					// may still be "recording" here. Hold the pass inside the finalizing
+					// window so every handler-reachable teardown early-returns or
+					// invalidates. Narrow on purpose: a late callback that arrives after an
+					// abort must not resurrect the state.
+					// R24: the transition renders the status bar (setVoiceState →
+					// updateVoiceStatus → ctx.ui.setStatus), so a UI throw here used to reject
+					// this callback and skip the write, the history record and the tail.
+					// Wrap it — the state field is already assigned before the render.
+					if (voiceState === "recording") {
+						try {
+							setVoiceState("finalizing");
+						} catch (err) {
+							voiceDebug("finalizing transition threw — continuing", { error: String(err) });
+						}
+					}
+					let outcome: PolishOutcome;
+					try {
+						outcome = await runPolishPass(fullText, ctx.ui.getEditorText?.() ?? "");
+					} catch (err) {
+						// Item 3: the pass decides its own throws by ownership; only a failure that
+						// never reached that decision lands here, for example a throwing editor
+						// snapshot read (the pass's own ownership read cannot throw). Ownership was
+						// never established, so the raw text may not overwrite the editor: discard.
+						// The dictation is still recorded and the completion tail still runs.
+						invalidatePolishPass("pass-threw");
+						voiceDebug("polish pass threw before ownership — discarding the editor write", {
+							error: String(err),
+						});
+						outcome = { action: "discard", text: fullText, status: "discarded" };
+					}
+					// A newer recording or session owns the flow now: touch nothing at all.
+					if (outcome.action === "abort") return;
+					spokenText = outcome.text;
+					polishOutcome = outcome.status;
+					polishTelemetry = outcome.telemetry;
+					// The editor changed while we waited: keep the user's text, say so once.
+					if (outcome.action === "discard") {
+						skipWrite = true;
+						try {
+							ctx.ui.notify("Voice polish: the editor changed while I was working — kept your text.", "info");
+						} catch (err) {
+							voiceDebug("polish discard notify threw", { error: String(err) });
+						}
+					}
+				}
+
 				if (ctx?.hasUI) {
 					const prefix = editorTextBeforeVoice ? editorTextBeforeVoice + " " : "";
 					const isLocal = config.backend === "local";
-					const finalText = prefix + fullText;
+					const finalText = prefix + spokenText;
+					// R21: history records what was actually written, not what was planned.
+					let wroteEditor = false;
+					let editorWriteFailed = false;
 
-					if (isLocal) {
-						// Local backend (batch mode): no interim transcripts were sent to the editor,
-						// so we must always insert the final text. This is the ONLY place it arrives.
-						ctx.ui.setEditorText(finalText);
-					} else {
-						// Streaming backend: interim transcripts already updated the editor live.
-						// Only set final text if the editor still has content (user didn't hit Enter).
-						const currentEditorText = ctx.ui.getEditorText?.() ?? "";
-						if (currentEditorText.trim()) {
-							ctx.ui.setEditorText(finalText);
+					// A discarded pass must not write.
+					if (!skipWrite) {
+						// R24: the editor read/write is a UI call — a throw must leave
+						// `wroteEditor` false and still reach the history record and the tail.
+						try {
+							if (isLocal) {
+								// Local backend (batch mode): no interim transcripts were sent to the editor,
+								// so we must always insert the final text. This is the ONLY place it arrives.
+								ctx.ui.setEditorText(finalText);
+								wroteEditor = true;
+							} else {
+								// Streaming backend: interim transcripts already updated the editor live.
+								// Only set final text if the editor still has content (user didn't hit Enter).
+								const currentEditorText = ctx.ui.getEditorText?.() ?? "";
+								if (currentEditorText.trim()) {
+									ctx.ui.setEditorText(finalText);
+									wroteEditor = true;
+								}
+							}
+						} catch (err) {
+							editorWriteFailed = true;
+							voiceDebug("editor write threw — continuing the completion", { error: String(err) });
+						}
+					}
+
+					if (polishOutcome !== undefined) {
+						const final = finalizePolishDisposition(polishOutcome, wroteEditor, editorWriteFailed);
+						polishOutcome = final.status;
+						if (polishTelemetry) {
+							voiceDebug("polish result", {
+								...polishTelemetry,
+								disposition: final.disposition,
+								reason: editorWriteFailed
+									? "editor-write-failed"
+									: !wroteEditor && !skipWrite
+										? "editor-write-skipped"
+										: polishTelemetry.reason,
+							});
 						}
 					}
 
@@ -1373,7 +1813,7 @@ export default function (pi: ExtensionAPI) {
 					// agent immediately instead of sitting in the editor
 					// waiting for [enter]. Defaults OFF; user toggles via
 					// /voice-autosubmit or settings panel.
-					if (config.autoSubmitOnSpeak === true && finalText.trim().length > 0) {
+					if (config.autoSubmitOnSpeak === true && finalText.trim().length > 0 && !skipWrite) {
 						// v7.2.3 — if the agent is currently mid-turn
 						// (especially mid-retry), DON'T auto-submit.
 						// followUp queueing during a retry pile-up
@@ -1443,22 +1883,37 @@ export default function (pi: ExtensionAPI) {
 								}
 							} else {
 								voiceDebug("autoSubmitOnSpeak: pi.sendUserMessage not available on this Pi version");
-								ctx.ui.notify(
-									"Auto-submit ON but unavailable on this Pi version (need pi.sendUserMessage). " +
-										"Press [enter] to send, or update Pi.",
-									"warning"
-								);
+								try {
+									ctx.ui.notify(
+										"Auto-submit ON but unavailable on this Pi version (need pi.sendUserMessage). " +
+											"Press [enter] to send, or update Pi.",
+										"warning"
+									);
+								} catch (err) {
+									// R24: a failed warning must not skip the history record or the tail.
+									voiceDebug("auto-submit unavailable notify threw", { error: String(err) });
+								}
 							}
 						} // end else (agent not busy)
 					}
 
-					const elapsed = ((Date.now() - recordingStart) / 1000).toFixed(1);
-					addToHistory(fullText, parseFloat(elapsed));
+					addToHistory(fullText, parseFloat(elapsed), "hold", {
+						writtenText: wroteEditor ? finalText : undefined,
+						rawFullText: prefix + fullText,
+						polishedApplied: wroteEditor && spokenText !== fullText,
+						polishOutcome,
+					});
 				}
 				playSound("stop");
 				// Full state reset on successful completion
 				resetHoldState();
-				setVoiceState("idle");
+				// R24: the last call of the callback is a UI render via setVoiceState —
+				// swallow it so the float promise cannot reject after the tail.
+				try {
+					setVoiceState("idle");
+				} catch (err) {
+					voiceDebug("idle transition threw", { error: String(err) });
+				}
 			},
 			onError: (err: string) => {
 				activeSession = null;
@@ -2161,6 +2616,11 @@ export default function (pi: ExtensionAPI) {
 						abortSession(activeSession);
 						activeSession = null;
 					}
+					// The pass can already be pending when activeSession is null (the normal
+					// finalizing case), so this sits outside the block above (ruling R4).
+					const passSnapshot = activePolishPass !== null ? polishPassEditorSnapshot : null;
+					const userEditedDuringPass = passSnapshot !== null && readEditorOrFailed() !== passSnapshot;
+					invalidatePolishPass("cancelled");
 					clearRecordingAnimTimer();
 					clearWarmupWidget();
 					hideWidget();
@@ -2168,8 +2628,12 @@ export default function (pi: ExtensionAPI) {
 						clearInterval(statusTimer);
 						statusTimer = null;
 					}
-					// Restore editor text to what it was before recording
-					if (ctx?.hasUI) ctx.ui.setEditorText(editorTextBeforeVoice);
+					// Restore editor text to what it was before recording — but only while the
+					// extension still owns the editor. A pending pass has written nothing, so an
+					// editor that differs from the pass snapshot holds text the user typed while
+					// waiting; restoring would delete it. With no pass pending, the old behaviour
+					// stands: the live interim text is cleared.
+					if (ctx?.hasUI && !userEditedDuringPass) ctx.ui.setEditorText(editorTextBeforeVoice);
 					resetHoldState();
 					playSound("error");
 					setVoiceState("idle");
@@ -2269,6 +2733,7 @@ export default function (pi: ExtensionAPI) {
 		}
 
 		ctx = startCtx;
+		invalidatePolishPass(`session-${reason}`);
 		currentCwd = startCtx.cwd;
 		const loaded = loadConfigWithSource(startCtx.cwd);
 		config = loaded.config;
@@ -2366,6 +2831,7 @@ export default function (pi: ExtensionAPI) {
 			voiceDebug("voiceCleanup threw during shutdown", { error: String(err) });
 		}
 		ctx = null;
+		invalidatePolishPass("session-shutdown");
 
 		// Clear the sherpa recognizer cache ONLY on terminal quit. On older Pi
 		// versions (< 0.65.0) shutdown handlers are not awaited before the
@@ -2385,6 +2851,20 @@ export default function (pi: ExtensionAPI) {
 				clearRecognizerCache();
 			} catch {}
 		}
+	});
+
+	// A submitted user message and a branch navigation both end the window in which a
+	// pending pass may still write. On the local backend the pass has written nothing
+	// yet, so the editor-equality guard passes after the user types a message and
+	// submits it (the editor returns to empty), and branch navigation fires
+	// session_tree rather than session_start — either way a stale transcript could
+	// reappear and auto-send. Invalidating twice is harmless: the operation is
+	// idempotent.
+	pi.on("input", async () => {
+		invalidatePolishPass("user-input", "complete");
+	});
+	pi.on("session_tree", async () => {
+		invalidatePolishPass("session-tree", "complete");
 	});
 
 	// Note: pi-mono < 0.65.0 fired a discrete "session_switch" event for
@@ -3019,6 +3499,13 @@ export default function (pi: ExtensionAPI) {
 			},
 			resolveApiKey: () => resolveDeepgramApiKey(config) ?? undefined,
 			deepgramLanguages: LANGUAGES.map((l) => ({ name: l.name, code: l.code, popular: l.popular })),
+			// Polish tab: the picker rows come from the same helper /voice-polish uses, so
+			// the panel keeps making no Pi API calls of its own.
+			getPolishModels: getPolishModelChoices,
+			// Item 6: the polish numbers go to the scope the config was loaded from, not to
+			// the in-memory field a project file can set.
+			getPolishScope: polishWriteScope,
+			getLastDictation: () => recordingHistory.find((item) => item.polishedApplied),
 		};
 
 		let panel!: InstanceType<typeof VoiceSettingsPanel>;
@@ -3489,6 +3976,167 @@ export default function (pi: ExtensionAPI) {
 			config.autoSubmitOnSpeak = next;
 			saveConfig(config, config.scope === "project" ? "project" : "global", currentCwd);
 			cmdCtx.ui.notify(`Auto-submit on speak: ${next ? "ON" : "OFF"}`, "info");
+		},
+	});
+
+	/**
+	 * Model choices for the /voice-polish picker: every text-capable model Pi
+	 * exposes, as canonical `provider/id` references. Task 7 reuses this for the
+	 * settings panel — do not duplicate the filter.
+	 */
+	function getPolishModelChoices(): { ref: string; label: string }[] {
+		const models =
+			ctx && ctx.scopedModels.length > 0
+				? ctx.scopedModels.map((entry) => entry.model)
+				: (ctx?.modelRegistry.getAvailable() ?? []);
+		return models
+			.filter((model) => model.input.includes("text"))
+			.map((model) => ({ ref: `${model.provider}/${model.id}`, label: model.name || model.id }));
+	}
+
+	pi.registerCommand("voice-polish", {
+		description: "Voice: /voice-polish [on|off|model|turns <0-10>|last|restore]",
+		handler: async (args, cmdCtx) => {
+			ctx = cmdCtx;
+			const sub = (args || "").trim();
+			// R27: subcommand names are case-insensitive, like /voice-autosubmit.
+			const [rawVerb, ...rest] = sub.split(/\s+/);
+			const verb = rawVerb.toLowerCase();
+
+			if (!verb || verb === "status") {
+				cmdCtx.ui.notify(
+					[
+						`Voice polish: ${config.postProcessEnabled !== false ? "on" : "off"}`,
+						`  model:   ${config.postProcessModel ?? "session"}`,
+						`  turns:   ${config.postProcessContextTurns ?? DEFAULT_CONTEXT_LIMITS.turns}`,
+						`  timeout: ${config.postProcessTimeoutMs ?? 8000} ms`,
+					].join("\n"),
+					"info"
+				);
+				return;
+			}
+			if (verb === "on" || verb === "off") {
+				// D7/R26: enablement is global-only, so it is written field by field to the
+				// GLOBAL file. A project block would be stripped by the serializer (and ignored
+				// on load) — the command would report success and the setting would silently
+				// revert on the next /reload.
+				const next = verb === "on";
+				if (
+					!saveGlobalVoiceFieldsOrNotify({ postProcessEnabled: next }, (message) =>
+						cmdCtx.ui.notify(message, "warning")
+					)
+				) {
+					return;
+				}
+				config.postProcessEnabled = next;
+				cmdCtx.ui.notify(`Voice polish ${next ? "enabled" : "disabled"}.`, "info");
+				return;
+			}
+			if (verb === "model") {
+				// Model selection is a picker, like /model and /workflow-model — never a
+				// hand-typed reference (maintainer decision, 2026-09-26).
+				if (rest.length > 0) {
+					cmdCtx.ui.notify(
+						"Voice polish: pick the model from the list — run /voice-polish model with no argument.",
+						"warning"
+					);
+					return;
+				}
+				// R27: guard the headless path BEFORE building the rows — the list would call
+				// the model registry for a list nobody can see.
+				if (!cmdCtx.hasUI || typeof cmdCtx.ui.select !== "function") {
+					cmdCtx.ui.notify(`Current polish model: ${config.postProcessModel ?? "session"}`, "info");
+					return;
+				}
+				const options = polishModelOptions(getPolishModelChoices(), config.postProcessModel);
+				const picked = await cmdCtx.ui.select(
+					"Polish model",
+					options.map((option) => option.label)
+				);
+				const chosen = options.find((option) => option.label === picked);
+				if (!chosen) return; // dismissed — keep the current value
+				// R26: model choice is global-only — field-level write to the global file.
+				if (
+					!saveGlobalVoiceFieldsOrNotify({ postProcessModel: chosen.value }, (message) =>
+						cmdCtx.ui.notify(message, "warning")
+					)
+				) {
+					return;
+				}
+				config.postProcessModel = chosen.value;
+				cmdCtx.ui.notify(`Voice polish model set to ${chosen.value}.`, "info");
+				return;
+			}
+			if (verb === "turns") {
+				const turns = Number(rest[0]);
+				if (!Number.isInteger(turns) || turns < 0 || turns > 10) {
+					cmdCtx.ui.notify("Usage: /voice-polish turns <0-10>", "warning");
+					return;
+				}
+				config.postProcessContextTurns = turns;
+				// R25 + item 6: the turn count is honoured in both scopes, so it is persisted at
+				// the scope this session actually loads from — a write to any other file would be
+				// overridden by the project block on the next /reload and report a success that
+				// does not stick.
+				saveConfig(config, polishWriteScope(), currentCwd);
+				cmdCtx.ui.notify(`Voice polish context turns set to ${turns}.`, "info");
+				return;
+			}
+			if (verb === "last") {
+				// The newest dictation a pass ran for — a discarded one is invisible to
+				// `restore`, but its raw text stays reachable here, which is what the
+				// retention promise is about.
+				const entry = recordingHistory.find((item) => item.polishOutcome !== undefined);
+				if (!entry) {
+					cmdCtx.ui.notify("No polished dictation in this session yet.", "info");
+					return;
+				}
+				cmdCtx.ui.notify(
+					[
+						`STATUS:   ${entry.polishOutcome}`,
+						`RAW:      ${entry.rawFullText ?? entry.text}`,
+						entry.writtenText !== undefined
+							? `WRITTEN:  ${entry.writtenText}`
+							: "WRITTEN:  (nothing — the editor kept your text)",
+					].join("\n"),
+					"info"
+				);
+				return;
+			}
+			if (verb === "restore") {
+				// Stricter than `last`: only a dictation that owns an editor write can be
+				// restored, whatever the pass status was.
+				const entry = recordingHistory.find((item) => item.writtenText !== undefined);
+				if (!entry) {
+					cmdCtx.ui.notify("No polished dictation in this session yet.", "info");
+					return;
+				}
+				if (entry.rawFullText === undefined) {
+					cmdCtx.ui.notify("That dictation stored no raw transcript — nothing to restore.", "warning");
+					return;
+				}
+				// Compare against the exact string this feature last wrote (`prefix + polished`) —
+				// which is why history stores it. Comparing against the bare transcript would
+				// always pass whenever the user had a draft, i.e. the guard would be a no-op.
+				const decision = decideApply({
+					tokenCurrent: true,
+					// `writtenText` is guaranteed by the lookup above (R27) — no runtime re-check.
+					editorSnapshot: entry.writtenText!,
+					currentEditor: cmdCtx.ui.getEditorText(),
+				});
+				if (!decision.apply) {
+					cmdCtx.ui.notify(
+						"Editor changed since that dictation — not restoring. Copy from /voice-polish last.",
+						"warning"
+					);
+					return;
+				}
+				// Write `prefix + raw`: a restore must not delete what the user typed before dictating.
+				cmdCtx.ui.setEditorText(entry.rawFullText);
+				cmdCtx.ui.notify("Restored the raw transcript into the editor.", "info");
+				return;
+			}
+			cmdCtx.ui.notify("Usage: /voice-polish [on|off|model|turns <0-10>|last|restore]", "warning");
 		},
 	});
 

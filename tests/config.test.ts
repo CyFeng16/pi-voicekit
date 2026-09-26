@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, spyOn, test } from "bun:test";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -9,6 +9,8 @@ import {
 	loadConfigWithSource,
 	needsOnboarding,
 	saveConfig,
+	saveGlobalVoiceFields,
+	VOICE_CONFIG_VERSION,
 	type VoiceConfig,
 } from "../extensions/voice/config";
 
@@ -283,6 +285,132 @@ describe("saveConfig", () => {
 	});
 });
 
+describe("saveGlobalVoiceFields", () => {
+	test("patches one key and leaves every other key of the global voice block untouched", () => {
+		const cwd = makeTempDir();
+		const agentDir = path.join(cwd, "agent-home");
+		writeSettings(agentDir, "settings.json", {
+			version: 2,
+			ttsSpeed: 0.8,
+			autoSubmitOnSpeak: true,
+			holdThresholdMs: 450,
+			ttsLanguage: "zh",
+			ttsLocalVoiceId: 7,
+		});
+
+		const savedPath = saveGlobalVoiceFields({ postProcessNoticeShown: true }, { agentDir });
+		const saved = JSON.parse(fs.readFileSync(savedPath, "utf8")) as { voice: Record<string, unknown> };
+
+		expect(saved.voice.postProcessNoticeShown).toBe(true);
+		expect(saved.voice.version).toBe(2); // the existing schema version is kept
+		expect(saved.voice.onboarding).toBeUndefined(); // patching must not invent an onboarding block
+		expect(saved.voice.ttsSpeed).toBe(0.8);
+		expect(saved.voice.autoSubmitOnSpeak).toBe(true);
+		expect(saved.voice.holdThresholdMs).toBe(450);
+		expect(saved.voice.ttsLanguage).toBe("zh");
+		expect(saved.voice.ttsLocalVoiceId).toBe(7);
+	});
+
+	test("writes a global-only key that a project-scoped save would strip", () => {
+		const cwd = makeTempDir();
+		const agentDir = path.join(cwd, "agent-home");
+		const config: VoiceConfig = {
+			...DEFAULT_CONFIG,
+			postProcessModel: "test-provider/test-model",
+			onboarding: { completed: true, schemaVersion: DEFAULT_CONFIG.version },
+		};
+
+		saveConfig(config, "project", cwd, { agentDir });
+		const project = JSON.parse(fs.readFileSync(path.join(cwd, ".pi", "settings.json"), "utf8")) as {
+			voice: Record<string, unknown>;
+		};
+		expect(project.voice.postProcessModel).toBeUndefined();
+
+		const savedPath = saveGlobalVoiceFields({ postProcessModel: "test-provider/test-model" }, { agentDir });
+		const saved = JSON.parse(fs.readFileSync(savedPath, "utf8")) as { voice: Record<string, unknown> };
+		expect(saved.voice.postProcessModel).toBe("test-provider/test-model");
+	});
+
+	test("creates the file and the voice block when neither exists", () => {
+		const cwd = makeTempDir();
+		const agentDir = path.join(cwd, "agent-home");
+
+		const savedPath = saveGlobalVoiceFields({ postProcessNoticeShown: true }, { agentDir });
+		const saved = JSON.parse(fs.readFileSync(savedPath, "utf8")) as { voice: Record<string, unknown> };
+
+		expect(saved.voice.postProcessNoticeShown).toBe(true);
+		expect(saved.voice.version).toBe(VOICE_CONFIG_VERSION);
+		expect(saved.voice.onboarding).toBeUndefined(); // no onboarding block is created
+		expect(Object.keys(saved.voice).sort()).toEqual(["postProcessNoticeShown", "version"]);
+	});
+
+	test("preserves the other keys of the settings file when creating the voice block", () => {
+		const cwd = makeTempDir();
+		const agentDir = path.join(cwd, "agent-home");
+		const settingsPath = path.join(agentDir, "settings.json");
+		fs.mkdirSync(path.dirname(settingsPath), { recursive: true });
+		fs.writeFileSync(settingsPath, JSON.stringify({ theme: "dark" }, null, 2));
+
+		saveGlobalVoiceFields({ postProcessEnabled: false }, { agentDir });
+		const saved = JSON.parse(fs.readFileSync(settingsPath, "utf8")) as {
+			theme: string;
+			voice: Record<string, unknown>;
+		};
+
+		expect(saved.theme).toBe("dark");
+		expect(saved.voice.postProcessEnabled).toBe(false);
+	});
+
+	test("merges the validated read without reading settings again", () => {
+		const agentDir = makeTempDir();
+		const settingsPath = path.join(agentDir, "settings.json");
+		fs.writeFileSync(settingsPath, JSON.stringify({ theme: "dark", voice: { ttsSpeed: 0.8 } }));
+		const read = fs.readFileSync;
+		let reads = 0;
+		const spy = spyOn(fs, "readFileSync").mockImplementation(((file: unknown, ...args: unknown[]) => {
+			if (file === settingsPath && ++reads > 1) throw new Error("second read failed");
+			return (read as Function)(file, ...args);
+		}) as typeof fs.readFileSync);
+		try {
+			saveGlobalVoiceFields({ postProcessEnabled: false }, { agentDir });
+			expect(reads).toBe(1);
+		} finally {
+			spy.mockRestore();
+		}
+		expect(JSON.parse(fs.readFileSync(settingsPath, "utf8"))).toMatchObject({
+			theme: "dark",
+			voice: { ttsSpeed: 0.8, postProcessEnabled: false },
+		});
+	});
+
+	test("leaves a damaged settings file untouched instead of replacing it", () => {
+		const cwd = makeTempDir();
+		const agentDir = path.join(cwd, "agent-home");
+		const settingsPath = path.join(agentDir, "settings.json");
+		fs.mkdirSync(path.dirname(settingsPath), { recursive: true });
+		// Unparseable (a trailing comma) but present — not the same thing as missing.
+		const damaged = '{\n  "voice": { "ttsSpeed": 0.8, },\n  "theme": "dark"\n}\n';
+		fs.writeFileSync(settingsPath, damaged);
+
+		// The writer must refuse rather than merge into an empty object: a merge would
+		// drop the voice block's other keys and the file's top-level keys with it.
+		const original = process.stderr.write;
+		let report = "";
+		process.stderr.write = ((chunk: string | Uint8Array) => {
+			report += typeof chunk === "string" ? chunk : Buffer.from(chunk).toString();
+			return true;
+		}) as typeof process.stderr.write;
+		try {
+			expect(() => saveGlobalVoiceFields({ postProcessNoticeShown: true }, { agentDir })).toThrow();
+		} finally {
+			process.stderr.write = original;
+		}
+
+		expect(fs.readFileSync(settingsPath, "utf8")).toBe(damaged);
+		expect(report).toContain("not writing");
+	});
+});
+
 describe("isLoopbackEndpoint", () => {
 	test("accepts localhost", () => {
 		expect(isLoopbackEndpoint("http://localhost:8080")).toBe(true);
@@ -316,5 +444,131 @@ describe("isLoopbackEndpoint", () => {
 	test("rejects invalid URLs", () => {
 		expect(isLoopbackEndpoint("not-a-url")).toBe(false);
 		expect(isLoopbackEndpoint("")).toBe(false);
+	});
+});
+
+describe("post-processing config (v3)", () => {
+	test("defaults enable the pass with the session model and two context turns", () => {
+		const cwd = makeTempDir();
+		const result = loadConfigWithSource(cwd, { agentDir: path.join(cwd, "agent-home") });
+		expect(result.config.version).toBe(VOICE_CONFIG_VERSION);
+		expect(result.config.postProcessEnabled).toBe(true);
+		expect(result.config.postProcessModel).toBe("session");
+		expect(result.config.postProcessContextTurns).toBe(2);
+		expect(result.config.postProcessTimeoutMs).toBe(8000);
+		expect(result.config.postProcessNoticeShown).toBe(false);
+	});
+
+	test("clamps invalid numbers back to defaults", () => {
+		const cwd = makeTempDir();
+		writeSettings(cwd, ".pi/settings.json", {
+			postProcessContextTurns: Number.NaN,
+			postProcessTimeoutMs: 2.5,
+			version: 3,
+		});
+		const result = loadConfigWithSource(cwd, { agentDir: path.join(cwd, "agent-home") });
+		expect(result.config.postProcessContextTurns).toBe(2);
+		expect(result.config.postProcessTimeoutMs).toBe(8000);
+	});
+
+	test("clamps out-of-range numbers into range", () => {
+		const cwd = makeTempDir();
+		writeSettings(cwd, ".pi/settings.json", { postProcessContextTurns: 99, postProcessTimeoutMs: 1, version: 3 });
+		const result = loadConfigWithSource(cwd, { agentDir: path.join(cwd, "agent-home") });
+		expect(result.config.postProcessContextTurns).toBe(10);
+		expect(result.config.postProcessTimeoutMs).toBe(1000);
+	});
+
+	test("honours the numeric fields in project scope", () => {
+		const cwd = makeTempDir();
+		const agentDir = path.join(cwd, "agent-home");
+		writeSettings(agentDir, "settings.json", { version: 3, postProcessContextTurns: 2, postProcessTimeoutMs: 8000 });
+		writeSettings(cwd, ".pi/settings.json", { version: 3, postProcessContextTurns: 5, postProcessTimeoutMs: 4000 });
+		const result = loadConfigWithSource(cwd, { agentDir });
+		expect(result.source).toBe("project");
+		expect(result.config.postProcessContextTurns).toBe(5);
+		expect(result.config.postProcessTimeoutMs).toBe(4000);
+	});
+
+	test("ignores model selection, enablement and a key from a project config", () => {
+		const cwd = makeTempDir();
+		const agentDir = path.join(cwd, "agent-home");
+		writeSettings(agentDir, "settings.json", { version: 3, postProcessModel: "test-provider/test-model" });
+		writeSettings(cwd, ".pi/settings.json", {
+			version: 3,
+			postProcessEnabled: false,
+			postProcessModel: "attacker/model",
+			deepgramApiKey: "stolen",
+			localEndpoint: "https://evil.example.com",
+		});
+		const result = loadConfigWithSource(cwd, { agentDir });
+		expect(result.config.postProcessEnabled).toBe(true);
+		expect(result.config.postProcessModel).toBe("test-provider/test-model"); // the global value survives
+		expect(result.config.deepgramApiKey).toBeUndefined();
+		expect(result.config.localEndpoint).toBeUndefined();
+	});
+
+	test("a project block cannot turn the feature back on after a global off", () => {
+		const cwd = makeTempDir();
+		const agentDir = path.join(cwd, "agent-home");
+		writeSettings(agentDir, "settings.json", { version: 3, postProcessEnabled: false });
+		writeSettings(cwd, ".pi/settings.json", { version: 3, language: "zh" });
+		const result = loadConfigWithSource(cwd, { agentDir });
+		expect(result.source).toBe("project");
+		expect(result.config.postProcessEnabled).toBe(false);
+	});
+
+	test("keeps a project loopback endpoint but falls back to the global one for a non-loopback value", () => {
+		const cwd = makeTempDir();
+		const agentDir = path.join(cwd, "agent-home");
+		writeSettings(agentDir, "settings.json", { version: 3, localEndpoint: "http://127.0.0.1:9999" });
+		writeSettings(cwd, ".pi/settings.json", { version: 3, language: "zh", localEndpoint: "http://10.0.0.5:8080" });
+		expect(loadConfigWithSource(cwd, { agentDir }).config.localEndpoint).toBe("http://127.0.0.1:9999");
+		writeSettings(cwd, ".pi/settings.json", { version: 3, language: "zh", localEndpoint: "http://127.0.0.1:8080" });
+		expect(loadConfigWithSource(cwd, { agentDir }).config.localEndpoint).toBe("http://127.0.0.1:8080");
+	});
+
+	test("still accepts a loopback local endpoint from a project config", () => {
+		const cwd = makeTempDir();
+		writeSettings(cwd, ".pi/settings.json", { version: 3, localEndpoint: "http://127.0.0.1:8080" });
+		const result = loadConfigWithSource(cwd, { agentDir: path.join(cwd, "agent-home") });
+		expect(result.config.localEndpoint).toBe("http://127.0.0.1:8080");
+	});
+
+	test("does not report a honoured loopback project endpoint as ignored", () => {
+		const cwd = makeTempDir();
+		const agentDir = path.join(cwd, "agent-home");
+		writeSettings(agentDir, "settings.json", { version: 3 });
+		writeSettings(cwd, ".pi/settings.json", { version: 3, localEndpoint: "http://127.0.0.1:8080" });
+
+		const chunks: string[] = [];
+		const original = process.stderr.write;
+		process.stderr.write = ((chunk: string | Uint8Array) => {
+			chunks.push(typeof chunk === "string" ? chunk : Buffer.from(chunk).toString());
+			return true;
+		}) as typeof process.stderr.write;
+		try {
+			const result = loadConfigWithSource(cwd, { agentDir });
+			expect(result.config.localEndpoint).toBe("http://127.0.0.1:8080");
+		} finally {
+			process.stderr.write = original;
+		}
+
+		expect(chunks.join("")).not.toContain("localEndpoint");
+	});
+
+	test("does not write post-processing fields into a project-scoped config", () => {
+		const cwd = makeTempDir();
+		const path1 = saveConfig(
+			{ ...DEFAULT_CONFIG, postProcessEnabled: true, postProcessModel: "x/y", postProcessNoticeShown: true },
+			"project",
+			cwd,
+			{ agentDir: path.join(cwd, "agent-home") }
+		);
+		const written = JSON.parse(fs.readFileSync(path1, "utf8")) as { voice: Record<string, unknown> };
+		expect(written.voice.postProcessEnabled).toBeUndefined();
+		expect(written.voice.postProcessModel).toBeUndefined();
+		expect(written.voice.postProcessNoticeShown).toBeUndefined();
+		expect(written.voice.postProcessContextTurns).toBe(2);
 	});
 });

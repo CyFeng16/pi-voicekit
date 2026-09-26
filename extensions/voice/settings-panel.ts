@@ -20,7 +20,8 @@
 
 import { matchesKey, Key, truncateToWidth } from "@earendil-works/pi-tui";
 import type { Theme, ThemeColor } from "@earendil-works/pi-coding-agent";
-import type { VoiceConfig, VoiceSettingsScope } from "./config";
+import { saveGlobalVoiceFields, type VoiceConfig, type VoiceSettingsScope } from "./config";
+import { polishModelOptions } from "./post-process";
 import { LOCAL_MODELS, getLanguagesForLocalModel, type LocalModelInfo } from "./local";
 import type { DeviceProfile, ModelFitness } from "./device";
 import { getFreeDiskSpace, formatBytes, getModelsDir, scanHandyModels, importHandyModel } from "./model-download";
@@ -64,9 +65,12 @@ function buildTtsModelPickerRows(catalog: ReadonlyArray<TtsLocalModelInfo>): Pic
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-const TAB_IDS = ["general", "models", "downloaded", "speak", "device"] as const;
-const TAB_LABELS = ["General", "Models", "Downloaded", "Speak", "Device"];
+const TAB_IDS = ["general", "models", "downloaded", "speak", "device", "polish"] as const;
+const TAB_LABELS = ["General", "Models", "Downloaded", "Speak", "Device", "Polish"];
 type TabId = (typeof TAB_IDS)[number];
+
+/** R30: the text shown when the field-level global writer refuses an unreadable settings file. */
+const POLISH_WRITE_REFUSED = "The settings file could not be read — nothing was changed.";
 
 export type PanelAction =
 	| { type: "download"; modelId: string }
@@ -87,6 +91,21 @@ export interface PanelDeps {
 	clearRecognizerCache: () => void;
 	resolveApiKey: () => string | undefined;
 	deepgramLanguages: { name: string; code: string; popular?: boolean }[];
+	/** Polish tab → Model row: the available models as canonical `provider/id` references. */
+	getPolishModels: () => { ref: string; label: string }[];
+	/**
+	 * Polish tab → the two numeric rows: the scope this session's config was loaded
+	 * from, so the write lands in the file the loader reads next time. `config.scope`
+	 * is an in-memory field a project file can set itself, which would make the row
+	 * look saved while a reload shows the old value.
+	 */
+	getPolishScope: () => VoiceSettingsScope;
+	/**
+	 * Polish tab → Last dictation row: the latest polished dictation of this
+	 * session, or undefined when there is none. `rawFullText`/`writtenText` are
+	 * optional in the real history entry, so the row falls back to `text`.
+	 */
+	getLastDictation: () => { text: string; rawFullText?: string; writtenText?: string } | undefined;
 	/**
 	 * Optional. If provided, panel renders use the host theme so colors track
 	 * user theme choices (Catppuccin, Solarized, etc.). Without it, raw ANSI
@@ -122,7 +141,7 @@ export class VoiceSettingsPanel {
 
 	private tab = 0;
 	private row = 0;
-	private sub: "main" | "lang-picker" | "tts-model-picker" | "tts-voice-picker" = "main";
+	private sub: "main" | "lang-picker" | "tts-model-picker" | "tts-voice-picker" | "polish-model-picker" = "main";
 
 	// Models tab — grouped view
 	private modelSearch = "";
@@ -146,6 +165,14 @@ export class VoiceSettingsPanel {
 	// TTS voice sub-picker (Speak tab → Voice row)
 	private ttsVoiceSearch = "";
 	private ttsVoiceRow = 0;
+
+	// Polish model sub-picker (Polish tab → Model row). Rows come from
+	// `polishModelOptions` and are rebuilt on every open.
+	private polishModelChassis = new PickerChassis<{ label: string; value: string }>();
+
+	// R30: a failed field-level global write. The writer refuses to overwrite a settings
+	// file it cannot read; shown on the Polish tab until the next successful action.
+	private polishWriteError: string | null = null;
 
 	// Two-step delete on the Downloaded tab. When `x` is pressed, set the
 	// pending modelId + expiry timestamp; a second `x` within DELETE_CONFIRM_MS
@@ -233,6 +260,10 @@ export class VoiceSettingsPanel {
 			lines.push(...this.renderTtsVoicePicker(w, iw).map(t));
 			return lines;
 		}
+		if (this.sub === "polish-model-picker") {
+			lines.push(...this.renderPolishModelPicker(w, iw).map(t));
+			return lines;
+		}
 
 		// Tab content
 		const tabId = TAB_IDS[this.tab]!;
@@ -252,6 +283,9 @@ export class VoiceSettingsPanel {
 			case "device":
 				lines.push(...this.renderDevice(w, iw).map(t));
 				break;
+			case "polish":
+				lines.push(...this.renderPolish(w, iw).map(t));
+				break;
 		}
 
 		return lines;
@@ -268,6 +302,10 @@ export class VoiceSettingsPanel {
 		}
 		if (this.sub === "tts-voice-picker") {
 			this.handleTtsVoiceInput(data);
+			return;
+		}
+		if (this.sub === "polish-model-picker") {
+			this.handlePolishModelInput(data);
 			return;
 		}
 
@@ -827,6 +865,74 @@ export class VoiceSettingsPanel {
 		return lines;
 	}
 
+	// ─── Polish tab (post-processing) ─────────────────────────────────────
+
+	private renderPolish(_w: number, _iw: number): string[] {
+		const lines: string[] = [];
+		const { config } = this.p;
+		// Fallbacks mirror DEFAULT_CONFIG; the loader always fills both fields.
+		const turns = config.postProcessContextTurns ?? 2;
+		const timeoutMs = config.postProcessTimeoutMs ?? 8000;
+		const model = config.postProcessModel ?? "session";
+		const last = this.p.getLastDictation();
+
+		// Five rows, one per setting:
+		//   0: Enabled toggle (global-only)
+		//   1: Model picker (global-only)
+		//   2: Context turns (0-10)
+		//   3: Timeout ms (1000-30000, step 1000)
+		//   4: Last dictation — read-only raw/polished pair
+		// ←/→ switches tabs on every tab, so the two numeric rows adjust with ↵
+		// like the Speak tab's Speed row instead of stealing the arrow keys.
+		const rows: { label: string; value: string; hint?: string }[] = [
+			{
+				label: "Enabled",
+				value: config.postProcessEnabled !== false ? this.success("Enabled") : this.error("Disabled"),
+				hint: "toggle",
+			},
+			{
+				label: "Model",
+				value: model === "session" ? `Session model ${this.dim("(follow the chat)")}` : this.accent(model),
+				hint: "pick model ›",
+			},
+			{
+				label: "Context turns",
+				value: turns === 0 ? `0 ${this.dim("(no context sent)")}` : `${turns}`,
+				hint: "cycle",
+			},
+			{
+				label: "Timeout",
+				value: `${timeoutMs} ms`,
+				hint: "cycle",
+			},
+			{
+				label: "Last dictation",
+				value: last ? `${this.dim("RAW:")} ${last.rawFullText ?? last.text}` : this.dim("no polished dictation yet"),
+			},
+		];
+
+		// v7.2 — left-bar cursor + dim non-selected (HIG deference).
+		// 15 = "Last dictation" (14) plus the one-space gap before the value.
+		const labelW = 15;
+		for (let i = 0; i < rows.length; i++) {
+			const r = rows[i]!;
+			const isSelected = i === this.row;
+			const prefix = isSelected ? `${this.accent(ICON.cursorBar)}  ` : `   `;
+			const label = isSelected ? r.label.padEnd(labelW) : this.dim(r.label.padEnd(labelW));
+			const hint = isSelected && r.hint ? this.dim(` [↵ ${r.hint}]`) : "";
+			lines.push(`${prefix}${label}${r.value}${hint}`);
+			// The same pair /voice-polish last prints, one line per half.
+			if (i === 4 && last) {
+				lines.push(`   ${" ".repeat(labelW)}${this.dim("POLISHED:")} ${last.writtenText ?? last.text}`);
+			}
+		}
+
+		lines.push("");
+		if (this.polishWriteError) lines.push(`  ${this.error(this.polishWriteError)}`);
+		lines.push(this.dim("  ↵ change  ←→/Tab tabs  ↑↓ navigate  esc close"));
+		return lines;
+	}
+
 	// ─── Language sub-picker ──────────────────────────────────────────────
 
 	private renderLangPicker(_w: number, _iw: number): string[] {
@@ -1003,6 +1109,50 @@ export class VoiceSettingsPanel {
 					return;
 				}
 			}
+		} else if (tabId === "polish") {
+			const { config } = this.p;
+			switch (this.row) {
+				case 0: {
+					// `!== false` is how /voice-polish reads the flag; the default is on.
+					const next = config.postProcessEnabled === false;
+					// D7/R26: enablement is global-only — a scoped save strips it in a
+					// project session and reports a success that silently reverts.
+					// R30: the writer refuses an unreadable file; report it and leave the
+					// in-memory value alone, so "nothing was changed" stays true.
+					try {
+						saveGlobalVoiceFields({ postProcessEnabled: next });
+					} catch {
+						this.polishWriteError = POLISH_WRITE_REFUSED;
+						break;
+					}
+					config.postProcessEnabled = next;
+					this.polishWriteError = null;
+					break;
+				}
+				case 1:
+					this.openPolishModelPicker();
+					break;
+				case 2: {
+					// 0-10, wrapping; the loader clamps anything hand-edited out of range.
+					const current = config.postProcessContextTurns ?? 2;
+					config.postProcessContextTurns = current >= 10 ? 0 : current + 1;
+					this.savePolishNumbers();
+					break;
+				}
+				case 3: {
+					// Step 1000 but clamp to the documented maximum: the loader accepts any
+					// integer in [1000, 30000], so a hand-edited value off the 1000 grid can
+					// otherwise advance straight past the maximum and render a value the
+					// next load silently clamps back.
+					const current = config.postProcessTimeoutMs ?? 8000;
+					config.postProcessTimeoutMs = current >= 30000 ? 1000 : Math.min(current + 1000, 30000);
+					this.savePolishNumbers();
+					break;
+				}
+				case 4:
+					// Display-only row — the pair it shows has no action.
+					break;
+			}
 		}
 	}
 
@@ -1073,6 +1223,16 @@ export class VoiceSettingsPanel {
 	private save(): void {
 		const { config, cwd } = this.p;
 		this.p.saveConfig(config, config.scope === "project" ? "project" : "global", cwd);
+	}
+
+	/**
+	 * Item 6: the polish numbers persist to the scope the config was loaded from — a
+	 * project file can set `config.scope` itself, and a write to the other file would
+	 * silently not be what the loader reads back. The other tabs keep using `save()`.
+	 */
+	private savePolishNumbers(): void {
+		const { config, cwd } = this.p;
+		this.p.saveConfig(config, this.p.getPolishScope(), cwd);
 	}
 
 	// ─── TTS Model picker ──────────────────────────────────────────────────
@@ -1386,6 +1546,105 @@ export class VoiceSettingsPanel {
 		}
 	}
 
+	// ─── Polish model picker (Polish tab → Model row) ─────────────────────
+
+	/**
+	 * Rows come from `polishModelOptions`, so the session entry is always first
+	 * and every value is a reference the resolver accepts. Rebuilt on each open:
+	 * the list is cheap and can change between opens.
+	 */
+	private openPolishModelPicker(): void {
+		const options = polishModelOptions(this.p.getPolishModels(), this.p.config.postProcessModel);
+		const rows: PickerRow<{ label: string; value: string }>[] = options.map((option) => ({
+			kind: "data",
+			value: option,
+			searchKey: `${option.label} ${option.value}`,
+		}));
+		this.polishModelChassis.setRows(rows);
+		this.polishModelChassis.clearSearch();
+		const active = this.p.config.postProcessModel ?? "session";
+		const current = options.find((option) => option.value === active) ?? options[0];
+		if (current) this.polishModelChassis.selectValue(current);
+		this.sub = "polish-model-picker";
+	}
+
+	private renderPolishModelPicker(w: number, _iw: number): string[] {
+		const lines: string[] = [];
+		const chassis = this.polishModelChassis;
+
+		lines.push(`  ${this.bold("Pick polish model")}`);
+		const query = chassis.getQuery();
+		lines.push(`  ${this.dim("Search:")} ${query ? query : this.dim("type to filter…")}`);
+		lines.push("");
+
+		const view = chassis.view({ maxVisible: 12, compact: w < 80 });
+		if (view.kind === "empty") {
+			lines.push(this.dim(`    No matches for "${query}".`));
+			lines.push("");
+			lines.push(this.dim("  esc back  bksp clear search"));
+			return lines;
+		}
+
+		const selected = chassis.selected();
+		for (const r of view.rows) {
+			if (r.kind === "heading") continue;
+			const option = r.value;
+			const isSelected = option === selected;
+			// v7.2 — accent left bar on the selected row, dim elsewhere.
+			const prefix = isSelected ? `${this.accent(ICON.cursorBar)}  ` : `   `;
+			const label = isSelected ? this.accent(option.label) : this.dim(option.label);
+			lines.push(`${prefix}${label}`);
+		}
+
+		if (view.viewportStart > 0 || view.viewportEnd < view.totalSelectable) {
+			lines.push(this.dim(`    showing ${view.viewportStart + 1}–${view.viewportEnd} of ${view.totalSelectable}`));
+		}
+		lines.push("");
+		lines.push(this.dim("  ↵ select  esc back  type to filter"));
+		return lines;
+	}
+
+	private handlePolishModelInput(data: string): void {
+		const chassis = this.polishModelChassis;
+		if (matchesKey(data, Key.escape)) {
+			this.sub = "main";
+			return;
+		}
+		if (matchesKey(data, Key.up)) {
+			chassis.moveUp();
+			return;
+		}
+		if (matchesKey(data, Key.down)) {
+			chassis.moveDown();
+			return;
+		}
+		if (matchesKey(data, Key.enter)) {
+			const option = chassis.selected();
+			if (!option) return;
+			// D7/R26: the model choice is global-only — write it field by field to
+			// the global file, like /voice-polish model does. R30: report a refusal
+			// and keep the old value in memory.
+			try {
+				saveGlobalVoiceFields({ postProcessModel: option.value });
+			} catch {
+				this.polishWriteError = POLISH_WRITE_REFUSED;
+				this.sub = "main";
+				return;
+			}
+			this.p.config.postProcessModel = option.value;
+			this.polishWriteError = null;
+			this.sub = "main";
+			return;
+		}
+		if (matchesKey(data, Key.backspace)) {
+			chassis.backspaceSearch();
+			return;
+		}
+		if (data.length === 1 && data >= " " && data <= "~") {
+			chassis.appendSearchChar(data);
+		}
+	}
+
 	// ─── Helpers ──────────────────────────────────────────────────────────
 
 	private getRowCount(tabId: TabId): number {
@@ -1401,6 +1660,8 @@ export class VoiceSettingsPanel {
 			}
 			case "speak":
 				return 6;
+			case "polish":
+				return 5;
 			case "device":
 				return 0;
 		}

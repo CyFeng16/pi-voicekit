@@ -21,7 +21,7 @@ speaks the agent's replies (Kitten, Kokoro, Piper, or Deepgram Aura).
 > `PULSE_SERVER` is set (SSH audio tunnel / remote PulseAudio), so remote
 > microphones record reliably. Voice in **and** voice out: 21 offline STT models,
 > 20 local TTS voices plus Deepgram Aura, driven by one `/voice-settings` panel
-> with 5 tabs. The 0.1.x line is documented in the [changelog](CHANGELOG.md).
+> with 6 tabs. The 0.1.x line is documented in the [changelog](CHANGELOG.md).
 
 ---
 
@@ -50,14 +50,14 @@ pi install npm:pi-voicekit
 
 pi-voicekit supports two transcription backends:
 
-|                  | Deepgram (cloud)                                         | Local models (offline)                              |
+|                  | Deepgram (cloud)                                         | Local models (offline recognition)                  |
 | ---------------- | -------------------------------------------------------- | --------------------------------------------------- |
 | **How it works** | Live streaming — text appears as you speak               | Batch mode — transcribes after you finish recording |
 | **Setup**        | API key required                                         | No API key, models auto-download on first use       |
-| **Internet**     | Required                                                 | Not required after model download                   |
+| **Internet**     | Required                                                 | Not required after model download for recognition; the polish step may use the network |
 | **Latency**      | Real-time interim results                                | 2–10 seconds after recording stops                  |
 | **Languages**    | 56+ with live streaming                                  | Depends on model (1–57 languages)                   |
-| **Cost**         | $200 free credit (lasts 6–12 months for most developers) | Free forever                                        |
+| **Cost**         | $200 free credit (lasts 6–12 months for most developers) | Recognition is free; the polish step may cost money |
 
 Run `/voice-settings` inside Pi to choose your backend and configure everything from one panel.
 
@@ -69,7 +69,7 @@ Sign up at [dpgr.am/pi-voice](https://dpgr.am/pi-voice) — $200 free credit, no
 export DEEPGRAM_API_KEY="your-key-here"    # add to ~/.zshrc or ~/.bashrc
 ```
 
-#### Option B: Local models (fully offline)
+#### Option B: Local models (offline recognition)
 
 No setup needed — run `/voice-settings`, switch backend to Local, and select a model. It downloads automatically.
 
@@ -100,7 +100,7 @@ pi-voicekit auto-detects your audio tool. No manual install needed if you alread
 
 ## Settings Panel
 
-All configuration lives in one place: `/voice-settings`. Five tabs cover everything you need.
+All configuration lives in one place: `/voice-settings`. Six tabs cover everything you need.
 
 ### General — backend, language, scope
 
@@ -131,6 +131,18 @@ agent replies is toggled here.
 <img src="https://raw.githubusercontent.com/CyFeng16/pi-voicekit/main/assets/screenshots/settings-device.png" alt="Device tab — hardware profile, dependencies, disk space" width="600" />
 
 See your hardware profile (RAM, CPU, GPU), dependency status (sherpa-onnx runtime), available disk space, and total downloaded models. Model recommendations are based on this profile.
+
+### Polish — transcript cleanup
+
+Optional post-ASR cleanup, on by default. Toggle it, pick the model, set how many
+recent conversation turns accompany the transcript (0–10), and cap how long one
+pass may take (`1000`–`30000` ms). The last row shows the most recent polished
+dictation as a `RAW` / `POLISHED` pair. `/voice-polish last` prints the newest
+dictation a pass ran on — including one whose result was discarded — with its
+`STATUS`, `RAW`, and `WRITTEN` text, or says that nothing was written.
+
+`/voice-polish` takes `on`, `off`, `model`, `turns <0-10>`, `last` and `restore`;
+run it with no argument for the current status.
 
 ---
 
@@ -165,6 +177,7 @@ See your hardware profile (RAM, CPU, GPU), dependency status (sherpa-onnx runtim
 | `/voice-stream`          | Toggle Deepgram streaming TTS (cloud)                     |
 | `/voice-speak-stop`      | Stop in-flight TTS playback                               |
 | `/voice-autosubmit`      | Toggle: STT text auto-sent to the agent (`on`/`off`)      |
+| `/voice-polish [sub]`    | Transcript polish: on, off, model, turns, last, restore   |
 | `/voice-hold-delay`      | Set hold-to-talk delay (200-3000 ms, default 700)         |
 | `/voice-speak-models`    | Browse / install TTS voice models                         |
 | `/voice-speak-info`      | Diagnose TTS state                                        |
@@ -261,6 +274,7 @@ Models from [Handy](https://github.com/cjpais/handy) (`~/Library/Application Sup
 | **Pre-recording**                | Audio capture starts during warmup — you never miss the first word                       |
 | **Tail recording**               | Keeps recording 1.5s after release so your last word isn't clipped                       |
 | **Live streaming**               | Deepgram Nova 3 WebSocket (Nova 2 for Chinese locales) — live interim transcripts        |
+| **Transcript polish**            | Optional post-ASR cleanup — every dictation makes one extra model call; the last N conversation turns (default 2) are sent with it, plus the compaction summary after one — both only while the turn count is above zero. Disable with `/voice-polish off` |
 | **56+ languages**                | Deepgram: 56+ with live streaming. Local: up to 57 depending on model.                   |
 | **Continuous dictation**         | `/voice dictate` for long-form input without holding keys                                |
 | **Typing cooldown**              | Space holds within 400ms of typing are ignored                                           |
@@ -288,6 +302,11 @@ extensions/voice/sherpa-loader.ts           Lazy native module loading
 extensions/voice/model-download.ts          Download manager — resume, progress, verification, Handy import
 extensions/voice/device.ts                  Device profiling — RAM, GPU, CPU, container detection
 
+# transcript post-processing
+extensions/voice/post-process.ts            Polish pass — fail-open guardrails, model resolution, bounded call
+extensions/voice/post-process-context.ts    Context assembly — recent turns, compaction summary, character caps
+extensions/voice/post-process-prompt.ts     Fixed polish prompt and request shape
+
 # text-to-speech
 extensions/voice/speak.ts                   Speak entry point, auto-speak wiring
 extensions/voice/tts-engine.ts              sherpa-onnx TTS synthesis
@@ -301,7 +320,7 @@ extensions/voice/tts-install-progress.ts    Model install progress widget
 extensions/voice/tts-playback-indicator.ts  Speaking indicator widget
 
 # settings and UI
-extensions/voice/settings-panel.ts          Settings panel — overlay, 5 tabs
+extensions/voice/settings-panel.ts          Settings panel — overlay, 6 tabs
 extensions/voice/ui-picker.ts               Generic list picker
 extensions/voice/ui-help-overlay.ts         Keyboard and command reference
 extensions/voice/ui-aura.ts                 Visual primitives (Liquid Braille, Aurora)
@@ -329,13 +348,13 @@ Settings stored in Pi's settings files under the `voice` key:
 ```json
 {
 	"voice": {
-		"version": 2,
+		"version": 3,
 		"enabled": true,
 		"language": "en",
 		"backend": "local",
 		"localModel": "parakeet-v3",
 		"scope": "global",
-		"onboarding": { "completed": true, "schemaVersion": 2 }
+		"onboarding": { "completed": true, "schemaVersion": 3 }
 	}
 }
 ```
@@ -345,6 +364,39 @@ into `~/.pi/agent/settings.json`. If you paste a key during onboarding, that is
 an explicit save and it still goes to `~/.env.secrets` or `~/.zshrc`.
 
 Hold-to-talk delay defaults to **700 ms** (`/voice-hold-delay` accepts 200–3000 ms).
+
+### Transcript polish
+
+Transcript polish is on by default: every dictation runs one extra model call. When
+the selected model is a cloud provider, the text that leaves your machine is:
+
+- the transcript of the dictation;
+- the last N conversation turns of user and assistant text, where N is
+  `postProcessContextTurns` (default `2`; `0` sends no conversation context);
+- the compaction summary, when the session has been compacted and the turn count is
+  above zero. That summary is a digest built from earlier messages, so it can carry
+  residues of earlier thinking and tool output.
+
+Assistant text can contain anything the conversation contained — file paths,
+identifiers, values the agent echoed. The character limits bound how much is sent,
+not how sensitive it is. With the local backend, nothing else leaves your machine,
+and audio never does: recognition runs on this machine with no API key. Turn the
+feature off with `/voice-polish off` or the Polish tab's Enabled row.
+
+| Setting                   | Scope              | Default     | Notes                                                   |
+| ------------------------- | ------------------ | ----------- | ------------------------------------------------------- |
+| `postProcessEnabled`      | global only        | `true`      | Master switch. A project `voice` block cannot flip it.  |
+| `postProcessModel`        | global only        | `"session"` | Reuses the session model, or `provider/modelId`.        |
+| `postProcessContextTurns` | global and project | `2`         | Conversation turns sent with the transcript, `0`–`10`.  |
+| `postProcessTimeoutMs`    | global and project | `8000`      | Per-pass timeout in milliseconds, `1000`–`30000`.       |
+
+The global-only fields resolve from `~/.pi/agent/settings.json` even when a
+repository provides its own `voice` block, so a cloned repo can neither turn the
+feature on nor redirect where dictated text goes. The model is chosen from a
+picker (`/voice-polish model`), never typed: a hand-typed reference is refused,
+and an unavailable or malformed model keeps the raw transcript instead of
+switching provider. `postProcessNoticeShown` is machine-local bookkeeping for the
+one-time notice, not a user setting.
 
 ---
 

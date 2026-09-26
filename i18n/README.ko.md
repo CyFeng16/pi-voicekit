@@ -18,7 +18,7 @@
 
 > **v0.1.3 — 현재 릴리스** — `PULSE_SERVER`(SSH 오디오 터널 / 원격 PulseAudio)가 설정되어 있으면
 > 오디오 캡처가 `ffmpeg`를 우선 사용하므로 원격 마이크도 안정적으로 녹음됩니다. 음성 입력**과** 음성 출력:
-> 21개의 오프라인 STT 모델, 20개의 로컬 TTS 음성에 Deepgram Aura까지, 5개 탭을 갖춘 하나의
+> 21개의 오프라인 STT 모델, 20개의 로컬 TTS 음성에 Deepgram Aura까지, 6개 탭을 갖춘 하나의
 > `/voice-settings` 패널로 제어합니다. 0.1.x 버전대는 [변경 로그](../CHANGELOG.md)에 문서화되어 있습니다.
 
 ---
@@ -96,7 +96,7 @@ pi-voicekit은 오디오 도구를 자동으로 감지합니다. sox나 ffmpeg�
 
 ## 설정 패널
 
-모든 설정은 한곳에 모여 있습니다: `/voice-settings`. 5개 탭이 필요한 모든 것을 다룹니다.
+모든 설정은 한곳에 모여 있습니다: `/voice-settings`. 6개 탭이 필요한 모든 것을 다룹니다.
 
 ### 일반 — 백엔드, 언어, 범위
 
@@ -296,7 +296,7 @@ extensions/voice/tts-install-progress.ts    모델 설치 진행 위젯
 extensions/voice/tts-playback-indicator.ts  낭독 표시기 위젯
 
 # settings and UI
-extensions/voice/settings-panel.ts          설정 패널 — 오버레이, 5개 탭
+extensions/voice/settings-panel.ts          설정 패널 — 오버레이, 6개 탭
 extensions/voice/ui-picker.ts               범용 목록 선택기
 extensions/voice/ui-help-overlay.ts         키보드 및 명령어 참조
 extensions/voice/ui-aura.ts                 시각 요소 (Liquid Braille, Aurora)

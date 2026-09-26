@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Transcript polish** — an optional post-ASR pass that cleans the transcript text
+  before it is inserted: fillers, obvious ASR errors, punctuation and
+  sentence boundaries, in the speaker's own language. It runs automatically after
+  each dictation when enabled, makes one extra model call, and sends the last N
+  conversation turns (default 2) as disambiguation context — never tool calls or
+  tool results; the compaction summary rides along too once one exists, but only
+  while the turn count is above zero. A failure keeps the raw transcript, except
+  when the editor changed while the pass was waiting — then nothing is written at
+  all. Configure it with `/voice-polish on|off|model|turns`
+  or the settings panel's new Polish tab; `/voice-polish last` shows the newest
+  dictation a pass ran on — including one whose result was discarded — with its
+  status plus the raw and written text, and `restore` puts the raw text back.
+
 ## [0.1.4] - 2026-09-26
 
 ### Added

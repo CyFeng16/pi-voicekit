@@ -21,7 +21,7 @@
 > PulseAudio), तो ऑडियो कैप्चर `ffmpeg` को प्राथमिकता देता है, इसलिए रिमोट माइक्रोफ़ोन
 > भरोसेमंद तरीके से रिकॉर्ड करते हैं। वॉइस इन **और** वॉइस आउट: 21 ऑफ़लाइन STT मॉडल,
 > 20 लोकल TTS वॉइस और Deepgram Aura — सब एक ही `/voice-settings` पैनल से नियंत्रित,
-> जिसमें 5 टैब हैं। 0.1.x लाइन का दस्तावेज़ [चेंजलॉग](../CHANGELOG.md) में है।
+> जिसमें 6 टैब हैं। 0.1.x लाइन का दस्तावेज़ [चेंजलॉग](../CHANGELOG.md) में है।
 
 ---
 
@@ -98,7 +98,7 @@ pi-voicekit आपका ऑडियो टूल ऑटो-डिटेक्�
 
 ## सेटिंग्स पैनल
 
-सारी कॉन्फ़िगरेशन एक ही जगह: `/voice-settings`। पाँच टैब आपकी ज़रूरत का सब कुछ कवर करते हैं।
+सारी कॉन्फ़िगरेशन एक ही जगह: `/voice-settings`। छह टैब आपकी ज़रूरत का सब कुछ कवर करते हैं।
 
 ### सामान्य — बैकएंड, भाषा, स्कोप
 
@@ -298,7 +298,7 @@ extensions/voice/tts-install-progress.ts    मॉडल इंस्टॉल �
 extensions/voice/tts-playback-indicator.ts  स्पीकिंग इंडिकेटर विजेट
 
 # settings and UI
-extensions/voice/settings-panel.ts          सेटिंग्स पैनल — ओवरले, 5 टैब
+extensions/voice/settings-panel.ts          सेटिंग्स पैनल — ओवरले, 6 टैब
 extensions/voice/ui-picker.ts               जेनेरिक लिस्ट पिकर
 extensions/voice/ui-help-overlay.ts         कीबोर्ड और कमांड संदर्भ
 extensions/voice/ui-aura.ts                 विज़ुअल प्रिमिटिव (Liquid Braille, Aurora)
