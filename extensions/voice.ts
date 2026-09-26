@@ -818,6 +818,25 @@ export default function (pi: ExtensionAPI) {
 	}
 
 	/**
+	 * R30: `saveGlobalVoiceFields` refuses to overwrite a settings file it cannot read and
+	 * throws. Every user-reachable caller reports that refusal in plain words instead of
+	 * letting it surface as an unhandled error; the in-memory value is only updated when
+	 * the write actually succeeded.
+	 */
+	function saveGlobalVoiceFieldsOrNotify(
+		fields: Parameters<typeof saveGlobalVoiceFields>[0],
+		notify: (message: string) => void
+	): boolean {
+		try {
+			saveGlobalVoiceFields(fields);
+			return true;
+		} catch {
+			notify("Voice polish: the settings file could not be read — nothing was changed.");
+			return false;
+		}
+	}
+
+	/**
 	 * The model the pass actually ran on, as `provider/id`. The configured value is the
 	 * "session" marker whenever the session model is in play, so a telemetry line built
 	 * from it alone cannot be grouped per model.
@@ -3952,13 +3971,20 @@ export default function (pi: ExtensionAPI) {
 				return;
 			}
 			if (verb === "on" || verb === "off") {
-				config.postProcessEnabled = verb === "on";
 				// D7/R26: enablement is global-only, so it is written field by field to the
 				// GLOBAL file. A project block would be stripped by the serializer (and ignored
 				// on load) — the command would report success and the setting would silently
 				// revert on the next /reload.
-				saveGlobalVoiceFields({ postProcessEnabled: config.postProcessEnabled });
-				cmdCtx.ui.notify(`Voice polish ${verb === "on" ? "enabled" : "disabled"}.`, "info");
+				const next = verb === "on";
+				if (
+					!saveGlobalVoiceFieldsOrNotify({ postProcessEnabled: next }, (message) =>
+						cmdCtx.ui.notify(message, "warning")
+					)
+				) {
+					return;
+				}
+				config.postProcessEnabled = next;
+				cmdCtx.ui.notify(`Voice polish ${next ? "enabled" : "disabled"}.`, "info");
 				return;
 			}
 			if (verb === "model") {
@@ -3984,9 +4010,15 @@ export default function (pi: ExtensionAPI) {
 				);
 				const chosen = options.find((option) => option.label === picked);
 				if (!chosen) return; // dismissed — keep the current value
-				config.postProcessModel = chosen.value;
 				// R26: model choice is global-only — field-level write to the global file.
-				saveGlobalVoiceFields({ postProcessModel: chosen.value });
+				if (
+					!saveGlobalVoiceFieldsOrNotify({ postProcessModel: chosen.value }, (message) =>
+						cmdCtx.ui.notify(message, "warning")
+					)
+				) {
+					return;
+				}
+				config.postProcessModel = chosen.value;
 				cmdCtx.ui.notify(`Voice polish model set to ${chosen.value}.`, "info");
 				return;
 			}

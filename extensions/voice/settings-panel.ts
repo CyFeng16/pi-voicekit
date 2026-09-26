@@ -69,6 +69,9 @@ const TAB_IDS = ["general", "models", "downloaded", "speak", "device", "polish"]
 const TAB_LABELS = ["General", "Models", "Downloaded", "Speak", "Device", "Polish"];
 type TabId = (typeof TAB_IDS)[number];
 
+/** R30: the text shown when the field-level global writer refuses an unreadable settings file. */
+const POLISH_WRITE_REFUSED = "The settings file could not be read — nothing was changed.";
+
 export type PanelAction =
 	| { type: "download"; modelId: string }
 	| { type: "speak-test" }
@@ -166,6 +169,10 @@ export class VoiceSettingsPanel {
 	// Polish model sub-picker (Polish tab → Model row). Rows come from
 	// `polishModelOptions` and are rebuilt on every open.
 	private polishModelChassis = new PickerChassis<{ label: string; value: string }>();
+
+	// R30: a failed field-level global write. The writer refuses to overwrite a settings
+	// file it cannot read; shown on the Polish tab until the next successful action.
+	private polishWriteError: string | null = null;
 
 	// Two-step delete on the Downloaded tab. When `x` is pressed, set the
 	// pending modelId + expiry timestamp; a second `x` within DELETE_CONFIRM_MS
@@ -921,6 +928,7 @@ export class VoiceSettingsPanel {
 		}
 
 		lines.push("");
+		if (this.polishWriteError) lines.push(`  ${this.error(this.polishWriteError)}`);
 		lines.push(this.dim("  ↵ change  ←→/Tab tabs  ↑↓ navigate  esc close"));
 		return lines;
 	}
@@ -1107,10 +1115,18 @@ export class VoiceSettingsPanel {
 				case 0: {
 					// `!== false` is how /voice-polish reads the flag; the default is on.
 					const next = config.postProcessEnabled === false;
-					config.postProcessEnabled = next;
 					// D7/R26: enablement is global-only — a scoped save strips it in a
 					// project session and reports a success that silently reverts.
-					saveGlobalVoiceFields({ postProcessEnabled: next });
+					// R30: the writer refuses an unreadable file; report it and leave the
+					// in-memory value alone, so "nothing was changed" stays true.
+					try {
+						saveGlobalVoiceFields({ postProcessEnabled: next });
+					} catch {
+						this.polishWriteError = POLISH_WRITE_REFUSED;
+						break;
+					}
+					config.postProcessEnabled = next;
+					this.polishWriteError = null;
 					break;
 				}
 				case 1:
@@ -1605,10 +1621,18 @@ export class VoiceSettingsPanel {
 		if (matchesKey(data, Key.enter)) {
 			const option = chassis.selected();
 			if (!option) return;
-			this.p.config.postProcessModel = option.value;
 			// D7/R26: the model choice is global-only — write it field by field to
-			// the global file, like /voice-polish model does.
-			saveGlobalVoiceFields({ postProcessModel: option.value });
+			// the global file, like /voice-polish model does. R30: report a refusal
+			// and keep the old value in memory.
+			try {
+				saveGlobalVoiceFields({ postProcessModel: option.value });
+			} catch {
+				this.polishWriteError = POLISH_WRITE_REFUSED;
+				this.sub = "main";
+				return;
+			}
+			this.p.config.postProcessModel = option.value;
+			this.polishWriteError = null;
 			this.sub = "main";
 			return;
 		}
