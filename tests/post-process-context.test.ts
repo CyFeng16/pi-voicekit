@@ -29,6 +29,20 @@ describe("assembleContext", () => {
 		expect(result.turns.map((t) => t.text)).toEqual(["older", "reply", "just dictated"]); // 2 turns requested, 2 turns present
 	});
 
+	test("counts an image-only user message as a turn and keeps the reply that follows it", () => {
+		const entries: EntryLike[] = [
+			msg("user", "earlier question"),
+			msg("assistant", "earlier answer"),
+			{ type: "message", message: { role: "user", content: [{ type: "image", data: "aGk=" }] } },
+			msg("assistant", "answer to the image"),
+		];
+		const result = assembleContext(entries, { ...DEFAULT_CONTEXT_LIMITS, turns: 1 });
+		// The image-only message consumes the newest turn even though it carries no text,
+		// so the turn before it is not what "the last 1 user turn" means.
+		expect(result.turns.map((t) => t.text)).toEqual(["answer to the image"]);
+		expect(result.turns.map((t) => t.text).join("|")).not.toContain("earlier");
+	});
+
 	test("drops tool results and thinking content, keeps assistant prose", () => {
 		const entries: EntryLike[] = [
 			msg("user", "hello"),

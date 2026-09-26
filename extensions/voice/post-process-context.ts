@@ -97,7 +97,10 @@ function toUnits(entries: readonly EntryLike[]): { units: ContextTurn[]; summary
 		const role = entry.message.role;
 		if (role !== "user" && role !== "assistant") continue;
 		const text = extractText(entry.message.content).trim();
-		if (text) units.push({ role, text });
+		// Item 7: a user message always opens a turn — an image-only one consumes a turn
+		// even though it contributes no text. Assistant text with nothing in it
+		// contributes nothing at all.
+		if (role === "user" || text) units.push({ role, text });
 	}
 	return { units, summary };
 }
@@ -158,8 +161,10 @@ export function assembleContext(entries: readonly EntryLike[], limits: ContextLi
 
 	// R8 + R9: one shared budget, spent on whole turns from the oldest first.
 	// Dropping single entries could keep an assistant reply whose user entry is
-	// gone, which is not a turn (spec §4.3 item 3).
-	const groups = groupTurns(selected);
+	// gone, which is not a turn (spec §4.3 item 3). Item 7: grouping is also what
+	// counts the turns, so it happens before the empty entries are dropped — inside
+	// a turn only the sendable text reaches the prompt.
+	const groups = groupTurns(selected).map((turn) => turn.filter((unit) => unit.text));
 	const sizes = groups.map(turnSize);
 	let first = 0;
 	let characters = sizes.reduce((sum, size) => sum + size, 0);
