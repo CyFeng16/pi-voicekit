@@ -20,6 +20,7 @@ import {
 	tokenize,
 	wer,
 	punctuationScore,
+	wordingUnits,
 } from "../scripts/polish-eval/score";
 
 describe("normalizeForComparison", () => {
@@ -122,6 +123,22 @@ describe("punctuationScore", () => {
 	});
 });
 
+describe("wordingUnits", () => {
+	test("splits a Chinese clause so a one-character edit is not read as a dropped clause", () => {
+		const reference = "把过期时间调短。";
+		// The speaker abandoned the first half; the landed wording is a genuine merge.
+		const raw = "把缓存关掉等等不是关掉是把过期时间调短";
+		const polished = "把缓存过期时间调短。";
+		expect(wordingUnits("把过期时间调短")).toEqual(["把", "过", "期", "时", "间", "调", "短"]);
+		expect(meaningRisks(raw, polished, reference).any).toBe(false);
+	});
+
+	test("still catches wording the reference has and the polished text lost", () => {
+		const reference = "先复现问题，再定位，最后写回归测试。";
+		expect(meaningRisks(reference, "先复现问题。", reference).contentDropped).toBe(true);
+	});
+});
+
 describe("falseEditReport", () => {
 	test("counts a change to an already-correct token as a false edit", () => {
 		const raw = "把 axios 的 timeout 设成 30 秒";
@@ -145,7 +162,9 @@ describe("falseEditReport", () => {
 		const polished = "明天下午三点开会 地点 会议室 B";
 		const report = falseEditReport(raw, polished, raw);
 		expect(report.invented.length).toBeGreaterThan(0);
-		expect(report.invented).toContain("会议室");
+		// Flags are character-granular for Chinese, so invented wording shows up per unit.
+		expect(report.invented.join("")).toContain("议室"); // 会 is already in the raw, so it is not invented
+		expect(report.invented).toContain("B");
 	});
 
 	test("does not treat punctuation-only differences as token edits", () => {

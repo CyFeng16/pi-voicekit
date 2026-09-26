@@ -129,6 +129,24 @@ export function tokenize(text: string): string[] {
 	return tokens;
 }
 
+/**
+ * Flag-level units: one Chinese character and one latin run at a time. The word-level
+ * tokens above keep a whole CJK run together, which is right for a word error rate and
+ * wrong for "did anything lose meaning": editing one character of 把过期时间调短 would
+ * otherwise look like a dropped clause next to an invented one.
+ */
+export function wordingUnits(text: string): string[] {
+	const units: string[] = [];
+	for (const token of tokenize(text)) {
+		if (!CJK_CHAR.test(token)) {
+			units.push(token);
+			continue;
+		}
+		for (const char of token) if (CJK_CHAR.test(char)) units.push(char);
+	}
+	return units;
+}
+
 function countTokens(tokens: readonly string[]): Map<string, number> {
 	const counts = new Map<string, number>();
 	for (const token of tokens) counts.set(token, (counts.get(token) ?? 0) + 1);
@@ -257,9 +275,9 @@ export interface FalseEditReport {
  * something that was already right - is a false edit.
  */
 export function falseEditReport(raw: string, polished: string, groundTruth: string): FalseEditReport {
-	const rawTokens = tokenize(raw);
-	const polishedTokens = tokenize(polished);
-	const referenceTokens = tokenize(groundTruth);
+	const rawTokens = wordingUnits(raw);
+	const polishedTokens = wordingUnits(polished);
+	const referenceTokens = wordingUnits(groundTruth);
 	const reference = countTokens(referenceTokens);
 	const before = sharedCount(countTokens(rawTokens), reference);
 	const after = sharedCount(countTokens(polishedTokens), reference);
@@ -337,9 +355,9 @@ function tokenRisk(
  * errs toward flagging.
  */
 export function meaningRisks(raw: string, polished: string, groundTruth: string): MeaningRisks {
-	const rawTokens = countTokens(tokenize(raw));
-	const polishedTokens = countTokens(tokenize(polished));
-	const referenceTokens = countTokens(tokenize(groundTruth));
+	const rawTokens = countTokens(wordingUnits(raw));
+	const polishedTokens = countTokens(wordingUnits(polished));
+	const referenceTokens = countTokens(wordingUnits(groundTruth));
 	const edits = falseEditReport(raw, polished, groundTruth);
 
 	const numbersChanged = tokenRisk(referenceTokens, rawTokens, polishedTokens, isNumeric);
