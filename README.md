@@ -50,14 +50,14 @@ pi install npm:pi-voicekit
 
 pi-voicekit supports two transcription backends:
 
-|                  | Deepgram (cloud)                                         | Local models (offline)                              |
+|                  | Deepgram (cloud)                                         | Local models (offline recognition)                  |
 | ---------------- | -------------------------------------------------------- | --------------------------------------------------- |
 | **How it works** | Live streaming — text appears as you speak               | Batch mode — transcribes after you finish recording |
 | **Setup**        | API key required                                         | No API key, models auto-download on first use       |
-| **Internet**     | Required                                                 | Not required after model download                   |
+| **Internet**     | Required                                                 | Not required after model download for recognition; the polish step may use the network |
 | **Latency**      | Real-time interim results                                | 2–10 seconds after recording stops                  |
 | **Languages**    | 56+ with live streaming                                  | Depends on model (1–57 languages)                   |
-| **Cost**         | $200 free credit (lasts 6–12 months for most developers) | Free forever                                        |
+| **Cost**         | $200 free credit (lasts 6–12 months for most developers) | Recognition is free; the polish step may cost money |
 
 Run `/voice-settings` inside Pi to choose your backend and configure everything from one panel.
 
@@ -69,7 +69,7 @@ Sign up at [dpgr.am/pi-voice](https://dpgr.am/pi-voice) — $200 free credit, no
 export DEEPGRAM_API_KEY="your-key-here"    # add to ~/.zshrc or ~/.bashrc
 ```
 
-#### Option B: Local models (fully offline)
+#### Option B: Local models (offline recognition)
 
 No setup needed — run `/voice-settings`, switch backend to Local, and select a model. It downloads automatically.
 
@@ -137,7 +137,9 @@ See your hardware profile (RAM, CPU, GPU), dependency status (sherpa-onnx runtim
 Optional post-ASR cleanup, on by default. Toggle it, pick the model, set how many
 recent conversation turns accompany the transcript (0–10), and cap how long one
 pass may take (`1000`–`30000` ms). The last row shows the most recent polished
-dictation as a `RAW` / `POLISHED` pair — the same pair `/voice-polish last` prints.
+dictation as a `RAW` / `POLISHED` pair. `/voice-polish last` prints the newest
+dictation a pass ran on — including one whose result was discarded — with its
+`STATUS`, `RAW`, and `WRITTEN` text, or says that nothing was written.
 
 `/voice-polish` takes `on`, `off`, `model`, `turns <0-10>`, `last` and `restore`;
 run it with no argument for the current status.
@@ -364,6 +366,22 @@ an explicit save and it still goes to `~/.env.secrets` or `~/.zshrc`.
 Hold-to-talk delay defaults to **700 ms** (`/voice-hold-delay` accepts 200–3000 ms).
 
 ### Transcript polish
+
+Transcript polish is on by default: every dictation runs one extra model call. When
+the selected model is a cloud provider, the text that leaves your machine is:
+
+- the transcript of the dictation;
+- the last N conversation turns of user and assistant text, where N is
+  `postProcessContextTurns` (default `2`; `0` sends no conversation context);
+- the compaction summary, when the session has been compacted and the turn count is
+  above zero. That summary is a digest built from earlier messages, so it can carry
+  residues of earlier thinking and tool output.
+
+Assistant text can contain anything the conversation contained — file paths,
+identifiers, values the agent echoed. The character limits bound how much is sent,
+not how sensitive it is. With the local backend, nothing else leaves your machine,
+and audio never does: recognition runs on this machine with no API key. Turn the
+feature off with `/voice-polish off` or the Polish tab's Enabled row.
 
 | Setting                   | Scope              | Default     | Notes                                                   |
 | ------------------------- | ------------------ | ----------- | ------------------------------------------------------- |

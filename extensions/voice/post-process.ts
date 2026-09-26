@@ -6,6 +6,7 @@
  * on purpose (spec D9).
  *
  * Spec: docs/superpowers/specs/2026-09-26-stt-post-processing-design.md §4.4, §4.6, §4.9
+ * (a local design record, not part of the published package)
  */
 
 import { assembleContext, type ContextLimits, type EntryLike } from "./post-process-context";

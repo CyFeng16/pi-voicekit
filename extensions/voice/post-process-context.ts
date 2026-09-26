@@ -7,6 +7,7 @@
  * structural rather than imported: this package does not depend on pi-ai.
  *
  * Spec: docs/superpowers/specs/2026-09-26-stt-post-processing-design.md §4.3
+ * (a local design record, not part of the published package)
  */
 
 export interface EntryLike {

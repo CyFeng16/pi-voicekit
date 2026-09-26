@@ -150,7 +150,7 @@ Run with `PI_VOICE_DEBUG=1` and search the log for the `polish result` line:
 - `contextChars` — how much conversation context was sent, after the caps.
 
 ### Compare and restore
-- `/voice-polish last` prints the `RAW` and `POLISHED` text of the most recent polished dictation; the settings panel's Polish tab shows the same pair.
+- `/voice-polish last` prints the newest dictation a pass ran on — including one whose result was discarded — as its `STATUS`, `RAW`, and `WRITTEN` text (or a note that nothing was written); the settings panel's Polish tab shows the raw/polished pair for the last dictation.
 - `/voice-polish restore` puts the raw transcript back into the editor — only if the editor still holds exactly what the pass wrote.
 
 The raw/polished history is in-memory for the current Pi session only. It is not written to disk and is gone after a restart.

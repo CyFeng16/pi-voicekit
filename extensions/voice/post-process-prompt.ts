@@ -2,6 +2,7 @@
  * Transcript post-processing: the fixed prompt and request shape.
  *
  * Spec: docs/superpowers/specs/2026-09-26-stt-post-processing-design.md §4.5 + §9
+ * (a local design record, not part of the published package)
  */
 
 import type { AssembledContext } from "./post-process-context";

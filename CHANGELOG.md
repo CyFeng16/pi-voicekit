@@ -18,8 +18,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   while the turn count is above zero. A failure keeps the raw transcript, except
   when the editor changed while the pass was waiting — then nothing is written at
   all. Configure it with `/voice-polish on|off|model|turns`
-  or the settings panel's new Polish tab; `/voice-polish last` prints the raw and
-  polished text of the most recent dictation and `restore` puts the raw text back.
+  or the settings panel's new Polish tab; `/voice-polish last` shows the newest
+  dictation a pass ran on — including one whose result was discarded — with its
+  status plus the raw and written text, and `restore` puts the raw text back.
 
 ## [0.1.4] - 2026-09-26
 
