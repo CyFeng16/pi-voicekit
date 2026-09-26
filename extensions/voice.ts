@@ -805,6 +805,19 @@ export default function (pi: ExtensionAPI) {
 	}
 
 	/**
+	 * Scope the polish numbers are persisted to. `config.scope` is an in-memory field a
+	 * project file can set itself, so reading it can write to one file while the loader
+	 * keeps reading the other: the command reports success and a reload shows the old
+	 * value. `configSource` is where this session's config was actually loaded from; only
+	 * a session with no file at all (defaults) falls back to the field. Polish settings
+	 * only — the pre-existing commands keep their own rule.
+	 */
+	function polishWriteScope(): VoiceSettingsScope {
+		if (configSource === "global" || configSource === "project") return configSource;
+		return config.scope === "project" ? "project" : "global";
+	}
+
+	/**
 	 * Outcome of one polish pass.
 	 * - `apply`: write `text` (polished, or the raw transcript on any failure).
 	 * - `discard`: the editor changed while we waited — write NOTHING, send NOTHING.
@@ -3371,6 +3384,9 @@ export default function (pi: ExtensionAPI) {
 			// Polish tab: the picker rows come from the same helper /voice-polish uses, so
 			// the panel keeps making no Pi API calls of its own.
 			getPolishModels: getPolishModelChoices,
+			// Item 6: the polish numbers go to the scope the config was loaded from, not to
+			// the in-memory field a project file can set.
+			getPolishScope: polishWriteScope,
 			getLastDictation: () => recordingHistory.find((item) => item.polishedApplied),
 		};
 
@@ -3927,10 +3943,11 @@ export default function (pi: ExtensionAPI) {
 					return;
 				}
 				config.postProcessContextTurns = turns;
-				// R25: the turn count is honoured in both scopes, so it is persisted at the scope
-				// this session loads from — a global write would be overridden by the project
-				// block on the next /reload and report a success that does not stick.
-				saveConfig(config, config.scope === "project" ? "project" : "global", currentCwd);
+				// R25 + item 6: the turn count is honoured in both scopes, so it is persisted at
+				// the scope this session actually loads from — a write to any other file would be
+				// overridden by the project block on the next /reload and report a success that
+				// does not stick.
+				saveConfig(config, polishWriteScope(), currentCwd);
 				cmdCtx.ui.notify(`Voice polish context turns set to ${turns}.`, "info");
 				return;
 			}

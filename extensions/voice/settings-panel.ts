@@ -91,6 +91,13 @@ export interface PanelDeps {
 	/** Polish tab → Model row: the available models as canonical `provider/id` references. */
 	getPolishModels: () => { ref: string; label: string }[];
 	/**
+	 * Polish tab → the two numeric rows: the scope this session's config was loaded
+	 * from, so the write lands in the file the loader reads next time. `config.scope`
+	 * is an in-memory field a project file can set itself, which would make the row
+	 * look saved while a reload shows the old value.
+	 */
+	getPolishScope: () => VoiceSettingsScope;
+	/**
 	 * Polish tab → Last dictation row: the latest polished dictation of this
 	 * session, or undefined when there is none. `rawFullText`/`writtenText` are
 	 * optional in the real history entry, so the row falls back to `text`.
@@ -1113,7 +1120,7 @@ export class VoiceSettingsPanel {
 					// 0-10, wrapping; the loader clamps anything hand-edited out of range.
 					const current = config.postProcessContextTurns ?? 2;
 					config.postProcessContextTurns = current >= 10 ? 0 : current + 1;
-					this.save();
+					this.savePolishNumbers();
 					break;
 				}
 				case 3: {
@@ -1123,7 +1130,7 @@ export class VoiceSettingsPanel {
 					// next load silently clamps back.
 					const current = config.postProcessTimeoutMs ?? 8000;
 					config.postProcessTimeoutMs = current >= 30000 ? 1000 : Math.min(current + 1000, 30000);
-					this.save();
+					this.savePolishNumbers();
 					break;
 				}
 				case 4:
@@ -1200,6 +1207,16 @@ export class VoiceSettingsPanel {
 	private save(): void {
 		const { config, cwd } = this.p;
 		this.p.saveConfig(config, config.scope === "project" ? "project" : "global", cwd);
+	}
+
+	/**
+	 * Item 6: the polish numbers persist to the scope the config was loaded from — a
+	 * project file can set `config.scope` itself, and a write to the other file would
+	 * silently not be what the loader reads back. The other tabs keep using `save()`.
+	 */
+	private savePolishNumbers(): void {
+		const { config, cwd } = this.p;
+		this.p.saveConfig(config, this.p.getPolishScope(), cwd);
 	}
 
 	// ─── TTS Model picker ──────────────────────────────────────────────────
