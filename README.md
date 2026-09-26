@@ -377,6 +377,10 @@ the selected model is a cloud provider, the text that leaves your machine is:
   earlier messages, so it can carry residues of thinking and tool output, and it measured no
   gain over the turns alone.
 
+One measured behaviour is worth knowing: a model that thinks before it answers may normalise a
+spoken operator into its symbol — `select star` comes back as `select *`. The information is
+unchanged, there is no setting for it, and `/voice-polish off` is the way to keep the words verbatim.
+
 Assistant text can contain anything the conversation contained — file paths,
 identifiers, values the agent echoed. The character limits bound how much is sent,
 not how sensitive it is. With the local backend, nothing else leaves your machine,
