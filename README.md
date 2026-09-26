@@ -381,11 +381,24 @@ One measured behaviour is worth knowing: a model that thinks before it answers m
 spoken operator into its symbol — `select star` comes back as `select *`. The information is
 unchanged, there is no setting for it, and `/voice-polish off` is the way to keep the words verbatim.
 
+A reasoning model used to spend its whole token budget thinking about a long dictation, so the
+answer was truncated and the pass kept the raw transcript — which looked like polish quietly
+doing nothing past roughly half a minute of speech. Dictations longer than 200 characters now
+turn thinking off (the same 309-character input went from 10.2 s to 1.2 s with the same
+punctuation), while shorter ones keep it, because there it costs almost nothing and corrects
+terms and self-corrections better. The field only reaches OpenAI-compatible providers; one that
+ignores it behaves exactly as before.
+
 Assistant text can contain anything the conversation contained — file paths,
 identifiers, values the agent echoed. The character limits bound how much is sent,
 not how sensitive it is. With the local backend, nothing else leaves your machine,
 and audio never does: recognition runs on this machine with no API key. Turn the
 feature off with `/voice-polish off` or the Polish tab's Enabled row.
+
+Every dictation also writes one `voice-polish` entry into the session file: the raw
+transcript, what reached the editor and why the pass decided that. The model never sees
+these entries — they are not part of the conversation context — so they are there for
+analysis, and they do keep the raw text on disk for as long as the session file exists.
 
 | Setting                   | Scope              | Default     | Notes                                                   |
 | ------------------------- | ------------------ | ----------- | ------------------------------------------------------- |

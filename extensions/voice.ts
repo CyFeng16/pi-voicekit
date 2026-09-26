@@ -103,6 +103,8 @@ import { shouldArmReleaseDetectOnRepeat, decideRecordingStartTimer } from "./voi
 import { GapTimer, type TimerPort } from "./voice/release-controller";
 import { audioToolOrder, type AudioToolName } from "./voice/audio-tool";
 import {
+	buildPolishAudit,
+	polishSamplingOptions,
 	decideApply,
 	finalizePolishDisposition,
 	EDITOR_READ_FAILED,
@@ -971,7 +973,14 @@ export default function (pi: ExtensionAPI) {
 					ctx!.modelRegistry.complete(
 						model as never,
 						{ systemPrompt: request.systemPrompt, messages: request.messages as never },
-						{ signal, maxTokens: request.maxTokens }
+						{
+							signal,
+							maxTokens: request.maxTokens,
+							// Measured 2026-09-26: without this a reasoning model spends the whole budget thinking
+							// about a long dictation and the pass falls back to the raw text — see
+							// polishSamplingOptions.
+							...polishSamplingOptions(model as { reasoning?: boolean }, raw.length),
+						}
 					),
 				debug: (reason, data) => voiceDebug(`polish ${reason}`, data),
 			});
@@ -1787,16 +1796,37 @@ export default function (pi: ExtensionAPI) {
 					if (polishOutcome !== undefined) {
 						const final = finalizePolishDisposition(polishOutcome, wroteEditor, editorWriteFailed);
 						polishOutcome = final.status;
+						// One reason string for the debug log and the audit entry.
+						const reason = editorWriteFailed
+							? "editor-write-failed"
+							: !wroteEditor && !skipWrite
+								? "editor-write-skipped"
+								: polishTelemetry?.reason;
 						if (polishTelemetry) {
 							voiceDebug("polish result", {
 								...polishTelemetry,
 								disposition: final.disposition,
-								reason: editorWriteFailed
-									? "editor-write-failed"
-									: !wroteEditor && !skipWrite
-										? "editor-write-skipped"
-										: polishTelemetry.reason,
+								reason,
 							});
+						}
+						// Durable audit record: one CustomEntry per dictation, carrying the raw text, what
+						// actually reached the editor and why the pass did what it did. A CustomEntry never
+						// enters the model's context, so the pass stays analysable after the session ends
+						// without changing what the model sees. A failure here must not affect the dictation.
+						try {
+							pi.appendEntry(
+								"voice-polish",
+								buildPolishAudit({
+									raw: prefix + fullText,
+									written: wroteEditor ? finalText : undefined,
+									status: final.status,
+									disposition: final.disposition,
+									reason,
+									telemetry: polishTelemetry,
+								})
+							);
+						} catch (err) {
+							voiceDebug("polish audit entry failed", { error: String(err) });
 						}
 					}
 

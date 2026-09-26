@@ -1,5 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import {
+	buildPolishAudit,
+	polishSamplingOptions,
+	THINKING_MAX_CHARS,
 	decideApply,
 	finalizePolishDisposition,
 	EDITOR_READ_FAILED,
@@ -305,5 +308,65 @@ describe("polishTranscript", () => {
 			},
 		});
 		expect(result.contextChars).toBe(2);
+	});
+});
+
+describe("buildPolishAudit", () => {
+	test("records the raw text, the write and the outcome", () => {
+		const audit = buildPolishAudit({
+			raw: "把端口改成九零九零",
+			written: "把端口改成 9090。",
+			status: "applied",
+			disposition: "written",
+			reason: undefined,
+			telemetry: { model: "deepseek-flash", configured: "session", ms: 812, contextChars: 0, truncated: false },
+		});
+		expect(audit.version).toBe(1);
+		expect(audit.rawText).toBe("把端口改成九零九零");
+		expect(audit.writtenText).toBe("把端口改成 9090。");
+		expect(audit.applied).toBe(true);
+		expect(audit.status).toBe("applied");
+		expect(audit.disposition).toBe("written");
+		expect(audit.latencyMs).toBe(812);
+		expect(audit.truncated).toBe(false);
+		// An undefined field is omitted rather than written as null, so a later analysis can
+		// tell 'no reason recorded' from 'reason was empty'.
+		expect("reason" in audit).toBe(false);
+	});
+
+	test("a fallback keeps the raw text and is not applied", () => {
+		const audit = buildPolishAudit({ raw: "原文", status: "rejected", reason: "stop-reason:length" });
+		expect(audit.applied).toBe(false);
+		expect("writtenText" in audit).toBe(false);
+		expect(audit.reason).toBe("stop-reason:length");
+	});
+
+	test("a write identical to the raw text does not count as applied", () => {
+		const audit = buildPolishAudit({ raw: "同样", written: "同样", status: "applied" });
+		expect(audit.applied).toBe(false);
+		expect(audit.writtenText).toBe("同样");
+	});
+});
+
+describe("polishSamplingOptions", () => {
+	test("keeps thinking on for a short transcript and turns it off for a long one", () => {
+		expect(polishSamplingOptions({ reasoning: true }, 50)).toEqual({});
+		expect(polishSamplingOptions({ reasoning: true }, THINKING_MAX_CHARS)).toEqual({});
+		expect(polishSamplingOptions({ reasoning: true }, THINKING_MAX_CHARS + 1)).toEqual({
+			samplingParams: { reasoning_effort: "none" },
+		});
+	});
+
+	test("turns thinking off when the length is not a number, erring towards not truncating", () => {
+		expect(polishSamplingOptions({ reasoning: true }, Number.NaN)).toEqual({
+			samplingParams: { reasoning_effort: "none" },
+		});
+	});
+
+	test("stays out of the request for other models and for no model at all", () => {
+		expect(polishSamplingOptions({ reasoning: false }, 5000)).toEqual({});
+		expect(polishSamplingOptions({}, 5000)).toEqual({});
+		expect(polishSamplingOptions(undefined, 5000)).toEqual({});
+		expect(polishSamplingOptions(null, 5000)).toEqual({});
 	});
 });

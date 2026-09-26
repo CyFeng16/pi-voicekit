@@ -217,3 +217,92 @@ export async function polishTranscript(input: PolishInput): Promise<PolishResult
 		if (timer) clearTimeout(timer);
 	}
 }
+
+/**
+ * One durable record of what a pass did, written into the session file by the caller.
+ *
+ * `pi.appendEntry` stores it as a CustomEntry, which never enters the model's context, so
+ * this records the raw text, what actually reached the editor and why a pass fell back
+ * without changing anything the model sees. The shape is versioned so that a later analysis
+ * can tell which fields mean what.
+ */
+export interface PolishAudit {
+	version: 1;
+	rawText: string;
+	writtenText?: string;
+	/** True when a rewrite reached the editor; false for a fallback, a discard or no write. */
+	applied: boolean;
+	status?: string;
+	disposition?: string;
+	reason?: string;
+	model?: string;
+	configured?: string;
+	latencyMs?: number;
+	contextChars?: number;
+	truncated?: boolean;
+}
+
+export function buildPolishAudit(input: {
+	raw: string;
+	written?: string;
+	status?: string;
+	disposition?: string;
+	reason?: string;
+	telemetry?: {
+		model?: string;
+		configured?: string;
+		ms?: number;
+		contextChars?: number;
+		truncated?: boolean;
+	};
+}): PolishAudit {
+	const audit: PolishAudit = {
+		version: 1,
+		rawText: input.raw,
+		// A write that equals the raw text is still a write, but it did not change anything.
+		applied: input.written !== undefined && input.written !== input.raw,
+	};
+	if (input.written !== undefined) audit.writtenText = input.written;
+	if (input.status !== undefined) audit.status = input.status;
+	if (input.disposition !== undefined) audit.disposition = input.disposition;
+	if (input.reason !== undefined) audit.reason = input.reason;
+	const telemetry = input.telemetry;
+	if (telemetry) {
+		if (telemetry.model !== undefined) audit.model = telemetry.model;
+		if (telemetry.configured !== undefined) audit.configured = telemetry.configured;
+		if (telemetry.ms !== undefined) audit.latencyMs = telemetry.ms;
+		if (telemetry.contextChars !== undefined) audit.contextChars = telemetry.contextChars;
+		if (telemetry.truncated !== undefined) audit.truncated = telemetry.truncated;
+	}
+	return audit;
+}
+
+/**
+ * Extra request fields for the polish call, or nothing when the model has no thinking to turn
+ * off.
+ *
+ * Short transcripts keep thinking on: it is cheap there and the wording comes out better.
+ * Measured 2026-09-26 on the acceptance corpus, thinking on won exactly the samples this pass
+ * exists for — a self-correction merged for +1.71 CER with it on against 0 with it off, and two
+ * zh-en term samples +0.08/+0.10 against 0 — while a 161-character transcript spent only 66
+ * reasoning tokens in 0.47 s.
+ *
+ * Long transcripts turn it off: there thinking grows far past the token budget (309 characters
+ * needed ~1700 reasoning tokens, 471 characters ~2800-4400, against a budget of 1130-1454), so the
+ * answer was truncated and the pass fell back to the raw transcript — intermittently, which is
+ * what made a long dictation look unpolished. With thinking off the same input finished in ~1.2 s
+ * and spent no reasoning tokens at all.
+ *
+ * `samplingParams` is applied by OpenAI-compatible adapters only, and the `reasoning` gate keeps
+ * the field away from models with no thinking at all.
+ */
+export const THINKING_MAX_CHARS = 200;
+
+export function polishSamplingOptions(
+	model: { reasoning?: boolean } | undefined | null,
+	rawLength: number
+): { samplingParams?: { reasoning_effort: string } } {
+	if (!model || model.reasoning !== true) return {};
+	if (Number.isFinite(rawLength) && rawLength <= THINKING_MAX_CHARS) return {};
+	return { samplingParams: { reasoning_effort: "none" } };
+}

@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Polish audit records** — every dictation writes one `voice-polish` entry into the
+  session file with the raw transcript, what reached the editor and why the pass decided
+  that. It is a custom entry the model never sees, so the polish behaviour stays
+  analysable after the fact without changing the conversation.
+
+### Fixed
+
+- Long dictations no longer fall back to the raw transcript. A reasoning model spent the
+  whole token budget thinking about the text — a 309-character dictation needed about
+  1,700 reasoning tokens and a 471-character one 2,800–4,400, against a budget of
+  1,130–1,454 — so the answer was truncated and the pass kept the raw transcript, which
+  looked like polish silently doing nothing past roughly half a minute of speech. Past 200
+  characters the polish call now turns thinking off (the same input went from 10.2 s to
+  1.2 s, spending no reasoning tokens at all); below that it keeps thinking, where it is
+  nearly free and corrects terms and self-corrections better. The field reaches
+  OpenAI-compatible providers only.
+
 ## [0.2.0] - 2026-09-26
 
 ### Added
