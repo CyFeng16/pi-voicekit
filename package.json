@@ -1,6 +1,6 @@
 {
   "name": "pi-voicekit",
-  "version": "0.2.3",
+  "version": "0.3.0",
   "description": "Voice in + voice out for Pi CLI — hold-to-talk STT (Deepgram streaming or 21 offline models) plus TTS (Kitten Nano, Piper, Kokoro, or Deepgram Aura)",
   "type": "module",
   "keywords": [
