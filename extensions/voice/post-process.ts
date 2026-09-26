@@ -319,14 +319,19 @@ export function buildPolishAudit(input: {
  *
  * `samplingParams` is applied by OpenAI-compatible adapters only, and the `reasoning` gate keeps
  * the field away from models with no thinking at all.
+ *
+ * `forceOff` is the segmented queue's retry: the attempt already burned its deadline, so it runs
+ * small and cheap regardless of length. It overrides the length gate only - a model with no
+ * thinking still gets no sampling fields at all.
  */
 export const THINKING_MAX_CHARS = 200;
 
 export function polishSamplingOptions(
 	model: { reasoning?: boolean } | undefined | null,
-	rawLength: number
+	rawLength: number,
+	forceOff = false
 ): { samplingParams?: { reasoning_effort: string } } {
 	if (!model || model.reasoning !== true) return {};
-	if (Number.isFinite(rawLength) && rawLength <= THINKING_MAX_CHARS) return {};
+	if (!forceOff && Number.isFinite(rawLength) && rawLength <= THINKING_MAX_CHARS) return {};
 	return { samplingParams: { reasoning_effort: "none" } };
 }

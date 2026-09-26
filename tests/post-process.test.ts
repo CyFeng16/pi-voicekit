@@ -380,6 +380,15 @@ describe("polishSamplingOptions", () => {
 		});
 	});
 
+	test("forces thinking off for a retry even on a short transcript", () => {
+		expect(polishSamplingOptions({ reasoning: true }, 10, true)).toEqual({
+			samplingParams: { reasoning_effort: "none" },
+		});
+		// The default and an explicit false keep today's length gate.
+		expect(polishSamplingOptions({ reasoning: true }, 10)).toEqual({});
+		expect(polishSamplingOptions({ reasoning: true }, 10, false)).toEqual({});
+	});
+
 	test("turns thinking off when the length is not a number, erring towards not truncating", () => {
 		expect(polishSamplingOptions({ reasoning: true }, Number.NaN)).toEqual({
 			samplingParams: { reasoning_effort: "none" },

@@ -3,7 +3,11 @@
  *
  * Pure and dependency-injected like ./post-process: no Pi types, no TUI, no filesystem
  * and no network. The model call arrives as `call`, so ordering, the concurrency cap,
- * the per-segment timeout and per-segment isolation are all provable offline.
+ * the per-segment timeout, the single retry and per-segment isolation are all provable offline.
+ *
+ * The cap counts real calls, not segment promises: a slot is released when the injected
+ * transport settles, so a caller that ignores the abort signal keeps its slot after its
+ * segment timed out instead of letting a hung endpoint pile up calls past the cap.
  *
  * Spec: docs/superpowers/specs/2026-09-26-polish-pipeline-design.md §4.2, §4.3, §4.4
  * (a local design record, not part of the published package)
@@ -89,6 +93,20 @@ interface SegmentJob {
 	raw: string;
 }
 
+/** One real call, which owns a concurrency slot until the transport settles - timeout or not. */
+interface LiveCall {
+	settled: boolean;
+	orphaned: boolean;
+}
+
+/** One attempt: its result, whether a request really went out, or that no slot ever freed. */
+interface AttemptRun {
+	issued: boolean;
+	denied: boolean;
+	result: PolishResult | null;
+	error?: unknown;
+}
+
 /**
  * Stitch segment texts into one transcript. Two adjacent CJK characters take no separator,
  * so Chinese stays "这是第一段这是第二段" while English keeps "first part second part"; every
@@ -172,13 +190,83 @@ export function createPolishQueue(options: PolishQueueOptions): PolishQueue {
 	/** Raw text by index: the join order, and the reference turn for the next segment. */
 	const raws = new Map<number, string>();
 	const outcomes = new Map<number, SegmentOutcome>();
-	const pending: SegmentJob[] = [];
-	let active = 0;
+	/**
+	 * Real calls in flight, and how many of them outlived their segment. A slot is released when
+	 * the transport settles, never when the segment deadline fires: an injected caller that
+	 * ignores the abort signal keeps its slot, so a hung endpoint cannot push the live request
+	 * count past `concurrency`. `running` counts segments whose outcome is not decided yet.
+	 */
+	let liveCalls = 0;
+	let orphanedCalls = 0;
+	let running = 0;
+	const slotWaiters: ((granted: boolean) => void)[] = [];
 	let finished: Promise<QueueResult> | null = null;
 	let resolveIdle: (() => void) | null = null;
 
+	function orderedIndexes(): number[] {
+		return [...raws.keys()].sort((left, right) => left - right);
+	}
+
+	function hasFreeSlot(): boolean {
+		return liveCalls < concurrency;
+	}
+
+	/**
+	 * True when no slot can free on its own: every live call has already outlived its deadline,
+	 * so waiting only delays the fallback. Every issued call sits inside a `polishTranscript`
+	 * timeout, so a live call either settles or becomes an orphan within one deadline.
+	 */
+	function capacityStuck(): boolean {
+		return !hasFreeSlot() && orphanedCalls >= liveCalls;
+	}
+
+	/** After a slot frees or an orphan appears: grant while slots last, else deny when stuck. */
+	function wakeWaiters(): void {
+		while (slotWaiters.length > 0) {
+			if (hasFreeSlot()) {
+				liveCalls += 1;
+				slotWaiters.shift()!(true);
+				continue;
+			}
+			if (capacityStuck()) {
+				for (const waiter of slotWaiters.splice(0)) waiter(false);
+			}
+			return;
+		}
+	}
+
+	/** Take a slot right now, so a pushed segment reaches its caller without a microtask delay. */
+	function tryTakeSlot(): boolean {
+		if (!hasFreeSlot()) return false;
+		liveCalls += 1;
+		return true;
+	}
+
+	/** Wait for a slot; false means no live call will ever free one, so the segment falls back. */
+	function waitForSlot(): Promise<boolean> {
+		if (tryTakeSlot()) return Promise.resolve(true);
+		if (capacityStuck()) return Promise.resolve(false);
+		return new Promise<boolean>((resolve) => {
+			slotWaiters.push(resolve);
+		});
+	}
+
+	function releaseSlot(orphaned: boolean): void {
+		if (orphaned) orphanedCalls = Math.max(0, orphanedCalls - 1);
+		liveCalls = Math.max(0, liveCalls - 1);
+		wakeWaiters();
+	}
+
+	/** The attempt is over but its call never settled: the slot stays held until it does. */
+	function markOrphaned(call: LiveCall): void {
+		if (call.orphaned) return;
+		call.orphaned = true;
+		orphanedCalls += 1;
+		wakeWaiters();
+	}
+
 	function resolveIdleNow(): void {
-		if (!resolveIdle || active > 0 || pending.length > 0) return;
+		if (!resolveIdle || running > 0) return;
 		const resolve = resolveIdle;
 		resolveIdle = null;
 		resolve();
@@ -186,18 +274,8 @@ export function createPolishQueue(options: PolishQueueOptions): PolishQueue {
 
 	function settle(job: SegmentJob, outcome: SegmentOutcome): void {
 		outcomes.set(job.index, outcome);
-		active -= 1;
-		pump();
+		running -= 1;
 		resolveIdleNow();
-	}
-
-	/** Bounded worker pool: at most `concurrency` segment calls are in flight at any moment. */
-	function pump(): void {
-		while (active < concurrency && pending.length > 0) {
-			const job = pending.shift()!;
-			active += 1;
-			void runSegment(job).then((outcome) => settle(job, outcome));
-		}
 	}
 
 	/**
@@ -230,14 +308,43 @@ export function createPolishQueue(options: PolishQueueOptions): PolishQueue {
 		};
 	}
 
-	function outcomeFrom(job: SegmentJob, result: PolishResult, retried: boolean, started: number): SegmentOutcome {
-		const latencyMs = Math.max(0, clock() - started);
-		if (result.status === "applied") {
-			return { index: job.index, status: "applied", text: result.text, retried, latencyMs };
-		}
-		const outcome: SegmentOutcome = { index: job.index, status: "fallback", text: job.raw, retried, latencyMs };
-		if (result.reason !== undefined) outcome.reason = result.reason;
+	function appliedOutcome(job: SegmentJob, text: string, retried: boolean, started: number): SegmentOutcome {
+		return { index: job.index, status: "applied", text, retried, latencyMs: Math.max(0, clock() - started) };
+	}
+
+	function fallbackOutcome(
+		job: SegmentJob,
+		reason: string | undefined,
+		retried: boolean,
+		started: number
+	): SegmentOutcome {
+		const outcome: SegmentOutcome = {
+			index: job.index,
+			status: "fallback",
+			text: job.raw,
+			retried,
+			latencyMs: Math.max(0, clock() - started),
+		};
+		if (reason !== undefined) outcome.reason = reason;
 		return outcome;
+	}
+
+	function reasonOf(run: AttemptRun): string | undefined {
+		if (run.error !== undefined) {
+			return run.error instanceof Error && run.error.message ? run.error.message : "segment-error";
+		}
+		if (run.denied) return "no-capacity";
+		return run.result?.reason;
+	}
+
+	/**
+	 * Spec §4.2: one retry, and only for a call that timed out or failed at the transport. A
+	 * guardrail rejection means the rewrite was wrong rather than slow, so repeating it cannot
+	 * help; an attempt that never issued a request has nothing to repeat.
+	 */
+	function isRetryable(run: AttemptRun): boolean {
+		if (!run.issued || !run.result || run.result.status !== "rejected") return false;
+		return run.result.reason === "timeout" || run.result.reason === "call-failed";
 	}
 
 	function unexpectedOutcome(job: SegmentJob, error: unknown, latencyMs: number): SegmentOutcome {
@@ -251,10 +358,17 @@ export function createPolishQueue(options: PolishQueueOptions): PolishQueue {
 		};
 	}
 
-	async function runSegment(job: SegmentJob): Promise<SegmentOutcome> {
-		const started = clock();
+	/**
+	 * One model attempt. The slot is taken before `polishTranscript` starts its deadline, so a
+	 * segment that waited for capacity still gets its full timeout, and the slot goes back only
+	 * once the transport settles.
+	 */
+	async function runAttempt(job: SegmentJob, forceOff: boolean): Promise<AttemptRun> {
+		if (!tryTakeSlot() && !(await waitForSlot())) return { issued: false, denied: true, result: null };
+		const call: LiveCall = { settled: false, orphaned: false };
+		let issued = false;
 		try {
-			const sampling = polishSamplingOptions(options.model, job.raw.length);
+			const sampling = polishSamplingOptions(options.model, job.raw.length, forceOff);
 			const result = await polishTranscript({
 				raw: job.raw,
 				entries: entriesForSegment(job.index),
@@ -262,10 +376,40 @@ export function createPolishQueue(options: PolishQueueOptions): PolishQueue {
 				timeoutMs: options.timeoutMs,
 				timestamp: clock(),
 				isCurrent: options.isCurrent,
-				call: (request, signal) => options.call({ ...request, ...sampling }, signal),
+				call: async (request, signal) => {
+					issued = true;
+					try {
+						return await options.call({ ...request, ...sampling }, signal);
+					} finally {
+						call.settled = true;
+						releaseSlot(call.orphaned);
+					}
+				},
 				debug: debugFor(job.index),
 			});
-			return outcomeFrom(job, result, false, started);
+			if (!call.settled) markOrphaned(call);
+			return { issued, denied: false, result };
+		} catch (error) {
+			// `polishTranscript` normally reports through its result; this only covers a fault
+			// thrown before it could invoke the caller.
+			if (!issued) releaseSlot(false);
+			else if (!call.settled) markOrphaned(call);
+			return { issued, denied: false, result: null, error };
+		}
+	}
+
+	async function runSegment(job: SegmentJob): Promise<SegmentOutcome> {
+		const started = clock();
+		try {
+			const first = await runAttempt(job, false);
+			if (first.result?.status === "applied") return appliedOutcome(job, first.result.text, false, started);
+			const firstReason = reasonOf(first);
+			if (!isRetryable(first)) return fallbackOutcome(job, firstReason, false, started);
+			const second = await runAttempt(job, true);
+			if (second.result?.status === "applied") return appliedOutcome(job, second.result.text, second.issued, started);
+			// A retry that never reached the transport leaves the first failure as the reason.
+			const reason = second.issued ? (reasonOf(second) ?? firstReason) : firstReason;
+			return fallbackOutcome(job, reason, second.issued, started);
 		} catch (error) {
 			// Fail-open, last resort: this segment keeps its own raw text.
 			return unexpectedOutcome(job, error, Math.max(0, clock() - started));
@@ -274,7 +418,7 @@ export function createPolishQueue(options: PolishQueueOptions): PolishQueue {
 
 	function buildResult(): QueueResult {
 		const segments: SegmentOutcome[] = [];
-		for (const index of [...raws.keys()].sort((left, right) => left - right)) {
+		for (const index of orderedIndexes()) {
 			const outcome = outcomes.get(index);
 			if (outcome) {
 				segments.push(outcome);
@@ -300,6 +444,25 @@ export function createPolishQueue(options: PolishQueueOptions): PolishQueue {
 		};
 	}
 
+	/** Every segment raw, order kept: the last-resort result if the builder itself faults. */
+	function rawOnlyResult(reason: string): QueueResult {
+		const segments: SegmentOutcome[] = orderedIndexes().map((index) => ({
+			index,
+			status: "fallback" as const,
+			text: raws.get(index) ?? "",
+			reason,
+			retried: false,
+			latencyMs: 0,
+		}));
+		return {
+			text: joinSegments(segments.map((segment) => segment.text)),
+			segments,
+			polished: 0,
+			failed: segments.length,
+			retried: 0,
+		};
+	}
+
 	return {
 		push(index: number, raw: string): void {
 			// finish() is the barrier for one dictation: anything offered afterwards belongs to
@@ -310,17 +473,30 @@ export function createPolishQueue(options: PolishQueueOptions): PolishQueue {
 			// One segment per index: a repeated push would duplicate the text in the join.
 			if (raws.has(index)) return;
 			raws.set(index, raw);
-			pending.push({ index, raw });
-			pump();
+			running += 1;
+			const job: SegmentJob = { index, raw };
+			// Every pushed segment starts here; the slot pool, not this call site, bounds requests.
+			void runSegment(job).then(
+				(outcome) => settle(job, outcome),
+				(error: unknown) => settle(job, unexpectedOutcome(job, error, 0))
+			);
 		},
 
 		finish(): Promise<QueueResult> {
 			if (!finished) {
 				finished = new Promise<QueueResult>((resolve) => {
-					resolveIdle = () => resolve(buildResult());
+					// The result builder is the last place a fault could cost the dictation its
+					// text, so a throw still resolves with the ordered raw transcript.
+					resolveIdle = () => {
+						try {
+							resolve(buildResult());
+						} catch {
+							resolve(rawOnlyResult("result-error"));
+						}
+					};
 				});
-				// Nothing buffered and nothing running: resolve in this tick instead of waiting
-				// for a push that may never come.
+				// Nothing pushed: resolve in this tick instead of waiting for a segment that may
+				// never come.
 				resolveIdleNow();
 			}
 			return finished;

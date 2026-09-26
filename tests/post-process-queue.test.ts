@@ -116,6 +116,97 @@ describe("createPolishQueue", () => {
 		expect(result.segments[1]!.reason).toBe("timeout");
 	});
 
+	test("retries a timed-out segment once with thinking off", async () => {
+		const requests: QueuePolishRequest[] = [];
+		const queue = createPolishQueue({
+			timeoutMs: 20,
+			model: { reasoning: true },
+			call: (request) => {
+				requests.push(request);
+				// The first attempt hangs even though its text is short enough for thinking, so the
+				// retry has to be visible in the request itself, not inferred from the outcome.
+				if (requests.length === 1) return new Promise<AssistantLike>(() => {});
+				return Promise.resolve(assistant("重试后的文本"));
+			},
+		});
+		queue.push(0, "短句重试");
+		const result = await queue.finish();
+		expect(requests).toHaveLength(2);
+		expect(requests[0]).not.toHaveProperty("samplingParams");
+		expect(requests[1]!.samplingParams).toEqual({ reasoning_effort: "none" });
+		expect(result.segments[0]).toMatchObject({ status: "applied", retried: true });
+		expect(result.text).toBe("重试后的文本");
+		expect(result.retried).toBe(1);
+		expect(result.failed).toBe(0);
+	});
+
+	test("retries once when the transport fails outright", async () => {
+		const requests: QueuePolishRequest[] = [];
+		const queue = createPolishQueue({
+			timeoutMs: 200,
+			call: (request) => {
+				requests.push(request);
+				if (requests.length === 1) return Promise.reject(new Error("socket closed"));
+				return Promise.resolve(assistant("重试成功"));
+			},
+		});
+		queue.push(0, "调用失败");
+		const result = await queue.finish();
+		expect(requests).toHaveLength(2);
+		expect(result.text).toBe("重试成功");
+		expect(result.retried).toBe(1);
+	});
+
+	test("does not retry a guardrail rejection", async () => {
+		const requests: QueuePolishRequest[] = [];
+		const queue = createPolishQueue({
+			timeoutMs: 200,
+			model: { reasoning: true },
+			call: (request) => {
+				requests.push(request);
+				// A non-stop finish is a wrong rewrite, not a slow one: repeating it cannot help.
+				return Promise.resolve(assistant("", { stopReason: "error" }));
+			},
+		});
+		queue.push(0, "guardrail 段的原文");
+		const result = await queue.finish();
+		expect(requests).toHaveLength(1);
+		expect(result.segments[0]!.status).toBe("fallback");
+		expect(result.segments[0]!.retried).toBe(false);
+		expect(result.text).toBe("guardrail 段的原文");
+		expect(result.retried).toBe(0);
+	});
+
+	test("never lets a caller that ignores the abort signal exceed the cap", async () => {
+		let started = 0;
+		let live = 0;
+		let peak = 0;
+		const queue = createPolishQueue({
+			timeoutMs: 10,
+			model: { reasoning: true },
+			call: () => {
+				started += 1;
+				live += 1;
+				peak = Math.max(peak, live);
+				// A hung endpoint that ignores the signal: the timeout must fall the segment back
+				// without freeing its slot, or a long dictation piles up requests past the cap.
+				return new Promise<AssistantLike>(() => {});
+			},
+		});
+		for (let index = 0; index < 6; index += 1) queue.push(index, `hanging segment ${index}`);
+		const result = await queue.finish();
+		expect(peak).toBe(POLISH_QUEUE_CONCURRENCY);
+		expect(started).toBe(POLISH_QUEUE_CONCURRENCY);
+		expect(live).toBe(POLISH_QUEUE_CONCURRENCY);
+		expect(result.polished).toBe(0);
+		expect(result.failed).toBe(6);
+		// No slot can free, so a retry would only wait: those segments fall back instead.
+		expect(result.retried).toBe(0);
+		expect(result.text).toBe(
+			"hanging segment 0 hanging segment 1 hanging segment 2 hanging segment 3 hanging segment 4 hanging segment 5"
+		);
+	});
+
 	test("one segment behaves exactly like the single-call path", async () => {
 		const requests: QueuePolishRequest[] = [];
 		const queue = createPolishQueue({
