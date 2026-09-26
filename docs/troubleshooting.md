@@ -142,7 +142,7 @@ Transcript polish is fail-open: most failure paths keep the raw transcript, so "
 Run with `PI_VOICE_DEBUG=1` and search the log for the `polish result` line:
 
 ```
-[voice 12:34:56.789Z] polish result {"model":"session","status":"rejected","reason":"too-long","ms":812,"contextChars":340,"truncated":false}
+[voice 12:34:56.789Z] polish result {"model":"anthropic/claude-sonnet-4-6","configured":"session","status":"rejected","ms":812,"contextChars":340,"truncated":false,"reason":"too-long","disposition":"failed"}
 ```
 
 - `status` — `applied`, `rejected` (raw text kept), or `skipped` (a newer recording or session took over).

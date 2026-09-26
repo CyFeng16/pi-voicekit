@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
 	decideApply,
+	finalizePolishDisposition,
 	EDITOR_READ_FAILED,
 	parseModelRef,
 	polishTranscript,
@@ -24,6 +25,22 @@ const baseInput = {
 	timeoutMs: 50,
 	timestamp: 7,
 };
+
+describe("finalizePolishDisposition", () => {
+	test("records actual writes, skipped writes and failures consistently", () => {
+		expect(finalizePolishDisposition("applied", true, false)).toEqual({ status: "applied", disposition: "written" });
+		expect(finalizePolishDisposition("applied", false, true)).toEqual({ status: "failed", disposition: "failed" });
+		expect(finalizePolishDisposition("applied", false, false)).toEqual({
+			status: "discarded",
+			disposition: "discarded",
+		});
+		expect(finalizePolishDisposition("discarded", false, false)).toEqual({
+			status: "discarded",
+			disposition: "discarded",
+		});
+		expect(finalizePolishDisposition("failed", true, false)).toEqual({ status: "failed", disposition: "failed" });
+	});
+});
 
 describe("validatePolishOutput", () => {
 	test("accepts a clean rewrite", () => {

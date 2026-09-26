@@ -152,6 +152,18 @@ export function decideApply(input: { tokenCurrent: boolean; editorSnapshot: stri
 	return { apply: true };
 }
 
+/** Final history and telemetry verdict, derived only after the editor write attempt. */
+export function finalizePolishDisposition(
+	planned: "applied" | "discarded" | "failed",
+	wroteEditor: boolean,
+	writeFailed: boolean
+): { status: "applied" | "discarded" | "failed"; disposition: "written" | "discarded" | "failed" } {
+	if (writeFailed) return { status: "failed", disposition: "failed" };
+	if (!wroteEditor || planned === "discarded") return { status: "discarded", disposition: "discarded" };
+	if (planned === "failed") return { status: "failed", disposition: "failed" };
+	return { status: "applied", disposition: "written" };
+}
+
 export interface PolishInput {
 	raw: string;
 	entries: readonly EntryLike[];

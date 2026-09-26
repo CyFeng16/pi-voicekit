@@ -104,6 +104,7 @@ import { GapTimer, type TimerPort } from "./voice/release-controller";
 import { audioToolOrder, type AudioToolName } from "./voice/audio-tool";
 import {
 	decideApply,
+	finalizePolishDisposition,
 	EDITOR_READ_FAILED,
 	parseModelRef,
 	polishModelOptions,
@@ -865,14 +866,24 @@ export default function (pi: ExtensionAPI) {
 	 * - `apply`: write `text` (the pass's rewrite, or the raw transcript on any failure).
 	 * - `discard`: the editor changed while we waited — write NOTHING, send NOTHING.
 	 * - `abort`: a newer recording or session owns the flow — leave the state alone.
-	 * `status` is the verdict history keeps: `applied` when the rewrite is used, `failed`
-	 * when the raw transcript is the fallback, `discarded` when nothing was written
-	 * because the editor was no longer the pass's.
+	 * `status` is provisional until the caller attempts the write. History and the
+	 * telemetry disposition are finalized together from the actual write result.
 	 */
-	type PolishOutcome =
+	type PolishOutcome = (
 		| { action: "apply"; text: string; status: "applied" | "failed" }
 		| { action: "discard"; text: string; status: "discarded" }
-		| { action: "abort"; text: string };
+		| { action: "abort"; text: string }
+	) & { telemetry?: PolishTelemetry };
+	type PolishTelemetry = {
+		model: string;
+		configured: string;
+		status: string;
+		ms: number;
+		contextChars?: number;
+		truncated?: boolean;
+		reason?: string;
+		error?: string;
+	};
 	async function runPolishPass(raw: string, editorSnapshot: string): Promise<PolishOutcome> {
 		const id: PolishPassToken = { invalidated: null };
 		activePolishPass = id;
@@ -990,21 +1001,16 @@ export default function (pi: ExtensionAPI) {
 				editorSnapshot,
 				currentEditor: readEditorOrFailed(),
 			});
-			// One record per pass, after the ownership decision, so the disposition — what
-			// happened to the editor — and its reason are final and a log can be grouped by
-			// model and disposition.
-			voiceDebug("polish result", {
-				...telemetry,
-				disposition: !decision.apply ? "discarded" : result.status === "applied" ? "applied" : "raw-fallback",
-				reason: decision.apply ? result.reason : decision.reason,
-			});
+			// The caller finalizes telemetry after the editor write, not at this decision.
+			const pendingTelemetry = { ...telemetry, reason: decision.apply ? result.reason : decision.reason };
 			if (!decision.apply) {
-				return { action: "discard", text: raw, status: "discarded" };
+				return { action: "discard", text: raw, status: "discarded", telemetry: pendingTelemetry };
 			}
 			return {
 				action: "apply",
 				text: result.status === "applied" ? result.text : raw,
 				status: result.status === "applied" ? "applied" : "failed",
+				telemetry: pendingTelemetry,
 			};
 		} catch (err) {
 			// Item 3: a throw here is decided by ownership, not by convenience. The pass's
@@ -1029,17 +1035,16 @@ export default function (pi: ExtensionAPI) {
 				editorSnapshot,
 				currentEditor: readEditorOrFailed(),
 			});
-			voiceDebug("polish result", {
+			const telemetry: PolishTelemetry = {
 				model: polishModelLabel(choice),
 				configured: choice.ref,
 				status: "failed",
 				ms: Date.now() - started,
-				disposition: decision.apply ? "raw-fallback" : "discarded",
 				reason: decision.reason ?? "pass-threw",
 				error: String(err),
-			});
-			if (!decision.apply) return { action: "discard", text: raw, status: "discarded" };
-			return { action: "apply", text: raw, status: "failed" };
+			};
+			if (!decision.apply) return { action: "discard", text: raw, status: "discarded", telemetry };
+			return { action: "apply", text: raw, status: "failed", telemetry };
 		} finally {
 			// R20: a stale pass must not restore its status text over the flow that
 			// replaced it — and a cosmetic status write is never allowed to throw.
@@ -1704,6 +1709,7 @@ export default function (pi: ExtensionAPI) {
 				let spokenText = fullText;
 				let skipWrite = false;
 				let polishOutcome: PolishOutcomeStatus | undefined;
+				let polishTelemetry: PolishTelemetry | undefined;
 				if (ctx?.hasUI && config.postProcessEnabled !== false) {
 					// R18: the streaming transport can finalize itself (ws.onclose /
 					// finalizeTimer) without going through stopVoiceRecording, so the state
@@ -1741,6 +1747,7 @@ export default function (pi: ExtensionAPI) {
 					if (outcome.action === "abort") return;
 					spokenText = outcome.text;
 					polishOutcome = outcome.status;
+					polishTelemetry = outcome.telemetry;
 					// The editor changed while we waited: keep the user's text, say so once.
 					if (outcome.action === "discard") {
 						skipWrite = true;
@@ -1758,6 +1765,7 @@ export default function (pi: ExtensionAPI) {
 					const finalText = prefix + spokenText;
 					// R21: history records what was actually written, not what was planned.
 					let wroteEditor = false;
+					let editorWriteFailed = false;
 
 					// A discarded pass must not write.
 					if (!skipWrite) {
@@ -1779,7 +1787,24 @@ export default function (pi: ExtensionAPI) {
 								}
 							}
 						} catch (err) {
+							editorWriteFailed = true;
 							voiceDebug("editor write threw — continuing the completion", { error: String(err) });
+						}
+					}
+
+					if (polishOutcome !== undefined) {
+						const final = finalizePolishDisposition(polishOutcome, wroteEditor, editorWriteFailed);
+						polishOutcome = final.status;
+						if (polishTelemetry) {
+							voiceDebug("polish result", {
+								...polishTelemetry,
+								disposition: final.disposition,
+								reason: editorWriteFailed
+									? "editor-write-failed"
+									: !wroteEditor && !skipWrite
+										? "editor-write-skipped"
+										: polishTelemetry.reason,
+							});
 						}
 					}
 
