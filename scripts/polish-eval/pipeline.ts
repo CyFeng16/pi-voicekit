@@ -32,7 +32,7 @@ import {
 } from "../../extensions/voice/post-process";
 import { createPolishQueue, type PolishQueueCaller, type QueueResult } from "../../extensions/voice/post-process-queue";
 import { fakeCaller, resolveCaller, type ResolvedCaller } from "./callers";
-import { median, p95 } from "./score";
+import { cer, correctionGain, meaningRisks, median, p95, punctuationScore } from "./score";
 
 export const EVAL_SAMPLE_RATE = 16000;
 export const DEFAULT_AUDIO_DIR = path.join(os.homedir(), ".pi", "voicekit-eval", "audio");
@@ -74,6 +74,8 @@ export interface PipelineRun {
 	segmentArrivalMs: number[];
 	result: QueueResult;
 	rawTranscript: string;
+	/** Each decoded piece in order, so a score can see where the segment seams landed. */
+	pieceTexts: string[];
 }
 
 export interface BaselineRun {
@@ -184,6 +186,53 @@ function formatReasons(reasons: Record<string, number>): string {
 	return entries.length === 0 ? "none" : entries.map(([reason, count]) => `${reason} x${count}`).join(", ");
 }
 
+export interface PipelineQuality {
+	/** Mean CER gain over runs: raw CER minus polished CER, so positive means the pass helped. */
+	cerGain: number;
+	punctuationBefore: number;
+	punctuationAfter: number;
+	/** CER of the raw transcript: how much this split damaged recognition itself. */
+	rawCer: number;
+	/** Punctuation marks in the reference, so an F1 of 0 against an unpunctuated corpus is readable. */
+	referenceMarks: number;
+}
+
+function punctuationMarks(text: string): number {
+	return (text.match(/[。！？!?.,，；;：:]/g) ?? []).length;
+}
+
+/** Score one run against the corpus reference: the quality half of the granularity comparison. */
+export function scoreRunQuality(run: PipelineRun, groundTruth: string): PipelineQuality {
+	const polished = run.result.text;
+	const gain = correctionGain(run.rawTranscript, polished, groundTruth);
+	const punctuation = punctuationScore(run.rawTranscript, polished, groundTruth);
+	const risks = meaningRisks(run.rawTranscript, polished, groundTruth);
+	const rawCer = cer(groundTruth, run.rawTranscript);
+	const referenceMarks = punctuationMarks(groundTruth);
+	return {
+		cerGain: gain.cerGain,
+		punctuationBefore: punctuation.before,
+		punctuationAfter: punctuation.after,
+		flagged: risks.any ? 1 : 0,
+		rawCer,
+		referenceMarks,
+	};
+}
+
+export function summarizeQuality(values: readonly PipelineQuality[]): PipelineQuality | undefined {
+	if (values.length === 0) return undefined;
+	const mean = (pick: (value: PipelineQuality) => number): number =>
+		values.reduce((sum, value) => sum + pick(value), 0) / values.length;
+	return {
+		cerGain: mean((value) => value.cerGain),
+		punctuationBefore: mean((value) => value.punctuationBefore),
+		punctuationAfter: mean((value) => value.punctuationAfter),
+		flagged: values.reduce((sum, value) => sum + value.flagged, 0),
+		rawCer: mean((value) => value.rawCer),
+		referenceMarks: mean((value) => value.referenceMarks),
+	};
+}
+
 export interface PipelineReportInput {
 	durationSec: number;
 	segmentsPerRun: number;
@@ -191,6 +240,8 @@ export interface PipelineReportInput {
 	callerDescription: string;
 	pipeline: PipelineSummary;
 	baseline: BaselineSummary;
+	/** Quality against the corpus reference; omitted when the corpus carried no references. */
+	quality?: PipelineQuality;
 }
 
 /** The compact report: pipeline first, then the single-call baseline, then the comparison. */
@@ -212,6 +263,10 @@ export function renderPipelineReport(input: PipelineReportInput): string {
 		comparison = `${(pipelineP50 / baselineP50).toFixed(1)}x slower than the single call`;
 	}
 	const fallbackDelta = (pipeline.fallbackRate - baseline.fallbackRate) * 100;
+	const quality = input.quality;
+	const qualityLine = quality
+		? `quality:    raw CER ${quality.rawCer.toFixed(3)} -> polished ${(quality.rawCer - quality.cerGain).toFixed(3)} (gain ${quality.cerGain >= 0 ? "+" : ""}${quality.cerGain.toFixed(3)}) | punctuation ${quality.punctuationBefore.toFixed(2)} -> ${quality.punctuationAfter.toFixed(2)} (reference has ${quality.referenceMarks.toFixed(0)} marks) | meaning flags ${quality.flagged}`
+		: "quality:    not scored (the corpus manifest carried no references)";
 	return [
 		`audio:      ${input.durationSec.toFixed(1)} s | ${input.segmentsPerRun} segments per run | recogniser ${input.localModel}`,
 		`caller:     ${input.callerDescription}`,
@@ -221,6 +276,7 @@ export function renderPipelineReport(input: PipelineReportInput): string {
 		`            mixed fallback (a failed segment beside a polished one): ${pipeline.mixedOutcome ? "yes" : "no"}`,
 		`baseline:   ${baseline.runs} run(s) | wall p50 ${formatMs(baseline.wall.p50)} / p95 ${formatMs(baseline.wall.p95)} | fallback ${formatPct(baseline.fallbackRate)} | reasons ${formatReasons(baseline.reasons)}`,
 		`comparison: pipeline is ${comparison}; fallback ${formatPct(baseline.fallbackRate)} -> ${formatPct(pipeline.fallbackRate)} (${fallbackDelta >= 0 ? "+" : "-"}${Math.abs(fallbackDelta).toFixed(1)} pts)`,
+		qualityLine,
 		"",
 	].join("\n");
 }
@@ -233,6 +289,10 @@ export interface AudioCorpus {
 	files: string[];
 	/** True when no `.pcm` sat next to the wavs and ffmpeg produced the raw stream. */
 	usedFfmpeg: boolean;
+	/** Reference text per used file, in the same order, for scoring the concatenated audio. */
+	references: string[];
+	/** The references joined the way the audio ran, so a score can compare against the transcript. */
+	groundTruth: string;
 }
 
 function walkFiles(root: string): string[] {
@@ -272,12 +332,53 @@ function decodeWavWithFfmpeg(file: string): Buffer {
 	return result.stdout;
 }
 
+/** Key an audio file by name without its extension: the harness reads `.pcm`, the manifest lists `.wav`. */
+function audioStem(file: string): string {
+	return path.basename(file).replace(/\.(pcm|wav)$/i, "");
+}
+
+/** Reference text per audio file, keyed by basename, from the corpus manifest next to the audio. */
+function loadReferences(audioDir: string): Map<string, string> {
+	const manifest = path.join(path.dirname(audioDir), "corpora-manifest.jsonl");
+	const references = new Map<string, string>();
+	if (!fs.existsSync(manifest)) return references;
+	for (const line of fs.readFileSync(manifest, "utf8").split("\n")) {
+		if (!line.trim() || line.startsWith("#")) continue;
+		try {
+			const row = JSON.parse(line) as { audio?: string; reference?: string };
+			if (row.audio && row.reference) {
+				references.set(audioStem(row.audio), row.reference);
+			}
+		} catch {
+			// A malformed manifest line must not sink the measurement.
+		}
+	}
+	return references;
+}
+
+/** Join reference sentences like the audio ran: no space inside CJK, one space between latin runs. */
+function joinReferences(parts: readonly string[]): string {
+	let out = "";
+	for (const part of parts) {
+		const text = part.trim();
+		if (!text) continue;
+		if (!out) {
+			out = text;
+			continue;
+		}
+		const cjk = /[\u3000-\u9fff\uff00-\uffef]/;
+		out += cjk.test(out.slice(-1)) && cjk.test(text[0] ?? "") ? text : ` ${text}`;
+	}
+	return out;
+}
+
 /**
- * Concatenate the evaluation corpus into one PCM. `.pcm` files are already 16 kHz mono s16le;
- * when only `.wav` files are present, ffmpeg produces the raw stream instead of downloading or
- * writing anything. Selection is sorted and stops once the target duration is covered.
+ * Concatenate the evaluation corpus into one PCM, with a short gap between clips so the VAD sees a
+ * natural pause there. `.pcm` files are already 16 kHz mono s16le; when only `.wav` files are
+ * present, ffmpeg produces the raw stream instead of downloading or writing anything. Selection is
+ * sorted and stops once the target duration is covered.
  */
-export function buildPcm(audioDir: string, targetSeconds: number): AudioCorpus {
+export function buildPcm(audioDir: string, targetSeconds: number, gapMs = 350): AudioCorpus {
 	if (!fs.existsSync(audioDir)) {
 		throw new Error(`no evaluation audio at ${audioDir} — fetch the corpus first`);
 	}
@@ -287,17 +388,32 @@ export function buildPcm(audioDir: string, targetSeconds: number): AudioCorpus {
 	const sources = pcmFiles.length > 0 ? pcmFiles : wavFiles;
 	if (sources.length === 0) throw new Error(`no .pcm or .wav files under ${audioDir}`);
 	const usedFfmpeg = pcmFiles.length === 0;
+	const references = loadReferences(audioDir);
 	const chunks: Buffer[] = [];
 	const used: string[] = [];
+	const usedReferences: string[] = [];
+	const gapBytes = Math.round((gapMs / 1000) * EVAL_SAMPLE_RATE) * 2;
 	let bytes = 0;
 	for (const file of sources) {
 		if (pcmDurationSec(bytes) >= targetSeconds) break;
 		const chunk = usedFfmpeg ? decodeWavWithFfmpeg(file) : fs.readFileSync(file);
+		if (bytes > 0 && gapBytes > 0) {
+			chunks.push(Buffer.alloc(gapBytes));
+			bytes += gapBytes;
+		}
 		chunks.push(chunk);
 		used.push(file);
+		usedReferences.push(references.get(audioStem(file)) ?? "");
 		bytes += chunk.length;
 	}
-	return { pcm: Buffer.concat(chunks), durationSec: pcmDurationSec(bytes), files: used, usedFfmpeg };
+	return {
+		pcm: Buffer.concat(chunks),
+		durationSec: pcmDurationSec(bytes),
+		files: used,
+		usedFfmpeg,
+		references: usedReferences,
+		groundTruth: joinReferences(usedReferences),
+	};
 }
 
 // ─── Real recogniser, real queue, injected caller ────────────────────────────
@@ -386,7 +502,8 @@ async function loadRecogniser(localModelId: string, language: string, split?: Sp
 	};
 	return {
 		modelLabel: model.id,
-		transcribe: async (pcm, onSegment) => (await decodeSegmentsInOrder(recognizer, piecesFor(pcm), onSegment)).join(" "),
+		transcribe: async (pcm, onSegment) =>
+			(await decodeSegmentsInOrder(recognizer, piecesFor(pcm), onSegment)).join(" "),
 	};
 }
 
@@ -402,6 +519,7 @@ interface RunOptions {
  */
 async function measurePipelineRun(pcm: Buffer, recogniser: RecogniserSetup, options: RunOptions): Promise<PipelineRun> {
 	const arrivals: number[] = [];
+	const pieceTexts: string[] = [];
 	const queue = createPolishQueue({
 		timeoutMs: options.timeoutMs,
 		entries: [],
@@ -412,12 +530,21 @@ async function measurePipelineRun(pcm: Buffer, recogniser: RecogniserSetup, opti
 	const start = performance.now();
 	const rawTranscript = await recogniser.transcribe(pcm, (text, index) => {
 		arrivals.push(performance.now() - start);
+		pieceTexts.push(text);
 		if (text.trim()) queue.push(index, text);
 	});
 	const recognitionMs = performance.now() - start;
 	const result = await queue.finish();
 	const wallMs = performance.now() - start;
-	return { wallMs, recognitionMs, tailMs: wallMs - recognitionMs, segmentArrivalMs: arrivals, result, rawTranscript };
+	return {
+		wallMs,
+		recognitionMs,
+		tailMs: wallMs - recognitionMs,
+		segmentArrivalMs: arrivals,
+		result,
+		rawTranscript,
+		pieceTexts,
+	};
 }
 
 /** The shipped single-call baseline on the same transcript, with the same sampling gate. */
@@ -460,6 +587,7 @@ interface PipelineArgs {
 	minSilence?: number;
 	maxSpeech?: number;
 	mergeK?: number;
+	gapMs: number;
 }
 
 export function parseArgs(argv: readonly string[]): PipelineArgs {
@@ -475,6 +603,7 @@ export function parseArgs(argv: readonly string[]): PipelineArgs {
 		reasoning: true,
 		help: false,
 		split: "vad",
+		gapMs: 350,
 	};
 	for (let index = 0; index < argv.length; index += 1) {
 		const flag = argv[index];
@@ -500,6 +629,7 @@ export function parseArgs(argv: readonly string[]): PipelineArgs {
 		else if (flag === "--min-silence") args.minSilence = Number(next() ?? 0.25);
 		else if (flag === "--max-speech") args.maxSpeech = Number(next() ?? 10);
 		else if (flag === "--merge-k") args.mergeK = Number(next() ?? 1);
+		else if (flag === "--gap-ms") args.gapMs = Number(next() ?? args.gapMs);
 	}
 	return args;
 }
@@ -517,6 +647,7 @@ const USAGE = [
 	"  --min-silence <secs>       pause length that ends a segment (default: 0.25, the shipped value)",
 	"  --max-speech <secs>        hard cap on one segment (default: 10, the shipped value)",
 	"  --merge-k <n>              glue n consecutive VAD pieces into one decode (default: 1)",
+	"  --gap-ms <n>               silence inserted between corpus clips (default: 350)",
 	"  --timeout-ms <n>           per-segment polish timeout (default: 8000)",
 	"  --caller fake|openai       fake is deterministic and offline (default: fake)",
 	"  --fake-fail <mode>         timeout|error|rejected-status|empty, to exercise fallbacks",
@@ -595,7 +726,7 @@ async function main(): Promise<number> {
 			"refusing to call a model over the network without --allow-network (the run costs money and sends transcript text)"
 		);
 	}
-	const corpus = buildPcm(args.audioDir, args.seconds);
+	const corpus = buildPcm(args.audioDir, args.seconds, args.gapMs);
 	console.log(
 		`pcm:        ${corpus.files.length} file(s), ${corpus.durationSec.toFixed(1)} s${corpus.usedFfmpeg ? " (decoded with ffmpeg from wav)" : ""}`
 	);
@@ -606,15 +737,19 @@ async function main(): Promise<number> {
 		maxSpeechSecs: args.maxSpeech,
 		mergeK: args.mergeK,
 	};
-	console.log(`split:      ${args.split}${args.mergeK ? ` merge-k=${args.mergeK}` : ""} min-silence=${args.minSilence ?? 0.25} max-speech=${args.maxSpeech ?? 10}`);
+	console.log(
+		`split:      ${args.split}${args.mergeK ? ` merge-k=${args.mergeK}` : ""} min-silence=${args.minSilence ?? 0.25} max-speech=${args.maxSpeech ?? 10}`
+	);
 	const recogniser = await loadRecogniser(args.localModel, args.language, split);
 	const caller: PolishQueueCaller = resolved.caller;
 	const runOptions: RunOptions = { caller, timeoutMs: args.timeoutMs, model: { reasoning: args.reasoning } };
 	const pipelineRuns: PipelineRun[] = [];
 	const baselineRuns: BaselineRun[] = [];
+	const qualities: PipelineQuality[] = [];
 	for (let index = 0; index < args.repeats; index += 1) {
 		const run = await measurePipelineRun(corpus.pcm, recogniser, runOptions);
 		const baseline = await measureBaselineRun(run.rawTranscript, runOptions);
+		qualities.push(scoreRunQuality(run, corpus.groundTruth));
 		pipelineRuns.push(run);
 		baselineRuns.push(baseline);
 		console.log(
@@ -630,6 +765,7 @@ async function main(): Promise<number> {
 		callerDescription: resolved.description,
 		pipeline: summary,
 		baseline,
+		quality: summarizeQuality(qualities),
 	});
 	process.stdout.write(report);
 	if (args.out) {
