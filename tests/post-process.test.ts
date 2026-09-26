@@ -400,6 +400,25 @@ describe("buildPolishAudit", () => {
 		expect("segments" in buildPolishAudit({ raw: "x" })).toBe(false);
 	});
 
+	test("records the recogniser that produced the dictation", () => {
+		const audit = buildPolishAudit({
+			raw: "本地转写的原文",
+			written: "本地转写的原文。",
+			status: "applied",
+			backend: "local",
+			recognizer: "parakeet-v3",
+			telemetry: { model: "test-model", configured: "session", ms: 400, contextChars: 0, truncated: false },
+		});
+		expect(audit.backend).toBe("local");
+		expect(audit.recognizer).toBe("parakeet-v3");
+	});
+
+	test("omits the recogniser when the backend has no local model", () => {
+		// Omitted rather than written as an empty string, so a later analysis can tell
+		// 'no local recogniser' from 'the id was unknown'.
+		expect("recognizer" in buildPolishAudit({ raw: "x" })).toBe(false);
+	});
+
 	test("a fallback keeps the raw text and is not applied", () => {
 		const audit = buildPolishAudit({ raw: "原文", status: "rejected", reason: "stop-reason:length" });
 		expect(audit.applied).toBe(false);

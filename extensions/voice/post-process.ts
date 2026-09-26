@@ -265,6 +265,12 @@ export interface PolishAudit {
 	durationSec?: number;
 	/** Which recogniser produced it, so results are never pooled across backends. */
 	backend?: string;
+	/**
+	 * The local model that produced the text (e.g. "parakeet-v3"), so dictations can be
+	 * grouped by recogniser within the local backend. Absent for cloud backends, which
+	 * carry their own server-side model choice.
+	 */
+	recognizer?: string;
 	/** Per-segment outcome when the segmented queue produced this dictation. */
 	segments?: PolishAuditSegments;
 	/** True when the pass asked the model not to think. */
@@ -284,6 +290,7 @@ export function buildPolishAudit(input: {
 	thinkingOff?: boolean;
 	durationSec?: number;
 	backend?: string;
+	recognizer?: string;
 	segments?: PolishAuditSegments;
 	maxTokens?: number;
 	telemetry?: {
@@ -310,6 +317,7 @@ export function buildPolishAudit(input: {
 	if (input.maxTokens !== undefined) audit.maxTokens = input.maxTokens;
 	if (input.durationSec !== undefined) audit.durationSec = input.durationSec;
 	if (input.backend !== undefined) audit.backend = input.backend;
+	if (input.recognizer !== undefined) audit.recognizer = input.recognizer;
 	if (input.segments !== undefined) audit.segments = input.segments;
 	const telemetry = input.telemetry;
 	if (telemetry) {

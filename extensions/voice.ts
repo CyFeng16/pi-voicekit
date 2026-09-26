@@ -94,6 +94,7 @@ import {
 	checkLocalServer,
 	LOCAL_MODELS,
 	DEFAULT_LOCAL_ENDPOINT,
+	DEFAULT_LOCAL_MODEL,
 	getLanguagesForLocalModel,
 	isLanguageSupportedByModel,
 	localLanguageDisplayName,
@@ -2130,6 +2131,9 @@ export default function (pi: ExtensionAPI) {
 									maxTokens: polishTelemetry?.maxTokens,
 									durationSec: Number(elapsed),
 									backend: config.backend,
+									// The local model in effect, with the same fallback the transcriber applies; omitted
+									// for cloud backends, which have no local model id to group by.
+									recognizer: config.backend === "local" ? config.localModel || DEFAULT_LOCAL_MODEL : undefined,
 									// One summary of the segmented pass; absent when a single call produced the text.
 									segments: polishTelemetry?.segments,
 									written: wroteEditor ? finalText : undefined,
