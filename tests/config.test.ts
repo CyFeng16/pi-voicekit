@@ -360,6 +360,33 @@ describe("saveGlobalVoiceFields", () => {
 		expect(saved.theme).toBe("dark");
 		expect(saved.voice.postProcessEnabled).toBe(false);
 	});
+
+	test("leaves a damaged settings file untouched instead of replacing it", () => {
+		const cwd = makeTempDir();
+		const agentDir = path.join(cwd, "agent-home");
+		const settingsPath = path.join(agentDir, "settings.json");
+		fs.mkdirSync(path.dirname(settingsPath), { recursive: true });
+		// Unparseable (a trailing comma) but present — not the same thing as missing.
+		const damaged = '{\n  "voice": { "ttsSpeed": 0.8, },\n  "theme": "dark"\n}\n';
+		fs.writeFileSync(settingsPath, damaged);
+
+		// The writer must refuse rather than merge into an empty object: a merge would
+		// drop the voice block's other keys and the file's top-level keys with it.
+		const original = process.stderr.write;
+		let report = "";
+		process.stderr.write = ((chunk: string | Uint8Array) => {
+			report += typeof chunk === "string" ? chunk : Buffer.from(chunk).toString();
+			return true;
+		}) as typeof process.stderr.write;
+		try {
+			expect(() => saveGlobalVoiceFields({ postProcessNoticeShown: true }, { agentDir })).toThrow();
+		} finally {
+			process.stderr.write = original;
+		}
+
+		expect(fs.readFileSync(settingsPath, "utf8")).toBe(damaged);
+		expect(report).toContain("not writing");
+	});
 });
 
 describe("isLoopbackEndpoint", () => {

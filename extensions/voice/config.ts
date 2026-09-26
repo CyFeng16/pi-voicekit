@@ -491,6 +491,7 @@ type GlobalVoiceFieldKey = "postProcessEnabled" | "postProcessModel" | "postProc
  *   schema version,
  * - no other key is created, changed or removed,
  * - a missing file or `voice` block is created,
+ * - a file that exists but cannot be parsed is refused, not overwritten,
  * - the write is atomic (temp file + rename), like `saveConfig`.
  */
 export function saveGlobalVoiceFields(
@@ -498,6 +499,20 @@ export function saveGlobalVoiceFields(
 	options: ConfigPathOptions = {}
 ): string {
 	const settingsPath = getGlobalSettingsPath(options);
+	// The shared reader reports a file it cannot parse exactly like a missing one, so this
+	// writer has to tell them apart itself: merging into `{}` would replace a damaged
+	// settings file with a fresh object and lose every other key. An existing file that
+	// cannot be read is logged and left untouched; throwing hands the failure to the
+	// caller's guard instead of silently reporting a write that never happened.
+	if (fs.existsSync(settingsPath)) {
+		try {
+			JSON.parse(fs.readFileSync(settingsPath, "utf8"));
+		} catch (err) {
+			const reason = err instanceof Error ? err.message : String(err);
+			process.stderr.write(`[pi-voicekit] Warning: not writing ${settingsPath}: ${reason}\n`);
+			throw new Error(`Refusing to overwrite an unreadable settings file: ${settingsPath}`);
+		}
+	}
 	const settings = readJsonFile(settingsPath);
 	const existing = settings[SETTINGS_KEY];
 	const voice: Record<string, unknown> =
