@@ -14,8 +14,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   sentence boundaries, in the speaker's own language. It runs automatically after
   each dictation when enabled, makes one extra model call, and sends the last N
   conversation turns (default 2) as disambiguation context — never tool calls or
-  tool results; the compaction summary rides along too once one exists, but only
-  while the turn count is above zero. A failure keeps the raw transcript, except
+  tool results, and never the compaction summary: that digest can carry residues of
+  earlier thinking and tool output, and it measured no gain over the turns alone. A
+  failure keeps the raw transcript, except
   when the editor changed while the pass was waiting — then nothing is written at
   all. Configure it with `/voice-polish on|off|model|turns`
   or the settings panel's new Polish tab; `/voice-polish last` shows the newest

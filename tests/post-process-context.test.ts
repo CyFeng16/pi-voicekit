@@ -67,21 +67,22 @@ describe("assembleContext", () => {
 		expect(joined).not.toContain("tool output");
 	});
 
-	test("includes the compaction summary as its own field", () => {
+	test("never surfaces the compaction summary, even when the entries carry one", () => {
 		const entries: EntryLike[] = [
 			{ type: "compaction", summary: "earlier: we set up the parser" },
 			msg("user", "carry on"),
 		];
 		const result = assembleContext(entries, limits);
-		expect(result.summary).toBe("earlier: we set up the parser");
+		// Dropped after the first acceptance round: it cost a disclosure category without
+		// measuring a gain over the turns alone.
+		expect(JSON.stringify(result)).not.toContain("earlier");
 		expect(result.turns.map((t) => t.text)).toEqual(["carry on"]);
 	});
 
-	test("turns = 0 yields no context at all, summary included", () => {
+	test("turns = 0 yields no context at all", () => {
 		const entries: EntryLike[] = [{ type: "compaction", summary: "earlier" }, msg("user", "a"), msg("assistant", "b")];
 		const result = assembleContext(entries, { ...limits, turns: 0 });
 		expect(result.turns).toEqual([]);
-		expect(result.summary).toBeUndefined();
 		expect(result.characters).toBe(0);
 	});
 
@@ -112,27 +113,13 @@ describe("assembleContext", () => {
 		expect(assembleContext(entries, limits).turns.map((t) => t.text)).toEqual(["ok"]);
 	});
 
-	test("gives the summary only the budget the turns leave, marker included", () => {
+	test("does not let a compaction entry consume the turn budget", () => {
 		const entries: EntryLike[] = [{ type: "compaction", summary: "s".repeat(50) }, msg("user", "short")];
 		const caps = { turns: 1, perEntryChars: 500, totalChars: 20 };
 		const result = assembleContext(entries, caps);
-		// "short" leaves 15 characters, so the summary keeps 14 characters + "…".
 		expect(result.turns.map((t) => t.text)).toEqual(["short"]);
-		expect(result.summary).toBe("s".repeat(14) + "…");
-		expect(result.summary!.length).toBe(15);
-		expect(result.characters).toBe(20);
-		expect(result.characters).toBeLessThanOrEqual(caps.totalChars);
-		expect(result.truncated).toBe(true);
-	});
-
-	test("omits the summary when the turns use the whole budget", () => {
-		const entries: EntryLike[] = [{ type: "compaction", summary: "earlier context" }, msg("user", "exactly!!")];
-		const caps = { turns: 1, perEntryChars: 500, totalChars: 9 };
-		const result = assembleContext(entries, caps);
-		expect(result.turns.map((t) => t.text)).toEqual(["exactly!!"]);
-		expect(result.summary).toBeUndefined();
-		expect(result.characters).toBe(9);
-		expect(result.characters).toBeLessThanOrEqual(caps.totalChars);
+		expect(result.characters).toBe(5);
+		expect(result.truncated).toBe(false);
 	});
 
 	test("drops whole turns, never an assistant entry without its user entry", () => {

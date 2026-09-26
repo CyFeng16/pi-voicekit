@@ -274,7 +274,7 @@ Models from [Handy](https://github.com/cjpais/handy) (`~/Library/Application Sup
 | **Pre-recording**                | Audio capture starts during warmup — you never miss the first word                       |
 | **Tail recording**               | Keeps recording 1.5s after release so your last word isn't clipped                       |
 | **Live streaming**               | Deepgram Nova 3 WebSocket (Nova 2 for Chinese locales) — live interim transcripts        |
-| **Transcript polish**            | Optional post-ASR cleanup — every dictation makes one extra model call; the last N conversation turns (default 2) are sent with it, plus the compaction summary after one — both only while the turn count is above zero. Disable with `/voice-polish off` |
+| **Transcript polish**            | Optional post-ASR cleanup — every dictation makes one extra model call; the last N conversation turns (default 2) are sent with it, and no conversation context at all when the turn count is zero. Disable with `/voice-polish off` |
 | **56+ languages**                | Deepgram: 56+ with live streaming. Local: up to 57 depending on model.                   |
 | **Continuous dictation**         | `/voice dictate` for long-form input without holding keys                                |
 | **Typing cooldown**              | Space holds within 400ms of typing are ignored                                           |
@@ -304,7 +304,7 @@ extensions/voice/device.ts                  Device profiling — RAM, GPU, CPU, 
 
 # transcript post-processing
 extensions/voice/post-process.ts            Polish pass — fail-open guardrails, model resolution, bounded call
-extensions/voice/post-process-context.ts    Context assembly — recent turns, compaction summary, character caps
+extensions/voice/post-process-context.ts    Context assembly — recent turns and character caps
 extensions/voice/post-process-prompt.ts     Fixed polish prompt and request shape
 
 # text-to-speech
@@ -373,9 +373,9 @@ the selected model is a cloud provider, the text that leaves your machine is:
 - the transcript of the dictation;
 - the last N conversation turns of user and assistant text, where N is
   `postProcessContextTurns` (default `2`; `0` sends no conversation context);
-- the compaction summary, when the session has been compacted and the turn count is
-  above zero. That summary is a digest built from earlier messages, so it can carry
-  residues of earlier thinking and tool output.
+- nothing else. The compaction summary is deliberately not sent: it is a digest built from
+  earlier messages, so it can carry residues of thinking and tool output, and it measured no
+  gain over the turns alone.
 
 Assistant text can contain anything the conversation contained — file paths,
 identifiers, values the agent echoed. The character limits bound how much is sent,
@@ -388,7 +388,7 @@ feature off with `/voice-polish off` or the Polish tab's Enabled row.
 | `postProcessEnabled`      | global only        | `true`      | Master switch. A project `voice` block cannot flip it.  |
 | `postProcessModel`        | global only        | `"session"` | Reuses the session model, or `provider/modelId`.        |
 | `postProcessContextTurns` | global and project | `2`         | Conversation turns sent with the transcript, `0`–`10`.  |
-| `postProcessTimeoutMs`    | global and project | `8000`      | Per-pass timeout in milliseconds, `1000`–`30000`.       |
+| `postProcessTimeoutMs`    | global and project | `12000`     | Per-pass timeout in milliseconds, `1000`–`30000`.       |
 
 The global-only fields resolve from `~/.pi/agent/settings.json` even when a
 repository provides its own `voice` block, so a cloned repo can neither turn the

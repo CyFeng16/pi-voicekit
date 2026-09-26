@@ -150,7 +150,7 @@ export const DEFAULT_CONFIG: VoiceConfig = {
 	postProcessEnabled: true,
 	postProcessModel: "session",
 	postProcessContextTurns: 2,
-	postProcessTimeoutMs: 8000,
+	postProcessTimeoutMs: 12000,
 	postProcessNoticeShown: false,
 	// TTS defaults — all opt-in
 	ttsEnabled: false,

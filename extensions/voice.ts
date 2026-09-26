@@ -907,17 +907,9 @@ export default function (pi: ExtensionAPI) {
 				ctx.ui.notify(
 					[
 						"Voice polish is on: every dictation makes one extra model call,",
-						// R27: zero turns suppress the compaction summary as well, so the disclosure
-						// must not promise it; DEFAULT_CONTEXT_LIMITS.turns is the pass's own default.
 						turns > 0
 							? `and the last ${turns} conversation turns are sent with it.`
 							: "and no conversation context is sent with it.",
-						...(turns > 0
-							? [
-									"After a compaction the summary is sent too — it is a digest that may",
-									"carry residues of earlier thinking and tool output.",
-								]
-							: []),
 						"Turn it off with /voice-polish off.",
 					].join(" "),
 					"info"

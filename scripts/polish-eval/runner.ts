@@ -25,7 +25,7 @@ import { polishTranscript, type PolishCaller } from "../../extensions/voice/post
 import { requireSingleBackend, toEntryLikes, type CorpusEntry } from "./corpus";
 import { median, p95, scoreSample, type SampleScore } from "./score";
 
-export const ARM_NAMES = ["no-context", "last-2-turns", "summary-only"] as const;
+export const ARM_NAMES = ["no-context", "last-2-turns"] as const;
 export type ArmName = (typeof ARM_NAMES)[number];
 export const PRIMARY_ARM: ArmName = "last-2-turns";
 
@@ -34,19 +34,13 @@ export interface ArmInput {
 	limits: ContextLimits;
 }
 
-/** What each arm sends: no context at all, the last N turns, or only the digest. */
+/** What each arm sends: no context at all, or the last N turns. The digest arm went away
+ * with the digest: the product no longer sends one. */
 export function buildArm(name: ArmName, entry: CorpusEntry, base: ContextLimits = DEFAULT_CONTEXT_LIMITS): ArmInput {
 	const likes = toEntryLikes(entry);
 	if (name === "no-context") {
-		// turns = 0 suppresses the summary too, so this arm is genuinely context-free.
+		// turns = 0 sends nothing at all, so this arm is genuinely context-free.
 		return { entries: likes, limits: { ...base, turns: 0 } };
-	}
-	if (name === "summary-only") {
-		return {
-			entries: likes.filter((item) => item.type === "compaction"),
-			// Above zero, or the arm would drop the summary it exists to measure.
-			limits: { ...base, turns: Math.max(1, base.turns) },
-		};
 	}
 	return { entries: likes.filter((item) => item.type !== "compaction"), limits: { ...base } };
 }

@@ -21,7 +21,7 @@ export interface ContextLimits {
 	turns: number;
 	/** Per-entry character cap on the text as returned, elision marker included. */
 	perEntryChars: number;
-	/** Total character cap across turns and summary. */
+	/** Total character cap across the turns that are kept. */
 	totalChars: number;
 }
 
@@ -32,7 +32,6 @@ export interface ContextTurn {
 
 export interface AssembledContext {
 	turns: ContextTurn[];
-	summary?: string;
 	/** Characters of the text as returned, elision markers included; never above totalChars. */
 	characters: number;
 	/** True when a cap dropped or shortened something. */
@@ -84,14 +83,13 @@ function resolveTurns(turns: number): number {
 	return Number.isFinite(turns) ? Math.max(0, Math.floor(turns)) : 0;
 }
 
-function toUnits(entries: readonly EntryLike[]): { units: ContextTurn[]; summary?: string } {
+function toUnits(entries: readonly EntryLike[]): ContextTurn[] {
 	const units: ContextTurn[] = [];
-	let summary: string | undefined;
 	for (const entry of entries) {
 		if (!entry || typeof entry !== "object") continue;
 		if (entry.type === "compaction") {
-			if (summary === undefined && typeof entry.summary === "string" && entry.summary.trim())
-				summary = entry.summary.trim();
+			// A compaction entry is skipped outright: the digest it carries can hold residues
+			// of thinking and tool output, and it measured no gain over the turns alone.
 			continue;
 		}
 		if (entry.type !== "message" || !entry.message) continue;
@@ -103,7 +101,7 @@ function toUnits(entries: readonly EntryLike[]): { units: ContextTurn[]; summary
 		// contributes nothing at all.
 		if (role === "user" || text) units.push({ role, text });
 	}
-	return { units, summary };
+	return units;
 }
 
 /** A turn is one user entry plus every following non-user entry (spec §4.3 item 3). */
@@ -140,12 +138,9 @@ function fitTurnToBudget(turn: readonly ContextTurn[], budget: number): ContextT
 }
 
 export function assembleContext(entries: readonly EntryLike[], limits: ContextLimits): AssembledContext {
-	const { units, summary: rawSummary } = toUnits(entries);
+	const units = toUnits(entries);
 	// R10: resolve the turn limit once, locally — see resolveTurns.
 	const turns = resolveTurns(limits.turns);
-	// turns = 0 means "no context at all", so the summary is out too — otherwise
-	// the spec's contrast arm would not be context-free (Review Focus 5).
-	const useSummary = turns > 0 ? rawSummary : undefined;
 	let truncated = false;
 
 	let start = units.length;
@@ -182,24 +177,9 @@ export function assembleContext(entries: readonly EntryLike[], limits: ContextLi
 	}
 	const kept = keptTurns.flat();
 
-	// R8: the summary draws on what the turns left over, and is omitted entirely
-	// when nothing is left.
-	let summary: string | undefined;
-	if (useSummary !== undefined) {
-		const remaining = limits.totalChars - characters;
-		if (remaining >= 1) {
-			const capped = truncateHead(useSummary, remaining);
-			summary = capped.text;
-			if (capped.truncated) truncated = true;
-		} else {
-			truncated = true;
-		}
-	}
-
 	return {
 		turns: kept,
-		summary,
-		characters: characters + (summary?.length ?? 0),
+		characters,
 		truncated,
 	};
 }

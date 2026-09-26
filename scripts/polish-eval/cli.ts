@@ -26,7 +26,7 @@ import { DEFAULT_CORPUS_PATH, loadCorpus, saveCorpus } from "./corpus";
 import type { CorpusEntry } from "./corpus";
 import { extractTranscript, resolveCaller } from "./callers";
 import type { ResolvedCaller } from "./callers";
-import type { PolishCaller } from "../extensions/voice/post-process";
+import type { PolishCaller } from "../../extensions/voice/post-process";
 import { ARM_NAMES, renderMarkdownReport, runEvaluation } from "./runner";
 import type { ArmName, RunResult } from "./runner";
 

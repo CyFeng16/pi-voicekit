@@ -39,7 +39,7 @@ non-zero when a gate fails.
 | `run --corpus <file> [options]` | Run the pass over the corpus and score it |
 | `compare --report <a.json> --against <b.json>` | Compare two runs, refusing to compare different configurations |
 
-`run` options: `--caller fake|oracle|openai`, `--arms no-context,last-2-turns,summary-only`,
+`run` options: `--caller fake|oracle|openai`, `--arms no-context,last-2-turns`,
 `--turns N`, `--timeout-ms N`, `--max-tokens N` (a budget override, for measuring what the
 shipped formula costs on a model that thinks before it answers), `--out <dir>`, `--full`,
 `--base-url URL`, `--model NAME`, `--allow-network`.
@@ -84,15 +84,14 @@ are never scored: turning `三零` back into `30` is the recogniser's job, not t
 
 ## Arms
 
-Three arms run by default, because the design record requires a three-way contrast
-before conversation context ships:
+Two arms run by default, because the design record requires the context to be gain-neutral
+or better against no context before it ships:
 
-- `no-context` — turns set to zero, which suppresses the summary too.
-- `last-2-turns` — the shipped default; conversation turns, never the digest.
-- `summary-only` — the compaction digest alone.
+- `no-context` — turns set to zero, which sends nothing at all.
+- `last-2-turns` — the shipped default: conversation turns, never a digest.
 
-Context ships only if the context arms are gain-neutral or better against
-`no-context`.
+There was a third arm for the compaction summary until the first acceptance round measured
+no gain over the turns alone; the product stopped sending the digest and the arm went with it.
 
 ## Reading the report
 

@@ -71,7 +71,7 @@ function flakyCaller(everyNth: number): PolishCaller {
 async function score(
 	corpus: readonly CorpusEntry[],
 	caller: PolishCaller,
-	arm: "no-context" | "last-2-turns" | "summary-only" = "last-2-turns"
+	arm: "no-context" | "last-2-turns" = "last-2-turns"
 ) {
 	return runArm({
 		entries: corpus,
@@ -137,13 +137,6 @@ describe("arms", () => {
 		expect(arm.entries.length).toBe(2);
 	});
 
-	test("summary-only keeps only the digest and keeps it above zero turns", () => {
-		const arm = buildArm("summary-only", CORPUS[0]!, DEFAULT_CONTEXT_LIMITS);
-		expect(arm.entries.length).toBe(1);
-		expect(arm.entries[0]?.type).toBe("compaction");
-		expect(arm.limits.turns).toBeGreaterThan(0);
-	});
-
 	test("the arms really differ in what the model is asked to read", async () => {
 		const seen: string[] = [];
 		const caller: PolishCaller = async (request) => {
@@ -152,13 +145,12 @@ describe("arms", () => {
 		};
 		const noContext = await score([CORPUS[0]!], caller, "no-context");
 		const turns = await score([CORPUS[0]!], caller, "last-2-turns");
-		const summary = await score([CORPUS[0]!], caller, "summary-only");
 		expect(seen[0]).toBe("");
 		expect(seen[1]).toContain("axios");
-		expect(seen[2]).toContain("Earlier");
+		// The digest is no longer sent, even when the corpus carries one.
+		expect(seen[1]).not.toContain("Earlier");
 		expect(noContext.samples[0]?.contextChars).toBe(0);
 		expect(turns.samples[0]?.contextChars).toBeGreaterThan(0);
-		expect(summary.samples[0]?.contextChars).toBeGreaterThan(0);
 	});
 });
 
@@ -284,7 +276,7 @@ describe("runEvaluation", () => {
 			timestamp: 0,
 		});
 		expect(run.backend).toBe("local");
-		expect(run.arms.length).toBe(3);
+		expect(run.arms.length).toBe(2);
 		expect(run.primaryArm).toBe("last-2-turns");
 		expect(run.gates.every((gate) => gate.status === "pass")).toBe(true);
 		expect(run.corpusSize).toBe(3);
@@ -344,7 +336,7 @@ describe("report", () => {
 		expect(report).toContain("| 1 | No sample loses or changes meaning | PASS |");
 		expect(report).toContain("## Context contrast");
 		expect(report).toContain("no-context");
-		expect(report).toContain("summary-only");
+		expect(report).not.toContain("summary-only");
 		expect(report).toContain("Nothing flagged.");
 		expect(report).toContain("Punct after");
 	});

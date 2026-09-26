@@ -7,7 +7,6 @@ const context: AssembledContext = {
 		{ role: "user", text: "看看这个 retry 逻辑" },
 		{ role: "assistant", text: "The retry wrapper lives in retry.ts" },
 	],
-	summary: "Earlier we discussed the parser.",
 	characters: 40,
 	truncated: false,
 };
@@ -24,10 +23,19 @@ describe("buildPolishRequest", () => {
 		]);
 		const content = request.messages[0]!.content;
 		expect(content.indexOf("<CONTEXT>")).toBeLessThan(content.indexOf("<TRANSCRIPT>"));
-		expect(content).toContain("<CONTEXT_SUMMARY>");
+		expect(content.endsWith("</TRANSCRIPT>")).toBe(true);
 	});
 
-	test("omits empty context blocks", () => {
+	test("never sends a compaction digest", () => {
+		// Dropped after the first acceptance round: the digest can carry residues of thinking
+		// and tool output, so it cost a disclosure category, and it measured no gain over the
+		// turns alone.
+		const request = buildPolishRequest(context, "raw", 1);
+		expect(request.messages[0]!.content).not.toContain("<CONTEXT_SUMMARY>");
+		expect(request.messages[0]!.content).not.toContain("Earlier we discussed");
+	});
+
+	test("sends no context block at all when there are no turns", () => {
 		const request = buildPolishRequest({ turns: [], characters: 0, truncated: false }, "raw", 1);
 		expect(request.messages[0]!.content).not.toContain("<CONTEXT");
 		expect(request.messages[0]!.content.startsWith("<TRANSCRIPT>")).toBe(true);
@@ -56,13 +64,28 @@ describe("POLISH_SYSTEM_PROMPT", () => {
 			expect(POLISH_SYSTEM_PROMPT).toContain(rule);
 		}
 	});
+
+	test("only ever mentions the context block it can receive", () => {
+		expect(POLISH_SYSTEM_PROMPT).toContain("<CONTEXT>");
+		expect(POLISH_SYSTEM_PROMPT).not.toContain("CONTEXT_SUMMARY");
+	});
 });
 
 describe("polishMaxTokens", () => {
-	test("is bounded and grows with the transcript", () => {
-		expect(polishMaxTokens(1)).toBe(256);
-		expect(polishMaxTokens(1000)).toBeLessThanOrEqual(2048);
+	test("keeps a floor a reasoning model can think inside, and grows with the transcript", () => {
+		// Measured on the acceptance corpus: a 29-character transcript spent 813 tokens on
+		// reasoning before it answered, and the old 256 floor truncated a fifth of the samples.
+		expect(polishMaxTokens(1)).toBe(1024);
+		expect(polishMaxTokens(29)).toBe(1024);
+		expect(polishMaxTokens(256)).toBe(1024);
+		expect(polishMaxTokens(257)).toBeGreaterThan(1024);
 		expect(polishMaxTokens(1000)).toBeGreaterThan(polishMaxTokens(100));
-		expect(polishMaxTokens(1_000_000)).toBe(2048);
+		expect(polishMaxTokens(1_000_000)).toBe(4096);
+	});
+
+	test("treats a nonsense length as the floor instead of returning NaN", () => {
+		expect(polishMaxTokens(Number.NaN)).toBe(1024);
+		expect(polishMaxTokens(Number.POSITIVE_INFINITY)).toBe(1024);
+		expect(polishMaxTokens(-5)).toBe(1024);
 	});
 });

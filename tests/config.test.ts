@@ -455,7 +455,7 @@ describe("post-processing config (v3)", () => {
 		expect(result.config.postProcessEnabled).toBe(true);
 		expect(result.config.postProcessModel).toBe("session");
 		expect(result.config.postProcessContextTurns).toBe(2);
-		expect(result.config.postProcessTimeoutMs).toBe(8000);
+		expect(result.config.postProcessTimeoutMs).toBe(12000);
 		expect(result.config.postProcessNoticeShown).toBe(false);
 	});
 
@@ -468,7 +468,7 @@ describe("post-processing config (v3)", () => {
 		});
 		const result = loadConfigWithSource(cwd, { agentDir: path.join(cwd, "agent-home") });
 		expect(result.config.postProcessContextTurns).toBe(2);
-		expect(result.config.postProcessTimeoutMs).toBe(8000);
+		expect(result.config.postProcessTimeoutMs).toBe(12000);
 	});
 
 	test("clamps out-of-range numbers into range", () => {
