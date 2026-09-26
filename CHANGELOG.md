@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-09-26
+
+### Fixed
+
+- **Every local model polishes in segments now** — VAD segmentation used to run for `qwen3-asr`
+  only, so every other in-process model decoded the whole recording in one call and the parallel
+  polish queue received a single piece: a long dictation stayed all-or-nothing and one slow call
+  cost the whole transcript. All in-process models now segment, so a long dictation is polished
+  piece by piece. The audit entry's `segments.count` shows how many pieces a dictation produced.
+- **Polish calls no longer risk a truncated answer** — a reasoning model can spend its whole token
+  budget thinking and return nothing, which fell back to the raw transcript on some dictations and
+  not others at the same length. Thinking is off for every polish call now; on real speech the
+  measured correction gain was ~0 with it either way.
+
 ## [0.3.0] - 2026-09-26
 
 ### Added
