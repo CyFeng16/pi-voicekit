@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.2] - 2026-09-26
+
+### Added
+
+- **Audit entries record how a pass was configured** — the transcript length on its own
+  (apart from any text already in the editor), whether thinking was turned off, and the
+  output-token cap. A slow or truncated pass can now be diagnosed from the session file
+  instead of from code.
+
+### Fixed
+
+- **Short dictations could still fall back to the raw transcript.** The polish token floor
+  was 1024, but thinking is not bounded by the input length: a 76-character dictation spent
+  about 1,200 reasoning tokens, so the answer was truncated and the pass kept the raw text
+  after a 7.6 s wait. The floor is 2048 now — a cap, not a spend, so the model still stops
+  when it is done. Acceptance re-run: 26/26 applied, 0% fallback, mean CER gain +0.176,
+  punctuation 0 → 0.98, p50 360 ms, p95 1,364 ms, all five gates pass.
+
 ## [0.2.1] - 2026-09-26
 
 ### Added
