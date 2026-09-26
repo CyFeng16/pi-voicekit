@@ -26,12 +26,14 @@ import { DEFAULT_CORPUS_PATH, loadCorpus, saveCorpus } from "./corpus";
 import type { CorpusEntry } from "./corpus";
 import { extractTranscript, resolveCaller } from "./callers";
 import type { ResolvedCaller } from "./callers";
+import type { PolishCaller } from "../extensions/voice/post-process";
 import { ARM_NAMES, renderMarkdownReport, runEvaluation } from "./runner";
 import type { ArmName, RunResult } from "./runner";
 
 interface Args {
 	command: string;
 	seeds: string;
+	maxTokens?: number;
 	corpus: string;
 	out?: string;
 	raw?: string;
@@ -84,6 +86,7 @@ function parseArgs(argv: readonly string[]): Args {
 		else if (flag === "--full") args.full = true;
 		else if (flag === "--skeleton") args.skeleton = true;
 		else if (flag === "--allow-network") args.allowNetwork = true;
+		else if (flag === "--max-tokens") args.maxTokens = Number(next() ?? 0);
 	}
 	return args;
 }
@@ -98,7 +101,7 @@ const USAGE = [
 	"                                                    pair recorded transcripts with",
 	"                                                    the seeds' ground truth",
 	"  run     --corpus <file> [--caller fake|oracle|openai] [--arms a,b,c] [--out <dir>] [--full]",
-	"          [--base-url URL] [--model NAME] [--allow-network] [--turns N] [--timeout-ms N]",
+	"          [--base-url URL] [--model NAME] [--allow-network] [--turns N] [--timeout-ms N] [--max-tokens N]",
 	"  compare --report <file.json> --against <file.json>",
 	"",
 	"A corpus lives outside the repository by default: " + DEFAULT_CORPUS_PATH,
@@ -268,6 +271,12 @@ async function main(): Promise<number> {
 	if ("error" in chosen) throw new Error(chosen.error);
 	const resolved = chosen;
 
+	// A budget override, for measuring what the shipped formula costs on a model that thinks
+	// before it answers. maxTokens is a cap, not a spend: the model stops when it is done.
+	const caller: PolishCaller = args.maxTokens
+		? (request, signal) => resolved.caller({ ...request, maxTokens: args.maxTokens ?? request.maxTokens }, signal)
+		: resolved.caller;
+
 	if (resolved.usesNetwork && !args.allowNetwork) {
 		throw new Error(
 			"refusing to call a model over the network without --allow-network (the run costs money and sends transcript text)"
@@ -276,8 +285,8 @@ async function main(): Promise<number> {
 
 	const run = await runEvaluation({
 		entries,
-		caller: resolved.caller,
-		callerDescription: resolved.description,
+		caller,
+		callerDescription: resolved.description + (args.maxTokens ? ` maxTokens=${args.maxTokens}` : ""),
 		modelRef: resolved.modelRef,
 		arms: args.arms,
 		limits: { turns: args.turns, perEntryChars: 500, totalChars: 4000 },

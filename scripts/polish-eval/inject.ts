@@ -28,6 +28,14 @@ export interface CorpusSeed {
 	category: string;
 	/** The clean sentence: what the speaker meant, and the ground truth for scoring. */
 	text: string;
+	/**
+	 * What a good pass should produce when that differs from the literal sentence:
+	 * a clear self-correction collapses to the wording that landed, so the scoring
+	 * reference is the merged text while the speaker still says the whole thing.
+	 * Number words stay out of scope either way - spoken digits are the recogniser's
+	 * problem, not this pass's - so a reference never asks for 三零 to become 30.
+	 */
+	reference?: string;
 	/** Injection kinds to apply; omitted means the category default. */
 	kinds?: InjectionKind[];
 	note?: string;
@@ -91,8 +99,12 @@ const KINDS_BY_CATEGORY: Record<string, InjectionKind[]> = {
 	punctuation: ["punctuation"],
 	"term-zh": ["homophone", "punctuation"],
 	"zh-en-switch": ["term-split", "punctuation"],
-	negation: ["punctuation", "drop"],
-	numbers: ["number", "punctuation"],
+	// No `drop`: a word the recogniser never heard cannot be restored without inventing it,
+	// which the pass is explicitly forbidden to do, so scoring it would punish a non-goal.
+	negation: ["punctuation"],
+	// Numbers stay digits: turning 三零 back into 30 is the recogniser's job (a non-goal
+	// for this pass), so the injection takes punctuation away and leaves the words alone.
+	numbers: ["punctuation"],
 	"paths-identifiers": ["term-split", "punctuation"],
 	"topic-switch": ["punctuation"],
 	fillers: ["filler", "punctuation"],
@@ -214,7 +226,7 @@ export function buildSyntheticCorpus(
 			category: seed.category,
 			backend: options.backend ?? "synthetic",
 			raw,
-			groundTruth: seed.text,
+			groundTruth: seed.reference ?? seed.text,
 			context,
 			// The summary arm needs a digest to send. For a synthetic corpus it is
 			// synthesised from the same turns the turns arm sees, and the report says so.

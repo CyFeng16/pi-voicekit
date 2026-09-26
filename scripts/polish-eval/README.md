@@ -40,8 +40,9 @@ non-zero when a gate fails.
 | `compare --report <a.json> --against <b.json>` | Compare two runs, refusing to compare different configurations |
 
 `run` options: `--caller fake|oracle|openai`, `--arms no-context,last-2-turns,summary-only`,
-`--turns N`, `--timeout-ms N`, `--out <dir>`, `--full`, `--base-url URL`, `--model NAME`,
-`--allow-network`.
+`--turns N`, `--timeout-ms N`, `--max-tokens N` (a budget override, for measuring what the
+shipped formula costs on a model that thinks before it answers), `--out <dir>`, `--full`,
+`--base-url URL`, `--model NAME`, `--allow-network`.
 
 ## Corpus
 
@@ -61,6 +62,12 @@ speaker said. The default location is `~/.pi/voicekit-eval/corpus.jsonl`.
 the context arms something to measure. `backend` names the recogniser; a corpus
 that mixes two of them is refused, because the protocol is reported per backend and
 never pooled. `synthetic` marks an injected sample.
+
+In `seeds.jsonl`, `text` is what the speaker says and `reference` is what a good pass
+should produce when the two differ: a clear self-correction collapses to the wording
+that landed (`周四。不对，我是说周五上线。` -> `周五上线。`), so the scoring reference is the
+merged text while the reading script still contains the whole sentence. Spoken digits
+are never scored: turning `三零` back into `30` is the recogniser's job, not this pass's.
 
 ## Callers
 
