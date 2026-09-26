@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { THINKING_MAX_CHARS, type AssistantLike } from "../extensions/voice/post-process";
+import type { AssistantLike } from "../extensions/voice/post-process";
 import {
 	createPolishQueue,
 	joinSegments,
@@ -116,15 +116,14 @@ describe("createPolishQueue", () => {
 		expect(result.segments[1]!.reason).toBe("timeout");
 	});
 
-	test("retries a timed-out segment once with thinking off", async () => {
+	test("retries a timed-out segment once", async () => {
 		const requests: QueuePolishRequest[] = [];
 		const queue = createPolishQueue({
 			timeoutMs: 20,
 			model: { reasoning: true },
 			call: (request) => {
 				requests.push(request);
-				// The first attempt hangs even though its text is short enough for thinking, so the
-				// retry has to be visible in the request itself, not inferred from the outcome.
+				// The first attempt hangs, so the retry has to be visible in the request list.
 				if (requests.length === 1) return new Promise<AssistantLike>(() => {});
 				return Promise.resolve(assistant("重试后的文本"));
 			},
@@ -132,7 +131,7 @@ describe("createPolishQueue", () => {
 		queue.push(0, "短句重试");
 		const result = await queue.finish();
 		expect(requests).toHaveLength(2);
-		expect(requests[0]).not.toHaveProperty("samplingParams");
+		expect(requests[0]!.samplingParams).toEqual({ reasoning_effort: "none" });
 		expect(requests[1]!.samplingParams).toEqual({ reasoning_effort: "none" });
 		expect(result.segments[0]).toMatchObject({ status: "applied", retried: true });
 		expect(result.text).toBe("重试后的文本");
@@ -228,7 +227,7 @@ describe("createPolishQueue", () => {
 		expect(requests).toHaveLength(1);
 	});
 
-	test("gates thinking per segment through the injected request", async () => {
+	test("sends thinking off for every segment regardless of length", async () => {
 		const requests: QueuePolishRequest[] = [];
 		const queue = createPolishQueue({
 			timeoutMs: 500,
@@ -239,11 +238,11 @@ describe("createPolishQueue", () => {
 			},
 		});
 		queue.push(0, "短句");
-		queue.push(1, "长".repeat(THINKING_MAX_CHARS + 1));
+		queue.push(1, "长".repeat(300));
 		const result = await queue.finish();
 		expect(result.failed).toBe(0);
 		expect(requests).toHaveLength(2);
-		expect(requests[0]).not.toHaveProperty("samplingParams");
+		expect(requests[0]!.samplingParams).toEqual({ reasoning_effort: "none" });
 		expect(requests[1]!.samplingParams).toEqual({ reasoning_effort: "none" });
 	});
 

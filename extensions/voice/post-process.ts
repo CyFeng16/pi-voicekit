@@ -331,36 +331,23 @@ export function buildPolishAudit(input: {
 }
 
 /**
- * Extra request fields for the polish call, or nothing when the model has no thinking to turn
- * off.
+ * Extra request fields for the polish call, or nothing when the model has no thinking to turn off.
  *
- * Short transcripts keep thinking on: it is cheap there and the wording comes out better.
- * Measured 2026-09-26 on the acceptance corpus, thinking on won exactly the samples this pass
- * exists for — a self-correction merged for +1.71 CER with it on against 0 with it off, and two
- * zh-en term samples +0.08/+0.10 against 0 — while a 161-character transcript spent only 66
- * reasoning tokens in 0.47 s.
- *
- * Long transcripts turn it off: there thinking grows far past the token budget (309 characters
- * needed ~1700 reasoning tokens, 471 characters ~2800-4400, against a budget of 1130-1454), so the
- * answer was truncated and the pass fell back to the raw transcript — intermittently, which is
- * what made a long dictation look unpolished. With thinking off the same input finished in ~1.2 s
- * and spent no reasoning tokens at all.
+ * Thinking is off for every polish call on a reasoning model. It buys quality on short samples
+ * (measured 2026-09-26: a self-correction merged for +1.71 CER with thinking on against 0 with it
+ * off, two zh-en term samples +0.08/+0.10) but it spends a budget nobody can predict: the same
+ * spend that truncated long transcripts also hit short ones - a 76-character dictation burned
+ * ~1,200 reasoning tokens against a 664-1,024 budget and came back truncated after 7.6 s, and
+ * every real-corpus failure recorded on 2026-09-26 was `stop-reason:length` on a transcript of
+ * under 200 characters. On the real corpus the measured correction gain was ~0 either way, so
+ * the pass keeps the wording it can improve and gives up the truncation class entirely.
  *
  * `samplingParams` is applied by OpenAI-compatible adapters only, and the `reasoning` gate keeps
  * the field away from models with no thinking at all.
- *
- * `forceOff` is the segmented queue's retry: the attempt already burned its deadline, so it runs
- * small and cheap regardless of length. It overrides the length gate only - a model with no
- * thinking still gets no sampling fields at all.
  */
-export const THINKING_MAX_CHARS = 200;
-
-export function polishSamplingOptions(
-	model: { reasoning?: boolean } | undefined | null,
-	rawLength: number,
-	forceOff = false
-): { samplingParams?: { reasoning_effort: string } } {
+export function polishSamplingOptions(model: { reasoning?: boolean } | undefined | null): {
+	samplingParams?: { reasoning_effort: string };
+} {
 	if (!model || model.reasoning !== true) return {};
-	if (!forceOff && Number.isFinite(rawLength) && rawLength <= THINKING_MAX_CHARS) return {};
 	return { samplingParams: { reasoning_effort: "none" } };
 }

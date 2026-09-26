@@ -2,7 +2,6 @@ import { describe, expect, test } from "bun:test";
 import {
 	buildPolishAudit,
 	polishSamplingOptions,
-	THINKING_MAX_CHARS,
 	decideApply,
 	finalizePolishDisposition,
 	EDITOR_READ_FAILED,
@@ -434,33 +433,16 @@ describe("buildPolishAudit", () => {
 });
 
 describe("polishSamplingOptions", () => {
-	test("keeps thinking on for a short transcript and turns it off for a long one", () => {
-		expect(polishSamplingOptions({ reasoning: true }, 50)).toEqual({});
-		expect(polishSamplingOptions({ reasoning: true }, THINKING_MAX_CHARS)).toEqual({});
-		expect(polishSamplingOptions({ reasoning: true }, THINKING_MAX_CHARS + 1)).toEqual({
+	test("turns thinking off for any length when the model reasons", () => {
+		expect(polishSamplingOptions({ reasoning: true })).toEqual({
 			samplingParams: { reasoning_effort: "none" },
 		});
 	});
 
-	test("forces thinking off for a retry even on a short transcript", () => {
-		expect(polishSamplingOptions({ reasoning: true }, 10, true)).toEqual({
-			samplingParams: { reasoning_effort: "none" },
-		});
-		// The default and an explicit false keep today's length gate.
-		expect(polishSamplingOptions({ reasoning: true }, 10)).toEqual({});
-		expect(polishSamplingOptions({ reasoning: true }, 10, false)).toEqual({});
-	});
-
-	test("turns thinking off when the length is not a number, erring towards not truncating", () => {
-		expect(polishSamplingOptions({ reasoning: true }, Number.NaN)).toEqual({
-			samplingParams: { reasoning_effort: "none" },
-		});
-	});
-
-	test("stays out of the request for other models and for no model at all", () => {
-		expect(polishSamplingOptions({ reasoning: false }, 5000)).toEqual({});
-		expect(polishSamplingOptions({}, 5000)).toEqual({});
-		expect(polishSamplingOptions(undefined, 5000)).toEqual({});
-		expect(polishSamplingOptions(null, 5000)).toEqual({});
+	test("stays out of the request for models without thinking, or no model at all", () => {
+		expect(polishSamplingOptions({ reasoning: false })).toEqual({});
+		expect(polishSamplingOptions({})).toEqual({});
+		expect(polishSamplingOptions(undefined)).toEqual({});
+		expect(polishSamplingOptions(null)).toEqual({});
 	});
 });

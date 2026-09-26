@@ -393,7 +393,7 @@ export function createPolishQueue(options: PolishQueueOptions): PolishQueue {
 		const call: LiveCall = { settled: false, orphaned: false };
 		let issued = false;
 		try {
-			const sampling = polishSamplingOptions(options.model, job.raw.length, forceOff);
+			const sampling = polishSamplingOptions(options.model);
 			const result = await polishTranscript({
 				raw: job.raw,
 				entries: entriesForSegment(job.index),

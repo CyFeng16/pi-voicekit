@@ -1029,10 +1029,9 @@ export default function (pi: ExtensionAPI) {
 						{
 							signal,
 							maxTokens: request.maxTokens,
-							// Measured 2026-09-26: without this a reasoning model spends the whole budget thinking
-							// about a long dictation and the pass falls back to the raw text — see
-							// polishSamplingOptions.
-							...polishSamplingOptions(model as { reasoning?: boolean }, raw.length),
+							// Measured 2026-09-26: without this a reasoning model can spend the whole budget thinking,
+							// truncating the answer on any dictation — see polishSamplingOptions.
+							...polishSamplingOptions(model as { reasoning?: boolean }),
 						}
 					),
 				debug: (reason, data) => voiceDebug(`polish ${reason}`, data),
@@ -1042,7 +1041,7 @@ export default function (pi: ExtensionAPI) {
 				configured: choice.ref,
 				// Pure and cheap, so computing it twice (here and in the call options) is fine, and it
 				// keeps the audit entry honest about what the pass decided.
-				thinkingOff: Boolean(polishSamplingOptions(model as { reasoning?: boolean }, raw.length).samplingParams),
+				thinkingOff: Boolean(polishSamplingOptions(model as { reasoning?: boolean }).samplingParams),
 				maxTokens: polishMaxTokens(raw.length),
 				status: result.status,
 				ms: Date.now() - started,
