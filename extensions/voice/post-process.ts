@@ -219,6 +219,17 @@ export async function polishTranscript(input: PolishInput): Promise<PolishResult
 }
 
 /**
+ * Per-segment outcome of the pipelined pass, one summary per dictation. Absent for the
+ * single-call path, where there are no recogniser segments to report.
+ */
+export interface PolishAuditSegments {
+	count: number;
+	polished: number;
+	failed: number;
+	retried: number;
+}
+
+/**
  * One durable record of what a pass did, written into the session file by the caller.
  *
  * `pi.appendEntry` stores it as a CustomEntry, which never enters the model's context, so
@@ -248,6 +259,8 @@ export interface PolishAudit {
 	durationSec?: number;
 	/** Which recogniser produced it, so results are never pooled across backends. */
 	backend?: string;
+	/** Per-segment outcome when the segmented queue produced this dictation. */
+	segments?: PolishAuditSegments;
 	/** True when the pass asked the model not to think. */
 	thinkingOff?: boolean;
 	/** The output-token cap the request carried, a cap and not a spend. */
@@ -265,6 +278,7 @@ export function buildPolishAudit(input: {
 	thinkingOff?: boolean;
 	durationSec?: number;
 	backend?: string;
+	segments?: PolishAuditSegments;
 	maxTokens?: number;
 	telemetry?: {
 		model?: string;
@@ -290,6 +304,7 @@ export function buildPolishAudit(input: {
 	if (input.maxTokens !== undefined) audit.maxTokens = input.maxTokens;
 	if (input.durationSec !== undefined) audit.durationSec = input.durationSec;
 	if (input.backend !== undefined) audit.backend = input.backend;
+	if (input.segments !== undefined) audit.segments = input.segments;
 	const telemetry = input.telemetry;
 	if (telemetry) {
 		if (telemetry.model !== undefined) audit.model = telemetry.model;

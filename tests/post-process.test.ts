@@ -357,6 +357,24 @@ describe("buildPolishAudit", () => {
 		expect("thinkingOff" in buildPolishAudit({ raw: "x" })).toBe(false);
 	});
 
+	test("records the per-segment outcome of the segmented pipeline", () => {
+		const audit = buildPolishAudit({
+			raw: "分段转录的原文",
+			written: "分段转录的原文。",
+			status: "applied",
+			disposition: "written",
+			segments: { count: 4, polished: 3, failed: 1, retried: 1 },
+			telemetry: { model: "test-model", configured: "session", ms: 1200, contextChars: 0, truncated: false },
+		});
+		expect(audit.segments).toEqual({ count: 4, polished: 3, failed: 1, retried: 1 });
+		// latencyMs stays wall clock (the whole queue), so it stays comparable with durationSec.
+		expect(audit.latencyMs).toBe(1200);
+	});
+
+	test("omits the segment outcome for the single-call path", () => {
+		expect("segments" in buildPolishAudit({ raw: "x" })).toBe(false);
+	});
+
 	test("a fallback keeps the raw text and is not applied", () => {
 		const audit = buildPolishAudit({ raw: "原文", status: "rejected", reason: "stop-reason:length" });
 		expect(audit.applied).toBe(false);

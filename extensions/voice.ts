@@ -112,7 +112,9 @@ import {
 	polishModelOptions,
 	polishTranscript,
 	resolveModelChoice,
+	type PolishAuditSegments,
 } from "./voice/post-process";
+import { createPolishQueue, type PolishQueue } from "./voice/post-process-queue";
 import { DEFAULT_CONTEXT_LIMITS } from "./voice/post-process-context";
 import { polishMaxTokens } from "./voice/post-process-prompt";
 
@@ -798,6 +800,63 @@ export default function (pi: ExtensionAPI) {
 	}
 
 	/**
+	 * One local dictation's segmented pass: the token every segment shares, the bounded queue
+	 * and the request facts the audit entry summarises. Created on the first recogniser
+	 * segment, so a dictation with no segments never departs from the single-call behaviour.
+	 */
+	interface PolishQueuePass {
+		token: PolishPassToken;
+		queue: PolishQueue;
+		/** Wall clock when the first segment's polish work started. */
+		startedAt: number;
+		/** The model that actually ran, as `provider/id`, for telemetry. */
+		modelLabel: string;
+		configured: string;
+		/** What the requests carried; the queue decides sampling per segment. */
+		stats: { thinkingOff: boolean; maxTokens?: number };
+	}
+
+	/**
+	 * D5 one-time disclosure and the model choice, shared by the single-call pass and the
+	 * segment queue. The notice fires before any transcript can leave, and resolution never
+	 * falls back (D8). The caller owns the failure notice, because only the caller knows
+	 * whether the dictation still has a write path.
+	 */
+	function resolvePolishModel(): ReturnType<typeof resolveModelChoice> {
+		if (!config.postProcessNoticeShown && ctx?.hasUI) {
+			// D5: one-time disclosure. The flag is set in memory first (an assignment cannot
+			// throw); the write and the notification then sit in guards of their own. A
+			// read-only config directory must cost the flag's persistence, never the
+			// disclosure — the in-memory flag still suppresses a repeat in this process.
+			config.postProcessNoticeShown = true;
+			try {
+				// R26: field-level global write — `config` also carries this project's values, so
+				// a whole-block write would reset unrelated machine-global settings. Persist the
+				// flag BEFORE notifying, per the house rule in tts-onboarding.
+				saveGlobalVoiceFields({ postProcessNoticeShown: true });
+			} catch (error) {
+				voiceDebug("polish notice setting write failed", String(error));
+			}
+			try {
+				const turns = config.postProcessContextTurns ?? DEFAULT_CONTEXT_LIMITS.turns;
+				ctx.ui.notify(
+					[
+						"Voice polish is on: every dictation makes one extra model call,",
+						turns > 0
+							? `and the last ${turns} conversation turns are sent with it.`
+							: "and no conversation context is sent with it.",
+						"Turn it off with /voice-polish off.",
+					].join(" "),
+					"info"
+				);
+			} catch (error) {
+				voiceDebug("polish notice notification failed", String(error));
+			}
+		}
+		return resolveModelChoice(parseModelRef(config.postProcessModel), polishModelLookup, ctx?.model);
+	}
+
+	/**
 	 * Ownership reads go through here: a throwing editor read is a failed read and
 	 * never an unchanged editor (spec invariant 2).
 	 */
@@ -887,6 +946,8 @@ export default function (pi: ExtensionAPI) {
 		/** Recorded so a slow or truncated pass can be diagnosed without reading code. */
 		thinkingOff?: boolean;
 		maxTokens?: number;
+		/** Per-segment outcome when the queue produced this dictation; absent for a single call. */
+		segments?: PolishAuditSegments;
 		reason?: string;
 		error?: string;
 	};
@@ -894,41 +955,11 @@ export default function (pi: ExtensionAPI) {
 		const id: PolishPassToken = { invalidated: null };
 		activePolishPass = id;
 		polishPassEditorSnapshot = editorSnapshot;
-		if (!config.postProcessNoticeShown && ctx?.hasUI) {
-			// D5: one-time disclosure. The flag is set in memory first (an assignment cannot
-			// throw); the write and the notification then sit in guards of their own. A
-			// read-only config directory must cost the flag's persistence, never the
-			// disclosure — the in-memory flag still suppresses a repeat in this process.
-			config.postProcessNoticeShown = true;
-			try {
-				// R26: field-level global write — `config` also carries this project's values, so
-				// a whole-block write would reset unrelated machine-global settings. Persist the
-				// flag BEFORE notifying, per the house rule in tts-onboarding.
-				saveGlobalVoiceFields({ postProcessNoticeShown: true });
-			} catch (error) {
-				voiceDebug("polish notice setting write failed", String(error));
-			}
-			try {
-				const turns = config.postProcessContextTurns ?? DEFAULT_CONTEXT_LIMITS.turns;
-				ctx.ui.notify(
-					[
-						"Voice polish is on: every dictation makes one extra model call,",
-						turns > 0
-							? `and the last ${turns} conversation turns are sent with it.`
-							: "and no conversation context is sent with it.",
-						"Turn it off with /voice-polish off.",
-					].join(" "),
-					"info"
-				);
-			} catch (error) {
-				voiceDebug("polish notice notification failed", String(error));
-			}
-		}
 		// R19: everything before the model call is fail-open too — a throw here
 		// (registry lookup, notify, status) must not cost the user their dictation.
 		let choice: ReturnType<typeof resolveModelChoice>;
 		try {
-			choice = resolveModelChoice(parseModelRef(config.postProcessModel), polishModelLookup, ctx?.model);
+			choice = resolvePolishModel();
 		} catch (err) {
 			activePolishPass = null;
 			polishPassEditorSnapshot = null;
@@ -1054,6 +1085,163 @@ export default function (pi: ExtensionAPI) {
 			};
 			if (!decision.apply) return { action: "discard", text: raw, status: "discarded", telemetry };
 			return { action: "apply", text: raw, status: "failed", telemetry };
+		} finally {
+			// R20: a stale pass must not restore its status text over the flow that
+			// replaced it — and a cosmetic status write is never allowed to throw.
+			if (activePolishPass === id) {
+				activePolishPass = null;
+				polishPassEditorSnapshot = null;
+				try {
+					updateVoiceStatus();
+				} catch (err) {
+					voiceDebug("polish status restore threw", { error: String(err) });
+				}
+			}
+		}
+	}
+
+	/**
+	 * Create the bounded segment queue for one local, in-process dictation. Called when the
+	 * first non-empty recogniser segment decodes, so a silent or endpoint-backed dictation
+	 * never creates a queue and keeps `runPolishPass` exactly as it is.
+	 */
+	function createLocalPolishQueuePass(): PolishQueuePass | null {
+		// Same gate as the onDone polish block: with polish off (or no UI) no call may fire,
+		// and the dictation stays exactly as it was before the pipeline existed.
+		if (!ctx?.hasUI || config.postProcessEnabled === false) return null;
+		let choice: ReturnType<typeof resolveModelChoice>;
+		try {
+			choice = resolvePolishModel();
+		} catch (err) {
+			// The raw fallback, and the notice, are decided once in runPolishPass.
+			voiceDebug("polish model resolution threw — using the raw transcript", { error: String(err) });
+			return null;
+		}
+		if (!choice.model) {
+			voiceDebug("polish skipped", { ref: choice.ref, reason: choice.reason });
+			return null;
+		}
+		const model = choice.model;
+		const id: PolishPassToken = { invalidated: null };
+		activePolishPass = id;
+		try {
+			polishPassEditorSnapshot = ctx?.ui.getEditorText?.() ?? "";
+		} catch (err) {
+			// No usable snapshot: the escape handler then behaves as if no pass were pending,
+			// which is today's pre-queue behaviour. The write-time check still reads the editor.
+			voiceDebug("polish editor snapshot read threw — leaving no pending snapshot", { error: String(err) });
+			polishPassEditorSnapshot = null;
+		}
+		const stats: PolishQueuePass["stats"] = { thinkingOff: false };
+		const queue = createPolishQueue({
+			timeoutMs: config.postProcessTimeoutMs ?? 8000,
+			entries: ctx?.sessionManager.buildContextEntries() ?? [],
+			limits: {
+				turns: config.postProcessContextTurns ?? DEFAULT_CONTEXT_LIMITS.turns,
+				perEntryChars: DEFAULT_CONTEXT_LIMITS.perEntryChars,
+				totalChars: DEFAULT_CONTEXT_LIMITS.totalChars,
+			},
+			model: model as { reasoning?: boolean },
+			isCurrent: () => activePolishPass === id && id.invalidated === null,
+			call: (request, signal) => {
+				// The queue decides this segment's sampling; record what actually left so the one
+				// audit entry per dictation can summarise it.
+				if (request.samplingParams) stats.thinkingOff = true;
+				stats.maxTokens = Math.max(stats.maxTokens ?? 0, request.maxTokens);
+				return ctx!.modelRegistry.complete(
+					model as never,
+					{ systemPrompt: request.systemPrompt, messages: request.messages as never },
+					{
+						signal,
+						maxTokens: request.maxTokens,
+						// Forward the gate, not the whole request, so the queue's decision reaches the
+						// transport exactly as the single-call path's does.
+						...(request.samplingParams ? { samplingParams: request.samplingParams } : {}),
+					}
+				);
+			},
+			debug: (reason, data) => voiceDebug(`polish ${reason}`, data),
+		});
+		return {
+			token: id,
+			queue,
+			startedAt: Date.now(),
+			modelLabel: polishModelLabel(choice),
+			configured: choice.ref,
+			stats,
+		};
+	}
+
+	/**
+	 * Finish the segmented pass once recognition is done: await every segment, then decide the
+	 * write with the same ownership rules as the single call. Fail-open throughout: a queue
+	 * that never received a segment delegates to `runPolishPass`, and a failed segment keeps
+	 * its own raw text while its neighbours keep theirs.
+	 */
+	async function finishPolishQueuePass(
+		pass: PolishQueuePass,
+		raw: string,
+		editorSnapshot: string
+	): Promise<PolishOutcome> {
+		const id = pass.token;
+		polishPassEditorSnapshot = editorSnapshot;
+		const started = pass.startedAt;
+		if (activePolishPass === id) {
+			try {
+				ctx?.ui.setStatus("voice", "polishing…");
+			} catch (err) {
+				voiceDebug("polish status write threw", { error: String(err) });
+			}
+		}
+		try {
+			const result = await pass.queue.finish();
+			if (result.segments.length === 0) {
+				// Hard invariant: a queue with zero segments must leave today's single-call
+				// behaviour exactly as it is — never write an empty join over the transcript.
+				if (activePolishPass === id) {
+					activePolishPass = null;
+					polishPassEditorSnapshot = null;
+				}
+				return await runPolishPass(raw, editorSnapshot);
+			}
+			const failureReason = result.segments.find((segment) => segment.reason !== undefined)?.reason;
+			const telemetry: PolishTelemetry = {
+				model: pass.modelLabel,
+				configured: pass.configured,
+				status: result.polished > 0 ? "applied" : failureReason === "invalidated" ? "skipped" : "rejected",
+				ms: Date.now() - started,
+				thinkingOff: pass.stats.thinkingOff,
+				segments: {
+					count: result.segments.length,
+					polished: result.polished,
+					failed: result.failed,
+					retried: result.retried,
+				},
+			};
+			if (pass.stats.maxTokens !== undefined) telemetry.maxTokens = pass.stats.maxTokens;
+			// A newer recording or session owns the editor now: change nothing at all.
+			if (activePolishPass !== id) {
+				voiceDebug("polish result", { ...telemetry, disposition: "aborted", reason: "invalidated" });
+				return { action: "abort", text: raw };
+			}
+			const decision = decideApply({
+				tokenCurrent: id.invalidated === null,
+				editorSnapshot,
+				currentEditor: readEditorOrFailed(),
+			});
+			const pendingTelemetry = { ...telemetry, reason: decision.apply ? failureReason : decision.reason };
+			if (!decision.apply) {
+				return { action: "discard", text: raw, status: "discarded", telemetry: pendingTelemetry };
+			}
+			const polished = result.polished > 0;
+			return {
+				action: "apply",
+				// One failed segment must not cost its neighbours their polish; when every segment
+				// fell back, the recogniser's own join is the raw transcript.
+				text: polished ? result.text : raw,
+				status: polished ? "applied" : "failed",
+				telemetry: pendingTelemetry,
+			};
 		} finally {
 			// R20: a stale pass must not restore its status text over the flow that
 			// replaced it — and a cosmetic status write is never allowed to throw.
@@ -1664,12 +1852,30 @@ export default function (pi: ExtensionAPI) {
 		});
 		setVoiceState("recording");
 
+		// This dictation's segmented polish state, local in-process only. Both live in this
+		// recording's closure, so a late segment from an aborted session can never land in the
+		// next dictation's queue.
+		let localPolishSession: LocalSession | null = null;
+		let localPolishQueue: PolishQueuePass | null = null;
+
 		// ── Callbacks for the active recording session ──
 		const recordingCallbacks = {
 			onTranscript: (interim: string, finals: string[]) => {
 				// Live transcript update — this is the key UX feature
 				updateLiveTranscriptWidget(interim, finals);
 				updateVoiceStatus();
+			},
+			onSegment: (text: string, index: number) => {
+				// Local in-process recognition only, and only while the session is live: an aborted
+				// session's late segments must not open calls for a pass nobody owns.
+				if (!localPolishSession || localPolishSession.closed) return;
+				if (!text.trim()) return;
+				if (!localPolishQueue) localPolishQueue = createLocalPolishQueuePass();
+				const pass = localPolishQueue;
+				// Checked between segments as well, so a cancelled pass stops opening calls it can
+				// never write.
+				if (!pass || pass.token.invalidated !== null) return;
+				pass.queue.push(index, text);
 			},
 			onDone: async (fullText: string, meta: { hadAudio: boolean; hadSpeech: boolean }) => {
 				voiceDebug("onDone callback", { fullText: fullText.slice(0, 100), meta, voiceState, spaceConsumed });
@@ -1739,7 +1945,10 @@ export default function (pi: ExtensionAPI) {
 					}
 					let outcome: PolishOutcome;
 					try {
-						outcome = await runPolishPass(fullText, ctx.ui.getEditorText?.() ?? "");
+						const queuePass = localPolishQueue;
+						outcome = queuePass
+							? await finishPolishQueuePass(queuePass, fullText, ctx.ui.getEditorText?.() ?? "")
+							: await runPolishPass(fullText, ctx.ui.getEditorText?.() ?? "");
 					} catch (err) {
 						// Item 3: the pass decides its own throws by ownership; only a failure that
 						// never reached that decision lands here, for example a throwing editor
@@ -1832,6 +2041,8 @@ export default function (pi: ExtensionAPI) {
 									maxTokens: polishTelemetry?.maxTokens,
 									durationSec: Number(elapsed),
 									backend: config.backend,
+									// One summary of the segmented pass; absent when a single call produced the text.
+									segments: polishTelemetry?.segments,
 									written: wroteEditor ? finalText : undefined,
 									status: final.status,
 									disposition: final.disposition,
@@ -1960,6 +2171,10 @@ export default function (pi: ExtensionAPI) {
 				}
 				hideWidget();
 
+				// A queue can already be in flight when transcription fails: invalidate its shared
+				// pass id so no late segment can write or open further calls.
+				invalidatePolishPass("recording-error");
+
 				// ── STOP THE LOOP ──
 				// On error, fully reset ALL hold state AND set a cooldown
 				// so incoming key-repeat events can't re-trigger activation.
@@ -1992,6 +2207,7 @@ export default function (pi: ExtensionAPI) {
 				voiceDebug(`${audioTool.name} stderr:`, msg);
 			});
 			session = startLocalSession(recProc, recordingCallbacks);
+			localPolishSession = session;
 
 			// Feed audio level meter for waveform animation
 			recProc.stdout?.on("data", (chunk: Buffer) => {
