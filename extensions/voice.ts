@@ -770,8 +770,8 @@ export default function (pi: ExtensionAPI) {
 	// ─── Transcript polish (post-processing) ─────────────────────────────────
 	// One bounded pass between the final transcript and the editor write. The
 	// token below is what makes a late result inert (spec §4.1.1).
-	let polishPassSeq = 0;
-	let activePolishPass: number | null = null;
+	type PolishPassToken = { invalidated: "discard" | "abort" | null };
+	let activePolishPass: PolishPassToken | null = null;
 	/**
 	 * Editor value the pending pass started from, or null when no pass is pending. The
 	 * escape handler compares the live editor against it: a pending pass has written
@@ -779,10 +779,18 @@ export default function (pi: ExtensionAPI) {
 	 */
 	let polishPassEditorSnapshot: string | null = null;
 
-	function invalidatePolishPass(reason: string): void {
-		if (activePolishPass !== null) voiceDebug("polish pass invalidated", { reason });
-		activePolishPass = null;
-		polishPassEditorSnapshot = null;
+	function invalidatePolishPass(reason: string, cleanup: "complete" | "relinquish" = "relinquish"): void {
+		const pass = activePolishPass;
+		if (!pass) return;
+		const disposition = cleanup === "complete" ? "discard" : "abort";
+		if (pass.invalidated !== disposition) voiceDebug("polish pass invalidated", { reason });
+		pass.invalidated = disposition;
+		// Retain a discarded pass until its tail completes, or a later teardown takes
+		// ownership. The awaiting callback retains this token even after relinquishing.
+		if (cleanup === "relinquish") {
+			activePolishPass = null;
+			polishPassEditorSnapshot = null;
+		}
 	}
 
 	/**
@@ -866,7 +874,7 @@ export default function (pi: ExtensionAPI) {
 		| { action: "discard"; text: string; status: "discarded" }
 		| { action: "abort"; text: string };
 	async function runPolishPass(raw: string, editorSnapshot: string): Promise<PolishOutcome> {
-		const id = ++polishPassSeq;
+		const id: PolishPassToken = { invalidated: null };
 		activePolishPass = id;
 		polishPassEditorSnapshot = editorSnapshot;
 		if (!config.postProcessNoticeShown && ctx?.hasUI) {
@@ -955,7 +963,7 @@ export default function (pi: ExtensionAPI) {
 				},
 				timeoutMs: config.postProcessTimeoutMs ?? 8000,
 				timestamp: Date.now(),
-				isCurrent: () => activePolishPass === id,
+				isCurrent: () => activePolishPass === id && id.invalidated === null,
 				call: (request, signal) =>
 					ctx!.modelRegistry.complete(
 						model as never,
@@ -978,7 +986,7 @@ export default function (pi: ExtensionAPI) {
 				return { action: "abort", text: raw };
 			}
 			const decision = decideApply({
-				tokenCurrent: true,
+				tokenCurrent: id.invalidated === null,
 				editorSnapshot,
 				currentEditor: readEditorOrFailed(),
 			});
@@ -1004,8 +1012,20 @@ export default function (pi: ExtensionAPI) {
 			// the pass still owns a matching editor: an editor that changed, and equally one
 			// that could not be read, means discard (no write, no dispatch, the dictation is
 			// still recorded by the caller).
+			if (activePolishPass !== id) {
+				voiceDebug("polish result", {
+					model: polishModelLabel(choice),
+					configured: choice.ref,
+					status: "failed",
+					disposition: "aborted",
+					reason: "invalidated",
+					ms: Date.now() - started,
+					error: String(err),
+				});
+				return { action: "abort", text: raw };
+			}
 			const decision = decideApply({
-				tokenCurrent: activePolishPass === id,
+				tokenCurrent: id.invalidated === null,
 				editorSnapshot,
 				currentEditor: readEditorOrFailed(),
 			});
@@ -2573,6 +2593,8 @@ export default function (pi: ExtensionAPI) {
 					}
 					// The pass can already be pending when activeSession is null (the normal
 					// finalizing case), so this sits outside the block above (ruling R4).
+					const passSnapshot = activePolishPass !== null ? polishPassEditorSnapshot : null;
+					const userEditedDuringPass = passSnapshot !== null && readEditorOrFailed() !== passSnapshot;
 					invalidatePolishPass("cancelled");
 					clearRecordingAnimTimer();
 					clearWarmupWidget();
@@ -2586,8 +2608,6 @@ export default function (pi: ExtensionAPI) {
 					// editor that differs from the pass snapshot holds text the user typed while
 					// waiting; restoring would delete it. With no pass pending, the old behaviour
 					// stands: the live interim text is cleared.
-					const passSnapshot = activePolishPass !== null ? polishPassEditorSnapshot : null;
-					const userEditedDuringPass = passSnapshot !== null && readEditorOrFailed() !== passSnapshot;
 					if (ctx?.hasUI && !userEditedDuringPass) ctx.ui.setEditorText(editorTextBeforeVoice);
 					resetHoldState();
 					playSound("error");
@@ -2816,10 +2836,10 @@ export default function (pi: ExtensionAPI) {
 	// reappear and auto-send. Invalidating twice is harmless: the operation is
 	// idempotent.
 	pi.on("input", async () => {
-		invalidatePolishPass("user-input");
+		invalidatePolishPass("user-input", "complete");
 	});
 	pi.on("session_tree", async () => {
-		invalidatePolishPass("session-tree");
+		invalidatePolishPass("session-tree", "complete");
 	});
 
 	// Note: pi-mono < 0.65.0 fired a discrete "session_switch" event for
