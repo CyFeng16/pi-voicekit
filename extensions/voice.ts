@@ -816,15 +816,20 @@ export default function (pi: ExtensionAPI) {
 		activePolishPass = id;
 		polishPassEditorSnapshot = editorSnapshot;
 		if (!config.postProcessNoticeShown && ctx?.hasUI) {
-			// D5: one-time disclosure. It sits in its own guard on purpose — a
-			// settings-write or notification failure must never reject this callback
-			// or skip the raw-text write. Persist the flag BEFORE notifying, per the
-			// house rule in tts-onboarding.
+			// D5: one-time disclosure. The flag is set in memory first (an assignment cannot
+			// throw); the write and the notification then sit in guards of their own. A
+			// read-only config directory must cost the flag's persistence, never the
+			// disclosure — the in-memory flag still suppresses a repeat in this process.
+			config.postProcessNoticeShown = true;
 			try {
-				config.postProcessNoticeShown = true;
 				// R26: field-level global write — `config` also carries this project's values, so
-				// a whole-block write would reset unrelated machine-global settings.
+				// a whole-block write would reset unrelated machine-global settings. Persist the
+				// flag BEFORE notifying, per the house rule in tts-onboarding.
 				saveGlobalVoiceFields({ postProcessNoticeShown: true });
+			} catch (error) {
+				voiceDebug("polish notice setting write failed", String(error));
+			}
+			try {
 				const turns = config.postProcessContextTurns ?? DEFAULT_CONTEXT_LIMITS.turns;
 				ctx.ui.notify(
 					[
@@ -845,7 +850,7 @@ export default function (pi: ExtensionAPI) {
 					"info"
 				);
 			} catch (error) {
-				voiceDebug("polish notice failed", String(error));
+				voiceDebug("polish notice notification failed", String(error));
 			}
 		}
 		// R19: everything before the model call is fail-open too — a throw here
