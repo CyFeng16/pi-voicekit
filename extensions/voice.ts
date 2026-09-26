@@ -817,13 +817,22 @@ export default function (pi: ExtensionAPI) {
 		return config.scope === "project" ? "project" : "global";
 	}
 
+	/** What the polish pass did with one dictation — recorded on the history entry for `last`. */
+	type PolishOutcomeStatus = "applied" | "discarded" | "failed";
+
 	/**
 	 * Outcome of one polish pass.
-	 * - `apply`: write `text` (polished, or the raw transcript on any failure).
+	 * - `apply`: write `text` (the pass's rewrite, or the raw transcript on any failure).
 	 * - `discard`: the editor changed while we waited — write NOTHING, send NOTHING.
 	 * - `abort`: a newer recording or session owns the flow — leave the state alone.
+	 * `status` is the verdict history keeps: `applied` when the rewrite is used, `failed`
+	 * when the raw transcript is the fallback, `discarded` when nothing was written
+	 * because the editor was no longer the pass's.
 	 */
-	type PolishOutcome = { action: "apply" | "discard" | "abort"; text: string };
+	type PolishOutcome =
+		| { action: "apply"; text: string; status: "applied" | "failed" }
+		| { action: "discard"; text: string; status: "discarded" }
+		| { action: "abort"; text: string };
 	async function runPolishPass(raw: string, editorSnapshot: string): Promise<PolishOutcome> {
 		const id = ++polishPassSeq;
 		activePolishPass = id;
@@ -875,7 +884,7 @@ export default function (pi: ExtensionAPI) {
 			activePolishPass = null;
 			polishPassEditorSnapshot = null;
 			voiceDebug("polish model resolution threw — using the raw transcript", { error: String(err) });
-			return { action: "apply", text: raw };
+			return { action: "apply", text: raw, status: "failed" };
 		}
 		if (!choice.model) {
 			voiceDebug("polish skipped", { ref: choice.ref, reason: choice.reason });
@@ -894,7 +903,7 @@ export default function (pi: ExtensionAPI) {
 			}
 			activePolishPass = null;
 			polishPassEditorSnapshot = null;
-			return { action: "apply", text: raw };
+			return { action: "apply", text: raw, status: "failed" };
 		}
 		const model = choice.model;
 		const started = Date.now();
@@ -940,9 +949,13 @@ export default function (pi: ExtensionAPI) {
 			});
 			if (!decision.apply) {
 				voiceDebug("polish discarded", { reason: decision.reason });
-				return { action: "discard", text: raw };
+				return { action: "discard", text: raw, status: "discarded" };
 			}
-			return { action: "apply", text: result.status === "applied" ? result.text : raw };
+			return {
+				action: "apply",
+				text: result.status === "applied" ? result.text : raw,
+				status: result.status === "applied" ? "applied" : "failed",
+			};
 		} catch (err) {
 			// Item 3: a throw here is decided by ownership, not by convenience. The pass's
 			// verdict is unavailable, so the raw transcript is the fallback — but only while
@@ -959,8 +972,8 @@ export default function (pi: ExtensionAPI) {
 				apply: decision.apply,
 				reason: decision.reason ?? "raw-fallback",
 			});
-			if (!decision.apply) return { action: "discard", text: raw };
-			return { action: "apply", text: raw };
+			if (!decision.apply) return { action: "discard", text: raw, status: "discarded" };
+			return { action: "apply", text: raw, status: "failed" };
 		} finally {
 			// R20: a stale pass must not restore its status text over the flow that
 			// replaced it — and a cosmetic status write is never allowed to throw.
@@ -1008,8 +1021,14 @@ export default function (pi: ExtensionAPI) {
 		writtenText?: string;
 		/** `prefix + raw ASR output` — what a restore puts back. */
 		rawFullText?: string;
-		/** True when a polish rewrite replaced the raw text; `last` and `restore` look for these. */
+		/** True when a polish rewrite replaced the raw text; the Polish tab's Last dictation row looks for these. */
 		polishedApplied?: boolean;
+		/**
+		 * What the pass did with this dictation, including a discarded one. Set whenever a
+		 * pass ran, so `/voice-polish last` can show the newest dictation it processed
+		 * rather than the newest one it wrote. Absent when no pass ran at all.
+		 */
+		polishOutcome?: PolishOutcomeStatus;
 	}
 
 	const recordingHistory: RecordingHistoryEntry[] = [];
@@ -1019,7 +1038,12 @@ export default function (pi: ExtensionAPI) {
 		text: string,
 		duration: number,
 		mode: "hold" | "toggle" | "dictate" = "hold",
-		extra: { writtenText?: string; rawFullText?: string; polishedApplied?: boolean } = {}
+		extra: {
+			writtenText?: string;
+			rawFullText?: string;
+			polishedApplied?: boolean;
+			polishOutcome?: PolishOutcomeStatus;
+		} = {}
 	) {
 		recordingHistory.unshift({ text, timestamp: Date.now(), duration, mode, ...extra });
 		if (recordingHistory.length > MAX_HISTORY) recordingHistory.pop();
@@ -1613,6 +1637,7 @@ export default function (pi: ExtensionAPI) {
 				// Transcript polish: bounded, fail-open, never blocking the recording flow.
 				let spokenText = fullText;
 				let skipWrite = false;
+				let polishOutcome: PolishOutcomeStatus | undefined;
 				if (ctx?.hasUI && config.postProcessEnabled !== false) {
 					// R18: the streaming transport can finalize itself (ws.onclose /
 					// finalizeTimer) without going through stopVoiceRecording, so the state
@@ -1644,11 +1669,12 @@ export default function (pi: ExtensionAPI) {
 						voiceDebug("polish pass threw before ownership — discarding the editor write", {
 							error: String(err),
 						});
-						outcome = { action: "discard", text: fullText };
+						outcome = { action: "discard", text: fullText, status: "discarded" };
 					}
 					// A newer recording or session owns the flow now: touch nothing at all.
 					if (outcome.action === "abort") return;
 					spokenText = outcome.text;
+					polishOutcome = outcome.status;
 					// The editor changed while we waited: keep the user's text, say so once.
 					if (outcome.action === "discard") {
 						skipWrite = true;
@@ -1784,6 +1810,7 @@ export default function (pi: ExtensionAPI) {
 						writtenText: wroteEditor ? finalText : undefined,
 						rawFullText: prefix + fullText,
 						polishedApplied: wroteEditor && spokenText !== fullText,
+						polishOutcome,
 					});
 				}
 				playSound("stop");
@@ -3952,21 +3979,30 @@ export default function (pi: ExtensionAPI) {
 				return;
 			}
 			if (verb === "last") {
-				const entry = recordingHistory.find((item) => item.polishedApplied);
+				// The newest dictation a pass ran for — a discarded one is invisible to
+				// `restore`, but its raw text stays reachable here, which is what the
+				// retention promise is about.
+				const entry = recordingHistory.find((item) => item.polishOutcome !== undefined);
 				if (!entry) {
 					cmdCtx.ui.notify("No polished dictation in this session yet.", "info");
 					return;
 				}
 				cmdCtx.ui.notify(
-					[`RAW:      ${entry.rawFullText ?? entry.text}`, "", `POLISHED: ${entry.writtenText ?? entry.text}`].join(
-						"\n"
-					),
+					[
+						`STATUS:   ${entry.polishOutcome}`,
+						`RAW:      ${entry.rawFullText ?? entry.text}`,
+						entry.writtenText !== undefined
+							? `WRITTEN:  ${entry.writtenText}`
+							: "WRITTEN:  (nothing — the editor kept your text)",
+					].join("\n"),
 					"info"
 				);
 				return;
 			}
 			if (verb === "restore") {
-				const entry = recordingHistory.find((item) => item.polishedApplied && item.writtenText !== undefined);
+				// Stricter than `last`: only a dictation that owns an editor write can be
+				// restored, whatever the pass status was.
+				const entry = recordingHistory.find((item) => item.writtenText !== undefined);
 				if (!entry) {
 					cmdCtx.ui.notify("No polished dictation in this session yet.", "info");
 					return;
