@@ -307,9 +307,22 @@ interface RecogniserSetup {
 	modelLabel: string;
 }
 
-async function loadRecogniser(localModelId: string, language: string): Promise<RecogniserSetup> {
-	const { initSherpa, isSherpaAvailable, getSherpaError, getOrCreateRecognizer, transcribeBufferSegmented } =
-		await import("../../extensions/voice/sherpa-engine");
+interface SplitMode {
+	mode: string;
+	minSilenceSecs?: number;
+	maxSpeechSecs?: number;
+	mergeK?: number;
+}
+
+async function loadRecogniser(localModelId: string, language: string, split?: SplitMode): Promise<RecogniserSetup> {
+	const {
+		initSherpa,
+		isSherpaAvailable,
+		getSherpaError,
+		getOrCreateRecognizer,
+		decodeSegmentsInOrder,
+		segmentPcmForLongAudio,
+	} = await import("../../extensions/voice/sherpa-engine");
 	const { DEFAULT_LOCAL_MODEL, LOCAL_MODELS } = await import("../../extensions/voice/local");
 	const { getModelDir, isModelDownloaded } = await import("../../extensions/voice/model-download");
 	if (!isSherpaAvailable()) {
@@ -328,9 +341,52 @@ async function loadRecogniser(localModelId: string, language: string): Promise<R
 		);
 	}
 	const recognizer = getOrCreateRecognizer(model, getModelDir(model.id), language);
+	// The split mode is the experiment's only variable; everything downstream stays the product's own
+	// decode loop, so a variant measures the product path with different boundaries.
+	const toFloat32 = (buffer: Buffer): Float32Array => {
+		const samples = new Float32Array(Math.floor(buffer.length / 2));
+		for (let index = 0; index < samples.length; index += 1) {
+			samples[index] = buffer.readInt16LE(index * 2) / 32768;
+		}
+		return samples;
+	};
+	const piecesFor = (pcm: Buffer): Float32Array[] => {
+		const mode = split?.mode ?? "vad";
+		if (mode === "whole") return [toFloat32(pcm)];
+		if (mode.startsWith("fixed:")) {
+			const secs = Number(mode.slice("fixed:".length)) || 10;
+			const step = Math.max(1, Math.round(secs * EVAL_SAMPLE_RATE)) * 2;
+			const pieces: Float32Array[] = [];
+			for (let offset = 0; offset < pcm.length; offset += step) {
+				pieces.push(toFloat32(pcm.subarray(offset, offset + step)));
+			}
+			return pieces;
+		}
+		const pieces = segmentPcmForLongAudio(
+			toFloat32(pcm),
+			EVAL_SAMPLE_RATE,
+			split?.maxSpeechSecs ?? 10,
+			split?.minSilenceSecs ?? 0.25
+		);
+		const k = Math.max(1, Math.floor(split?.mergeK ?? 1));
+		if (k === 1) return pieces;
+		const merged: Float32Array[] = [];
+		for (let index = 0; index < pieces.length; index += k) {
+			const group = pieces.slice(index, index + k);
+			const total = group.reduce((sum, piece) => sum + piece.length, 0);
+			const joined = new Float32Array(total);
+			let cursor = 0;
+			for (const piece of group) {
+				joined.set(piece, cursor);
+				cursor += piece.length;
+			}
+			merged.push(joined);
+		}
+		return merged;
+	};
 	return {
 		modelLabel: model.id,
-		transcribe: (pcm, onSegment) => transcribeBufferSegmented(pcm, recognizer, SEGMENT_THRESHOLD_SECS, onSegment),
+		transcribe: async (pcm, onSegment) => (await decodeSegmentsInOrder(recognizer, piecesFor(pcm), onSegment)).join(" "),
 	};
 }
 
@@ -366,7 +422,7 @@ async function measurePipelineRun(pcm: Buffer, recogniser: RecogniserSetup, opti
 
 /** The shipped single-call baseline on the same transcript, with the same sampling gate. */
 async function measureBaselineRun(raw: string, options: RunOptions): Promise<BaselineRun> {
-	const sampling = polishSamplingOptions(options.model, raw.length);
+	const sampling = polishSamplingOptions(options.model);
 	const call: PolishCaller = (request, signal) => options.caller({ ...request, ...sampling }, signal);
 	const start = performance.now();
 	const result = await polishTranscript({
@@ -399,6 +455,11 @@ interface PipelineArgs {
 	reasoning: boolean;
 	out?: string;
 	help: boolean;
+	/** How the PCM is cut before decoding: vad (product default), vad+merge-k, fixed:<secs>, whole. */
+	split: string;
+	minSilence?: number;
+	maxSpeech?: number;
+	mergeK?: number;
 }
 
 export function parseArgs(argv: readonly string[]): PipelineArgs {
@@ -413,6 +474,7 @@ export function parseArgs(argv: readonly string[]): PipelineArgs {
 		allowNetwork: false,
 		reasoning: true,
 		help: false,
+		split: "vad",
 	};
 	for (let index = 0; index < argv.length; index += 1) {
 		const flag = argv[index];
@@ -434,6 +496,10 @@ export function parseArgs(argv: readonly string[]): PipelineArgs {
 		else if (flag === "--no-reasoning") args.reasoning = false;
 		else if (flag === "--out") args.out = next();
 		else if (flag === "--help" || flag === "-h") args.help = true;
+		else if (flag === "--split") args.split = next() ?? args.split;
+		else if (flag === "--min-silence") args.minSilence = Number(next() ?? 0.25);
+		else if (flag === "--max-speech") args.maxSpeech = Number(next() ?? 10);
+		else if (flag === "--merge-k") args.mergeK = Number(next() ?? 1);
 	}
 	return args;
 }
@@ -447,6 +513,10 @@ const USAGE = [
 	"  --language <code>          recogniser language (default: auto)",
 	"  --seconds <n>              audio to concatenate (default: 75)",
 	"  --repeats <n>              full pipeline+baseline runs (default: 1)",
+	"  --split <mode>             vad (default) | fixed:<secs> | whole; with vad also --merge-k <n>",
+	"  --min-silence <secs>       pause length that ends a segment (default: 0.25, the shipped value)",
+	"  --max-speech <secs>        hard cap on one segment (default: 10, the shipped value)",
+	"  --merge-k <n>              glue n consecutive VAD pieces into one decode (default: 1)",
 	"  --timeout-ms <n>           per-segment polish timeout (default: 8000)",
 	"  --caller fake|openai       fake is deterministic and offline (default: fake)",
 	"  --fake-fail <mode>         timeout|error|rejected-status|empty, to exercise fallbacks",
@@ -530,7 +600,14 @@ async function main(): Promise<number> {
 		`pcm:        ${corpus.files.length} file(s), ${corpus.durationSec.toFixed(1)} s${corpus.usedFfmpeg ? " (decoded with ffmpeg from wav)" : ""}`
 	);
 	if (corpus.durationSec < 60) console.log(`pcm:        warning: under 60 s of audio, fewer segments than intended`);
-	const recogniser = await loadRecogniser(args.localModel, args.language);
+	const split: SplitMode = {
+		mode: args.split,
+		minSilenceSecs: args.minSilence,
+		maxSpeechSecs: args.maxSpeech,
+		mergeK: args.mergeK,
+	};
+	console.log(`split:      ${args.split}${args.mergeK ? ` merge-k=${args.mergeK}` : ""} min-silence=${args.minSilence ?? 0.25} max-speech=${args.maxSpeech ?? 10}`);
+	const recogniser = await loadRecogniser(args.localModel, args.language, split);
 	const caller: PolishQueueCaller = resolved.caller;
 	const runOptions: RunOptions = { caller, timeoutMs: args.timeoutMs, model: { reasoning: args.reasoning } };
 	const pipelineRuns: PipelineRun[] = [];
