@@ -20,10 +20,19 @@ import {
 	type ContextLimits,
 	type EntryLike,
 } from "../../extensions/voice/post-process-context";
-import { POLISH_SYSTEM_PROMPT } from "../../extensions/voice/post-process-prompt";
+import { POLISH_SYSTEM_PROMPT, polishMaxTokens } from "../../extensions/voice/post-process-prompt";
 import { polishTranscript, type PolishCaller } from "../../extensions/voice/post-process";
 import { requireSingleBackend, toEntryLikes, type CorpusEntry } from "./corpus";
 import { median, p95, scoreSample, type SampleScore } from "./score";
+
+/**
+ * The shipped budget formula, sampled so that changing it invalidates earlier numbers.
+ * `configurationHash` is meant to cover everything that makes two runs incomparable, and
+ * the output-token cap is one of those things.
+ */
+export function budgetFingerprint(): { floor: number; ceiling: number; at500: number } {
+	return { floor: polishMaxTokens(1), ceiling: polishMaxTokens(1_000_000), at500: polishMaxTokens(500) };
+}
 
 export const ARM_NAMES = ["no-context", "last-2-turns"] as const;
 export type ArmName = (typeof ARM_NAMES)[number];
@@ -292,6 +301,7 @@ export function configurationHash(inputs: {
 		modelRef: inputs.modelRef,
 		caller: inputs.caller,
 		prompt: inputs.prompt ?? POLISH_SYSTEM_PROMPT,
+		budget: budgetFingerprint(),
 	});
 	return createHash("sha256").update(payload).digest("hex").slice(0, 16);
 }
