@@ -401,7 +401,8 @@ these entries — they are not part of the conversation context — so they are 
 analysis, and they do keep the raw text on disk for as long as the session file exists.
 Each entry also records how the pass was configured: the transcript length on its own
 (separate from any text already in the editor), whether thinking was turned off for it,
-and the output-token cap it carried.
+and the output-token cap it carried, plus the audio seconds it covered and which recogniser
+produced it — which is what makes polish time readable as a speedup.
 
 | Setting                   | Scope              | Default     | Notes                                                   |
 | ------------------------- | ------------------ | ----------- | ------------------------------------------------------- |

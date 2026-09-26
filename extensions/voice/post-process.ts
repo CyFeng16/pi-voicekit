@@ -244,6 +244,10 @@ export interface PolishAudit {
 	transcriptChars?: number;
 	/** Characters of the editor prefix, which is not part of the transcript. */
 	editorPrefixChars?: number;
+	/** Seconds of audio the dictation covered, so polish time can be read as a speedup. */
+	durationSec?: number;
+	/** Which recogniser produced it, so results are never pooled across backends. */
+	backend?: string;
 	/** True when the pass asked the model not to think. */
 	thinkingOff?: boolean;
 	/** The output-token cap the request carried, a cap and not a spend. */
@@ -259,6 +263,8 @@ export function buildPolishAudit(input: {
 	transcriptChars?: number;
 	editorPrefixChars?: number;
 	thinkingOff?: boolean;
+	durationSec?: number;
+	backend?: string;
 	maxTokens?: number;
 	telemetry?: {
 		model?: string;
@@ -282,6 +288,8 @@ export function buildPolishAudit(input: {
 	if (input.editorPrefixChars !== undefined) audit.editorPrefixChars = input.editorPrefixChars;
 	if (input.thinkingOff !== undefined) audit.thinkingOff = input.thinkingOff;
 	if (input.maxTokens !== undefined) audit.maxTokens = input.maxTokens;
+	if (input.durationSec !== undefined) audit.durationSec = input.durationSec;
+	if (input.backend !== undefined) audit.backend = input.backend;
 	const telemetry = input.telemetry;
 	if (telemetry) {
 		if (telemetry.model !== undefined) audit.model = telemetry.model;

@@ -1830,6 +1830,8 @@ export default function (pi: ExtensionAPI) {
 									editorPrefixChars: prefix.length,
 									thinkingOff: polishTelemetry?.thinkingOff,
 									maxTokens: polishTelemetry?.maxTokens,
+									durationSec: Number(elapsed),
+									backend: config.backend,
 									written: wroteEditor ? finalText : undefined,
 									status: final.status,
 									disposition: final.disposition,

@@ -343,8 +343,12 @@ describe("buildPolishAudit", () => {
 			editorPrefixChars: 6,
 			thinkingOff: false,
 			maxTokens: 2048,
+			durationSec: 12.3,
+			backend: "local",
 			telemetry: { model: "test-model", configured: "session", ms: 300, contextChars: 0, truncated: false },
 		});
+		expect(audit.durationSec).toBe(12.3);
+		expect(audit.backend).toBe("local");
 		expect(audit.transcriptChars).toBe(7);
 		expect(audit.editorPrefixChars).toBe(6);
 		expect(audit.thinkingOff).toBe(false);
