@@ -1103,14 +1103,8 @@ async function transcribeInProcess(
 	config: VoiceConfig,
 	onSegment?: (text: string, index: number) => void
 ): Promise<string> {
-	const {
-		initSherpa,
-		isSherpaAvailable,
-		getSherpaError,
-		getOrCreateRecognizer,
-		transcribeBuffer,
-		transcribeBufferSegmented,
-	} = await import("./sherpa-engine");
+	const { initSherpa, isSherpaAvailable, getSherpaError, getOrCreateRecognizer, transcribeBufferSegmented } =
+		await import("./sherpa-engine");
 	const { ensureModelDownloaded } = await import("./model-download");
 
 	// Initialize sherpa if needed
@@ -1131,21 +1125,10 @@ async function transcribeInProcess(
 
 	// Create/reuse recognizer and transcribe
 	const recognizer = getOrCreateRecognizer(model, modelDir, config.language || "en");
-	// Qwen3-ASR caps context at 512 tokens (~18s); segment long audio via VAD before decode.
-	if (model.sherpaModel.type === "qwen3_asr") {
-		return transcribeBufferSegmented(pcmData, recognizer, undefined, onSegment);
-	}
-	const text = await transcribeBuffer(pcmData, recognizer);
-	// Every other in-process model decodes the whole buffer as a single segment. Report it so
-	// a pipelining caller sees one segment for any in-process dictation (a short qwen3
-	// dictation takes the same single-segment fast path). Observational, like the recogniser's
-	// callback: a throwing observer must not cost the transcript.
-	if (onSegment) {
-		try {
-			onSegment(text, 0);
-		} catch {}
-	}
-	return text;
+	// Every in-process model decodes long audio in VAD-sized pieces, so a pipelining caller can
+	// polish one piece while the rest still decodes; audio at or below the segment threshold takes
+	// the same single-decode fast path as before and the concatenation is unchanged.
+	return transcribeBufferSegmented(pcmData, recognizer, undefined, onSegment);
 }
 
 /** Check if a local transcription server is reachable. */
