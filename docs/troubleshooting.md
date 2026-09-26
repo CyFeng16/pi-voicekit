@@ -55,6 +55,40 @@ choco install sox         # Windows
 
 Then restart Pi or run `/voice test` again.
 
+## Symptom: pi exits with `symbol lookup error: … sherpa-onnx.node: undefined symbol: SherpaOnnxGetOnnxruntimeVersionStr`
+
+### What it means
+
+The local backend loads a native addon (`sherpa-onnx.node`) that depends on
+`libsherpa-onnx-c-api.so`. The dynamic loader identifies that library by name, so if a
+**different version** of it is already loaded in the same process, the addon binds to the
+older copy and a symbol that only the newer version exports is missing. The loader then
+terminates the process outright — this is not something the extension can catch, log, or
+fall back from.
+
+In practice it happens after an install change: Pi was started against one copy of
+pi-voicekit (a local checkout, or an older npm version) and then reloaded, upgraded, or
+repointed at another one that resolves a different `sherpa-onnx-node` release. The running
+process still holds the version it loaded first.
+
+### Fix
+
+Restart Pi. A fresh process loads exactly one sherpa-onnx version and works.
+
+Switching or upgrading the install source (`pi install` / `pi remove`) needs a restart, not a
+`/reload`: a reload swaps the extension code but cannot unload a shared library that is
+already mapped into the process.
+
+With several Pi sessions open, the ones started before the change are the ones at risk —
+restart them as well, or keep the local backend off in those sessions.
+
+If the crash persists on a fresh start, report the two versions involved:
+
+```sh
+node -p "require(require.resolve('sherpa-onnx-node/package.json')).version"   # the JS wrapper
+find ~/.pi -name 'libsherpa-onnx-c-api.so' 2>/dev/null                          # every native copy on disk
+```
+
 ## Symptom: recording starts, but transcription is empty or says "No speech detected"
 
 ### Likely causes
