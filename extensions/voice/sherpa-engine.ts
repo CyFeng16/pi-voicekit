@@ -386,10 +386,16 @@ function getSileroVadPath(): string | null {
 
 /**
  * Split Float32 PCM into speech segments via Silero VAD.
- * Each returned chunk is ≤ maxSpeechSecs of speech. Falls back to the whole
- * buffer when the VAD model is unavailable (graceful degradation).
+ * Each returned chunk is ≤ maxSpeechSecs of speech and ends at a pause of at least
+ * minSilenceSecs. A larger minSilenceSecs cuts on clause or sentence boundaries instead of on
+ * hesitation-sized gaps. Falls back to the whole
  */
-export function segmentPcmForLongAudio(samples: Float32Array, sampleRate: number, maxSpeechSecs = 10): Float32Array[] {
+export function segmentPcmForLongAudio(
+	samples: Float32Array,
+	sampleRate: number,
+	maxSpeechSecs = 10,
+	minSilenceSecs = 0.25
+): Float32Array[] {
 	const vadModel = getSileroVadPath();
 	if (!vadModel) return [samples];
 
@@ -399,7 +405,9 @@ export function segmentPcmForLongAudio(samples: Float32Array, sampleRate: number
 			sileroVad: {
 				model: vadModel,
 				threshold: 0.5,
-				minSilenceDuration: 0.25,
+				// 0.25 s is hesitation-sized: it splits mid-sentence. Raising it makes a segment end on a
+				// clause or sentence boundary, which is what the granularity experiment varies.
+				minSilenceDuration: minSilenceSecs,
 				minSpeechDuration: 0.25,
 				maxSpeechDuration: maxSpeechSecs,
 				windowSize: 512,
@@ -470,12 +478,16 @@ export async function decodeSegmentsInOrder(
  * `onSegment` is called for every decoded segment — the fast path's single segment included —
  * as soon as it decodes and before the next decode starts. Leaving it out keeps today's exact
  * return value (docs/superpowers/specs/2026-09-26-polish-pipeline-design.md §4.1).
+ *
+ * `segmentation` overrides the VAD boundaries and is only for the granularity experiment:
+ * omitted, the shipped defaults (10 s cap, 0.25 s pause) apply unchanged.
  */
 export async function transcribeBufferSegmented(
 	pcmData: Buffer,
 	recognizer: SherpaRecognizer,
 	thresholdSecs = 10,
-	onSegment?: (text: string, index: number) => void
+	onSegment?: (text: string, index: number) => void,
+	segmentation?: { maxSpeechSecs?: number; minSilenceSecs?: number }
 ): Promise<string> {
 	getSherpaModule();
 	const samples = pcmToFloat32(pcmData);
@@ -484,5 +496,11 @@ export async function transcribeBufferSegmented(
 	if (samples.length / 16000 <= thresholdSecs) {
 		return (await decodeSegmentsInOrder(recognizer, [samples], onSegment)).join(" ");
 	}
-	return (await decodeSegmentsInOrder(recognizer, segmentPcmForLongAudio(samples, 16000), onSegment)).join(" ");
+	const pieces = segmentPcmForLongAudio(
+		samples,
+		16000,
+		segmentation?.maxSpeechSecs ?? 10,
+		segmentation?.minSilenceSecs ?? 0.25
+	);
+	return (await decodeSegmentsInOrder(recognizer, pieces, onSegment)).join(" ");
 }
