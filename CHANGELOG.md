@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Polish now runs segment by segment on the local backend** — each recogniser segment
+  (roughly 10 s of speech) is polished as it is decoded, with up to three segment calls in
+  flight, instead of waiting for the whole transcript. Segments are isolated: when one still
+  fails after its retry, that segment keeps its own raw text while its neighbours keep their
+  polished text, so a dictation can come back partly polished rather than unpolished. The
+  session context is attached to the first segment only; later segments see just the previous
+  segment's raw text. A segment call that times out is retried once, with thinking disabled
+  for that retry. Measured against a degraded endpoint, 79.6 s of corpus audio (35 segments)
+  went from 100% fallback on the old single-call path to 35 of 35 segments polished. One audit
+  entry per dictation now carries a `segments` summary and the recogniser.
+
+### Fixed
+
+- **One slow polish call no longer costs the whole dictation.** The pass used to be a single
+  call over the whole transcript, so one call that timed out fell the entire dictation back to
+  raw text. Per-segment isolation keeps the rest: only the failed segment keeps its raw text.
+  Real dictations after the change: 4 of 4 applied, with polish taking 0.4–2.3 s for 8–28 s of
+  audio — roughly 5–13% of the audio duration.
+
 ## [0.2.3] - 2026-09-26
 
 ### Added

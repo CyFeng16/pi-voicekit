@@ -274,7 +274,7 @@ Models from [Handy](https://github.com/cjpais/handy) (`~/Library/Application Sup
 | **Pre-recording**                | Audio capture starts during warmup — you never miss the first word                       |
 | **Tail recording**               | Keeps recording 1.5s after release so your last word isn't clipped                       |
 | **Live streaming**               | Deepgram Nova 3 WebSocket (Nova 2 for Chinese locales) — live interim transcripts        |
-| **Transcript polish**            | Optional post-ASR cleanup — every dictation makes one extra model call; the last N conversation turns (default 2) are sent with it, and no conversation context at all when the turn count is zero. Disable with `/voice-polish off` |
+| **Transcript polish**            | Optional post-ASR cleanup — the local backend polishes each recogniser segment as it is decoded (up to three calls in flight); the last N conversation turns (default 2) are sent with the first segment, and no conversation context at all when the turn count is zero. Disable with `/voice-polish off` |
 | **56+ languages**                | Deepgram: 56+ with live streaming. Local: up to 57 depending on model.                   |
 | **Continuous dictation**         | `/voice dictate` for long-form input without holding keys                                |
 | **Typing cooldown**              | Space holds within 400ms of typing are ignored                                           |
@@ -367,7 +367,7 @@ Hold-to-talk delay defaults to **700 ms** (`/voice-hold-delay` accepts 200–300
 
 ### Transcript polish
 
-Transcript polish is on by default: every dictation runs one extra model call. When
+Transcript polish is on by default: every dictation runs an extra model pass. When
 the selected model is a cloud provider, the text that leaves your machine is:
 
 - the transcript of the dictation;
@@ -389,6 +389,19 @@ punctuation), while shorter ones keep it, because there it costs almost nothing 
 terms and self-corrections better. The field only reaches OpenAI-compatible providers; one that
 ignores it behaves exactly as before.
 
+On the local backend, polish no longer waits for the whole transcript: each recogniser
+segment — roughly 10 s of speech — is polished as it is decoded, with up to three segment
+calls in flight. A long dictation may come back partly polished, and that is deliberate: a
+segment that times out is retried once with thinking disabled for that retry, and if it still
+fails, that segment keeps its raw text while its neighbours keep their polished text — so one
+slow call no longer costs the rest of the dictation. The conversation context is attached to
+the first segment only; a later segment sees just the previous segment's raw text.
+
+The gain is measurable: on 79.6 s of corpus audio (35 segments) against a degraded endpoint,
+the old single-call path fell back on 100% of the run, while the segmented path polished all
+35 segments. Real dictations after the change: 4 of 4 applied, with polish taking 0.4–2.3 s
+for 8–28 s of audio — roughly 5–13% of the audio duration.
+
 Assistant text can contain anything the conversation contained — file paths,
 identifiers, values the agent echoed. The character limits bound how much is sent,
 not how sensitive it is. With the local backend, nothing else leaves your machine,
@@ -402,7 +415,9 @@ analysis, and they do keep the raw text on disk for as long as the session file 
 Each entry also records how the pass was configured: the transcript length on its own
 (separate from any text already in the editor), whether thinking was turned off for it,
 and the output-token cap it carried, plus the audio seconds it covered and which recogniser
-produced it — which is what makes polish time readable as a speedup.
+produced it — which is what makes polish time readable as a speedup. A segmented pass adds a
+`segments` summary to the entry: how many segments were polished, how many kept their raw
+text, and how many were retried.
 
 | Setting                   | Scope              | Default     | Notes                                                   |
 | ------------------------- | ------------------ | ----------- | ------------------------------------------------------- |

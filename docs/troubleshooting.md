@@ -193,6 +193,32 @@ The raw/polished history is in-memory for the current Pi session only. It is not
 - A configured model that is unavailable or malformed keeps the raw transcript and warns instead of silently switching provider. That is deliberate: the model choice decides where your dictated text is sent.
 - If you edit the editor while a pass is still waiting for the model, the polished result is discarded with a one-line notice. Your text is kept; nothing is overwritten.
 
+## Symptom: part of a dictation comes back unpolished
+
+### What it means
+
+On the local backend, polish runs per recogniser segment — each roughly 10 s of speech — with
+up to three segment calls in flight, so recognition and polish overlap. A segment whose call
+times out is retried once, and the retry runs with thinking disabled for that call. If it
+still fails, only that segment keeps its raw text while its neighbours keep their polished
+text. A partly polished dictation is therefore the designed outcome of a slow or unstable
+endpoint, not data loss: the raw range is exactly the text the recogniser produced, and the
+rest of the dictation keeps its rewrite.
+
+### Fix
+
+- Nothing, usually: the polished text around the raw segment is still valid. Re-read it before
+  deciding to dictate again.
+- Run with `PI_VOICE_DEBUG=1` and search the log for `polish result`; a segmented dictation's
+  line carries a `segments` object (`count`, `polished`, `failed`, `retried`), and the
+  per-segment lines (`polish timeout`, `polish call-failed`, …) carry the segment index.
+  A `reason` of `timeout` or `call-failed` identifies the failed call.
+- The `voice-polish` audit entry in the session file records the same summary, so a past
+  dictation can be checked after the fact — it shows how many segments were polished, how
+  many fell back to raw text, and how many were retried.
+- If segments routinely time out, raise `postProcessTimeoutMs` in the Polish tab
+  (`1000`–`30000` ms); on the local backend it applies to each segment call.
+
 ## Symptom: project config is ignored
 
 ### What it means
