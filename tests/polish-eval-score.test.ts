@@ -183,6 +183,35 @@ describe("falseEditReport", () => {
 });
 
 describe("meaningRisks", () => {
+	test("does not blame the pass for a word the recogniser never heard", () => {
+		// The reference has `seafood`, the recogniser heard `sea food`: nothing was removed by
+		// the pass, so this is a recognition disagreement rather than a lost word.
+		const risks = meaningRisks("Delicious sea food.", "Delicious sea food.", "Delicious seafood.");
+		expect(risks.contentDropped).toBe(false);
+	});
+
+	test("flags a word the recogniser heard and the pass removed", () => {
+		const risks = meaningRisks("the build 失败了", "失败了", "the build 失败了");
+		expect(risks.contentDropped).toBe(true);
+	});
+
+	test("treats capitalisation as wording-neutral in both directions", () => {
+		const risks = meaningRisks("嗯，hello,我的名字", "Hello，我的名字", "嗯hello我的名字");
+		expect(risks.contentDropped).toBe(false);
+		expect(risks.inventedContent).toBe(false);
+	});
+
+	test("exempts a Chinese filler whose units no longer match it", () => {
+		// wordingUnits splits 然后 into 然 + 后, so the filler exemption has to come from the
+		// reference's own word-level run.
+		const risks = meaningRisks("对，然后我是来自北方", "对，我是来自北方", "对然后我是来自北方");
+		expect(risks.contentDropped).toBe(false);
+	});
+
+	test("still flags an invented word that is in neither the raw text nor the reference", () => {
+		const risks = meaningRisks("we walked up", "we walked up trekking", "we walked up");
+		expect(risks.inventedContent).toBe(true);
+	});
 	test("flags a changed number that was correct in the raw transcript", () => {
 		const risks = meaningRisks("端口是 8080", "端口是 8081", "端口是 8080");
 		expect(risks.numbersChanged).toBe(true);

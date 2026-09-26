@@ -362,12 +362,42 @@ export function meaningRisks(raw: string, polished: string, groundTruth: string)
 
 	const numbersChanged = tokenRisk(referenceTokens, rawTokens, polishedTokens, isNumeric);
 	const identifiersChanged = tokenRisk(referenceTokens, rawTokens, polishedTokens, isIdentifier);
-	// Fillers are excluded because removing a meaningless one is the pass's job, not a loss.
+	// A filler is exempt wherever the reference contains it, not only when it is a whole
+	// token: Chinese runs are maximal, so 然后 inside 对然后我是来自北方 is one long run and
+	// `wordingUnits` would otherwise report its characters as dropped content.
+	// English fillers stay exact-match, because substring matching would read "like" out of
+	// "likely" and "I" out of every word with an i in it.
+	const CJK_FILLER = /[\u4e00-\u9fff]/;
+	const fillerUnits = new Set<string>();
+	for (const [token] of countTokens(tokenize(groundTruth))) {
+		for (const filler of FILLERS) {
+			const cjk = CJK_FILLER.test(filler);
+			if (!(cjk ? token.includes(filler) : token === filler)) continue;
+			for (const unit of wordingUnits(filler)) fillerUnits.add(unit);
+		}
+	}
+	// A loss is something the recogniser heard and the pass removed. Comparing against the
+	// reference alone would blame the pass for the recogniser's own disagreements, which are
+	// common on spontaneous speech (sea food / seafood, 又超超级 / 我觉得超超级).
+	// Wording is compared case-insensitively: capitalising a name or a sentence opener is not
+	// a wording change, and references are often typed in lower case.
+	const lower = (units: Iterable<string>) => new Set([...units].map((unit) => unit.toLowerCase()));
+	const heardUnits = lower(rawTokens.keys());
+	const spokenUnits = lower(polishedTokens.keys());
 	const contentDropped = [...referenceTokens].some(([token, count]) => {
-		if (isNumeric(token) || isIdentifier(token) || FILLERS.has(token)) return false;
-		return (polishedTokens.get(token) ?? 0) < count;
+		const unit = token.toLowerCase();
+		const heard = [...heardUnits].filter((seen) => seen === unit).length;
+		if (heard === 0) return false;
+		if (isNumeric(token) || isIdentifier(token) || fillerUnits.has(unit)) return false;
+		const kept = [...spokenUnits].filter((seen) => seen === unit).length;
+		return kept < Math.min(count, heard);
 	});
-	const inventedContent = edits.invented.some((token) => !FILLERS.has(token));
+	// Capitalisation is not a wording change, and references are often typed in lower case.
+	const seen = new Set([...rawTokens.keys(), ...referenceTokens.keys()].map((token) => token.toLowerCase()));
+	const inventedContent = edits.invented.some((token) => {
+		const unit = token.toLowerCase();
+		return !seen.has(unit) && !fillerUnits.has(unit);
+	});
 	return {
 		numbersChanged,
 		identifiersChanged,
