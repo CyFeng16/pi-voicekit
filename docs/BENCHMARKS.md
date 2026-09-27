@@ -21,7 +21,6 @@ speech.
 - **Recognition** — the local backend (`sherpa-onnx`) on CPU, no network. A time
   covers the decode call only; audio capture is not part of it.
 - **Polish** — the evaluation harness's `openai` caller against a remote
-- **Polish** — the evaluation harness's `openai` caller against a remote
   OpenAI-compatible endpoint, left unnamed here. That
   endpoint's latency varies run to run, so the polish numbers describe one measurement
   window, not a service guarantee.
@@ -35,6 +34,48 @@ Processor** running **Ubuntu 24.04.5 LTS** (kernel `7.0.0-31-generic`). These ar
 single-machine numbers: the comparison between recognisers is what transfers, absolute
 times depend on the CPU. The polish numbers move with the endpoint and the network
 instead, not with this machine.
+
+## Segmentation — how long a pause ends a segment
+
+The local backend cuts long audio at pauses before decoding: a segment ends when the speaker
+stops for `minSilenceDuration`, and no segment exceeds `maxSpeechDuration` (10 s). The pause is
+the setting that matters, and 1 s ships as of 0.3.2.
+
+**Protocol.** 12 audios of 60–92 s assembled at random from 42 Chinese and mixed-language
+corpus clips (8–17 clips each, inter-clip gaps drawn from 200–900 ms so no single gap sits on a
+threshold under test), decoded on CPU by two recognisers, with the offline polish caller
+(`--caller fake`, no network). Metric: raw character error rate of the transcript against the
+concatenated reference — lower is better. 96/96 runs produced a result.
+
+| Pause | paraformer-zh | sensevoice-small | Mean segments | Paired vs 0.25 s |
+| --- | --- | --- | --- | --- |
+| 0.25 s (old default) | 0.1439 | 0.1311 | 16.8 | — |
+| 1 s (new default) | 0.1315 | 0.1095 | 8.4 | better 9/12, worse 1/12 |
+| 0.8 s | 0.1392 | 0.1200 | 11.4 | better 5/12 and 9/12 |
+| no segmentation | 0.1659 | 0.4130 | 1.0 | worse 10/12 for sensevoice |
+
+Values are means over the 12 audios; the paired column counts audios where the setting beat
+the old default on the same audio and recogniser.
+
+**Reading.** Not segmenting is worse for both recognisers and catastrophic for sensevoice. 1 s
+and 0.8 s are close, and 1 s costs about half the segments — half the polish calls — for the
+same or better accuracy. The old 0.25 s default was the worst setting tried.
+
+**Honest limits.** The audios are assembled from clips rather than natural continuous speech, so
+they support relative comparisons but not absolute accuracy claims; only two recognisers were
+measured, on CPU; and the polish side of the pipeline was not part of this comparison.
+
+Reproduce (offline, no keys):
+
+```bash
+bun run scripts/polish-eval/assemble.ts --source-dir <pcm clips> --count 12 --seed 11 \
+  --min-seconds 55 --max-seconds 100 --min-clips 12 --max-clips 20 --out /tmp/seg/audio
+for i in $(seq 0 11); do
+  bun run scripts/polish-eval/pipeline.ts --caller fake --seconds 30 --gap-ms 0 --skip-files $i \
+    --audio-dir /tmp/seg/audio --local-model paraformer-zh --language auto \
+    --split vad --min-silence 1 --max-speech 10
+done
+```
 
 ## Recognition — local CPU, no network
 

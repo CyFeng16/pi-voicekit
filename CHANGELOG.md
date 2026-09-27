@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **A pause now has to last a second before the recogniser treats it as a segment boundary.**
+  The VAD pause was 0.25 s, which is hesitation-sized: it cut mid-clause and cost both accuracy
+  and calls. On 12 assembled 60–90 s dictations across two local recognisers a 1 s pause gave the
+  lowest or near-lowest raw character error rate (about 8% below 0.25 s) and roughly halved the
+  number of segments, so a dictation also makes about half as many polish calls. Long pauses are
+  the granularity that matters; see [docs/BENCHMARKS.md](docs/BENCHMARKS.md).
+
 ## [0.3.1] - 2026-09-26
 
 ### Fixed
