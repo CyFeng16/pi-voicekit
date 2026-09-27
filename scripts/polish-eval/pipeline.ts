@@ -485,7 +485,7 @@ async function loadRecogniser(localModelId: string, language: string, split?: Sp
 			toFloat32(pcm),
 			EVAL_SAMPLE_RATE,
 			split?.maxSpeechSecs ?? 10,
-			split?.minSilenceSecs ?? 0.25
+			split?.minSilenceSecs ?? 1
 		);
 		const k = Math.max(1, Math.floor(split?.mergeK ?? 1));
 		if (k === 1) return pieces;
@@ -632,7 +632,7 @@ export function parseArgs(argv: readonly string[]): PipelineArgs {
 		else if (flag === "--out") args.out = next();
 		else if (flag === "--help" || flag === "-h") args.help = true;
 		else if (flag === "--split") args.split = next() ?? args.split;
-		else if (flag === "--min-silence") args.minSilence = Number(next() ?? 0.25);
+		else if (flag === "--min-silence") args.minSilence = Number(next() ?? 1);
 		else if (flag === "--max-speech") args.maxSpeech = Number(next() ?? 10);
 		else if (flag === "--merge-k") args.mergeK = Number(next() ?? 1);
 		else if (flag === "--gap-ms") args.gapMs = Number(next() ?? args.gapMs);
@@ -651,7 +651,7 @@ const USAGE = [
 	"  --seconds <n>              audio to concatenate (default: 75)",
 	"  --repeats <n>              full pipeline+baseline runs (default: 1)",
 	"  --split <mode>             vad (default) | fixed:<secs> | whole; with vad also --merge-k <n>",
-	"  --min-silence <secs>       pause length that ends a segment (default: 0.25, the shipped value)",
+	"  --min-silence <secs>       pause length that ends a segment (default: 1, the shipped value)",
 	"  --max-speech <secs>        hard cap on one segment (default: 10, the shipped value)",
 	"  --merge-k <n>              glue n consecutive VAD pieces into one decode (default: 1)",
 	"  --gap-ms <n>               silence inserted between corpus clips (default: 350)",
@@ -746,7 +746,7 @@ async function main(): Promise<number> {
 		mergeK: args.mergeK,
 	};
 	console.log(
-		`split:      ${args.split}${args.mergeK ? ` merge-k=${args.mergeK}` : ""} min-silence=${args.minSilence ?? 0.25} max-speech=${args.maxSpeech ?? 10}`
+		`split:      ${args.split}${args.mergeK ? ` merge-k=${args.mergeK}` : ""} min-silence=${args.minSilence ?? 1} max-speech=${args.maxSpeech ?? 10}`
 	);
 	const recogniser = await loadRecogniser(args.localModel, args.language, split);
 	const caller: PolishQueueCaller = resolved.caller;

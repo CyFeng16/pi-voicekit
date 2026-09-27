@@ -387,14 +387,16 @@ function getSileroVadPath(): string | null {
 /**
  * Split Float32 PCM into speech segments via Silero VAD.
  * Each returned chunk is ≤ maxSpeechSecs of speech and ends at a pause of at least
- * minSilenceSecs. A larger minSilenceSecs cuts on clause or sentence boundaries instead of on
- * hesitation-sized gaps. Falls back to the whole
+ * minSilenceSecs. The shipped pause is 1 s: on 12 assembled 60–90 s dictations a 1 s pause
+ * gave the lowest (or near-lowest) raw character error rate and about half the segments of
+ * the previous 0.25 s, i.e. half the polish calls. Falls back to the whole buffer when no
+ * VAD model is installed.
  */
 export function segmentPcmForLongAudio(
 	samples: Float32Array,
 	sampleRate: number,
 	maxSpeechSecs = 10,
-	minSilenceSecs = 0.25
+	minSilenceSecs = 1
 ): Float32Array[] {
 	const vadModel = getSileroVadPath();
 	if (!vadModel) return [samples];
@@ -405,8 +407,8 @@ export function segmentPcmForLongAudio(
 			sileroVad: {
 				model: vadModel,
 				threshold: 0.5,
-				// 0.25 s is hesitation-sized: it splits mid-sentence. Raising it makes a segment end on a
-				// clause or sentence boundary, which is what the granularity experiment varies.
+				// Measured: 0.25 s is hesitation-sized and splits mid-sentence, which cost ~8% relative
+				// raw CER and doubled the segment count against 1 s. See docs/BENCHMARKS.md.
 				minSilenceDuration: minSilenceSecs,
 				minSpeechDuration: 0.25,
 				maxSpeechDuration: maxSpeechSecs,
@@ -480,7 +482,7 @@ export async function decodeSegmentsInOrder(
  * return value (docs/superpowers/specs/2026-09-26-polish-pipeline-design.md §4.1).
  *
  * `segmentation` overrides the VAD boundaries and is only for the granularity experiment:
- * omitted, the shipped defaults (10 s cap, 0.25 s pause) apply unchanged.
+ * omitted, the shipped defaults (10 s cap, 1 s pause) apply unchanged.
  */
 export async function transcribeBufferSegmented(
 	pcmData: Buffer,
@@ -500,7 +502,7 @@ export async function transcribeBufferSegmented(
 		samples,
 		16000,
 		segmentation?.maxSpeechSecs ?? 10,
-		segmentation?.minSilenceSecs ?? 0.25
+		segmentation?.minSilenceSecs ?? 1
 	);
 	return (await decodeSegmentsInOrder(recognizer, pieces, onSegment)).join(" ");
 }
