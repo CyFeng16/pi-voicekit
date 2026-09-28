@@ -125,7 +125,6 @@ import {
 	punctuateWithStatus,
 	shouldPunctuate,
 	type PunctuationReason,
-	type PunctuationResult,
 	type PunctuationStatus,
 } from "./voice/punctuation";
 
@@ -228,12 +227,17 @@ function updateAudioLevel(chunk: Buffer) {
 
 function voiceDebug(...args: unknown[]) {
 	if (!VOICE_DEBUG) return;
-	const ts = new Date().toISOString().split("T")[1];
-	const line = `[voice ${ts}] ${args.map((a) => (typeof a === "object" ? JSON.stringify(a) : String(a))).join(" ")}\n`;
+	// Diagnostics are best-effort by contract: serialization (a circular value) and the stderr
+	// write (EPIPE) can both throw, and the completion path runs its fail-open fallback on this
+	// stack — a debug line must never be able to cost a dictation its text.
 	try {
-		fs.appendFileSync(VOICE_LOG_FILE, line);
+		const ts = new Date().toISOString().split("T")[1];
+		const line = `[voice ${ts}] ${args.map((a) => (typeof a === "object" ? JSON.stringify(a) : String(a))).join(" ")}\n`;
+		try {
+			fs.appendFileSync(VOICE_LOG_FILE, line);
+		} catch {}
+		process.stderr.write(line);
 	} catch {}
-	process.stderr.write(line);
 }
 
 // Cache command existence checks — avoid sync spawnSync on every recording start
@@ -796,8 +800,6 @@ export default function (pi: ExtensionAPI) {
 	let punctuationDownloadNoticeShown = false;
 	/** The failure notice fires once per runtime; later needs still retry the download. */
 	let punctuationUnavailableNoticeShown = false;
-	/** The upgrade notice fires once per runtime even when the flag cannot be persisted. */
-	let punctuationUpgradeNoticeShown = false;
 
 	/** A plain-language note per reason code, so `status` explains itself (spec §4.6). */
 	const PUNCTUATION_REASON_NOTES: Record<PunctuationReason, string> = {
@@ -806,7 +808,7 @@ export default function (pi: ExtensionAPI) {
 		"empty-input": "there was nothing to punctuate",
 		"altered-text": "the model's output changed the text, so it was rejected",
 		"not-needed": "the switch is off, the text is not Chinese, or it is already punctuated",
-		error: "the model call failed",
+		error: "the punctuation step failed",
 	};
 
 	/**
@@ -817,53 +819,72 @@ export default function (pi: ExtensionAPI) {
 	 * failure (invariant 2). Nothing here loads, downloads or constructs anything: a qualifying
 	 * dictation with no engine keeps the raw text and hands that work to `preparePunctuation()`,
 	 * which returns before doing any of it (invariant 7).
+	 *
+	 * The whole step — decision, splice, diagnostics, notices and the prepare — sits in one guard,
+	 * and the fallback itself uses nothing that can throw: a throw must never cost the dictation
+	 * its write, its history record or its state reset.
 	 */
 	function punctuateTranscript(text: string): string {
-		let result: PunctuationResult;
+		// The text the caller writes: the recognised transcript until the splice produces a result,
+		// so a failure after that point cannot discard punctuation that already succeeded.
+		let output = text;
+		let decided = false;
 		try {
 			const shouldApply = shouldPunctuate(text, config.punctuationEnabled !== false);
-			result = punctuateWithStatus(text, shouldApply);
-		} catch (err) {
-			// The module is fail-open by construction; this guard is the wiring's last line, so a
-			// throw can never cost the dictation its write, its history record or its state reset.
-			voiceDebug("punctuation step threw — keeping the transcript as recognised", { error: String(err) });
-			return text;
-		}
-		const chars = Array.from(text).length;
-		lastPunctuationDecision = { chars, status: result.status };
+			const result = punctuateWithStatus(text, shouldApply);
+			output = result.text;
+			const chars = Array.from(text).length;
+			lastPunctuationDecision = { chars, status: result.status };
+			decided = true;
 
-		// One debug line per dictation, applied or not (spec §4.6).
-		voiceDebug("punctuation", {
-			applied: result.status.applied,
-			reason: result.status.reason,
-			chars,
-			marksBefore: result.status.marksBefore,
-			marksAfter: result.status.marksAfter,
-			elapsedMs: result.status.elapsedMs,
-		});
+			// One debug line per dictation, applied or not (spec §4.6).
+			voiceDebug("punctuation", {
+				applied: result.status.applied,
+				reason: result.status.reason,
+				chars,
+				marksBefore: result.status.marksBefore,
+				marksAfter: result.status.marksAfter,
+				elapsedMs: result.status.elapsedMs,
+			});
 
-		if (result.status.reason === "no-model" && !punctuationDownloadNoticeShown) {
-			// First need (spec §4.2, §4.6): say that the download starts now, and never wait for it.
-			punctuationDownloadNoticeShown = true;
-			try {
-				ctx?.ui.notify(
-					"punctuation model is being downloaded in the background, 285 MB; the next dictation will be punctuated",
-					"info"
-				);
-			} catch (err) {
-				voiceDebug("punctuation download notice threw", { error: String(err) });
+			if (result.status.reason === "no-model" && !punctuationDownloadNoticeShown) {
+				// First need (spec §4.2, §4.6): say that the download starts now, and never wait for it.
+				punctuationDownloadNoticeShown = true;
+				try {
+					ctx?.ui.notify(
+						"punctuation model is being downloaded in the background, 285 MB; the next dictation will be punctuated",
+						"info"
+					);
+				} catch (err) {
+					voiceDebug("punctuation download notice threw", { error: String(err) });
+				}
 			}
-		}
 
-		const unavailable = result.status.reason === "no-model" || result.status.reason === "load-failed";
-		if (unavailable) {
-			// Retry the background prepare on every qualifying need — it verifies, downloads and
-			// constructs off this stack, and does nothing at all once the engine exists. A settle
-			// without an engine reports through the hook, which is what the failure notice uses.
-			preparePunctuation({ onUnavailable: notifyPunctuationUnavailable });
-		}
+			const unavailable = result.status.reason === "no-model" || result.status.reason === "load-failed";
+			if (unavailable) {
+				// Retry the background prepare on every qualifying need — it verifies, downloads and
+				// constructs off this stack, and does nothing at all once the engine exists. A settle
+				// without an engine reports through the hook, which is what the failure notice uses.
+				preparePunctuation({ onUnavailable: notifyPunctuationUnavailable });
+			}
 
-		return result.text;
+			return output;
+		} catch (err) {
+			// Fail-open fallback: `status` must report *this* dictation, never the previous one.
+			// Nothing here can throw — the record is a plain assignment, and `voiceDebug` swallows its
+			// own failures by contract — so this arm completes even when the throw it reports came
+			// from a diagnostic; `output` then keeps a punctuation that already succeeded.
+			if (!decided) {
+				lastPunctuationDecision = {
+					chars: Array.from(text).length,
+					status: { applied: false, reason: "error", marksBefore: 0, marksAfter: 0, elapsedMs: 0 },
+				};
+			}
+			voiceDebug("punctuation step threw — continuing with the transcript as it stands", {
+				error: String(err),
+			});
+			return output;
+		}
 	}
 
 	/**
@@ -912,35 +933,6 @@ export default function (pi: ExtensionAPI) {
 
 		if (!enabled) lines.push("  switch: voice.punctuationEnabled = false in settings.json");
 		return lines.join("\n");
-	}
-
-	/**
-	 * The one-time post-upgrade notice (spec §4.6): the LLM polish pass is gone, so no dictated
-	 * transcript is sent to a model and nothing is charged for one. The flag is global-only and
-	 * written field by field, so a read-only settings file costs the persistence but never the
-	 * disclosure — the runtime flag still suppresses a repeat until the process ends.
-	 */
-	function maybeShowPunctuationUpgradeNotice(sessionCtx: ExtensionContext): void {
-		if (!sessionCtx.hasUI || punctuationUpgradeNoticeShown || config.punctuationNoticeShown === true) return;
-		punctuationUpgradeNoticeShown = true;
-		config.punctuationNoticeShown = true;
-		try {
-			saveGlobalVoiceFields({ punctuationNoticeShown: true });
-		} catch (err) {
-			voiceDebug("punctuation notice setting write failed", { error: String(err) });
-		}
-		try {
-			sessionCtx.ui.notify(
-				[
-					"Voice polish has been removed — a dictated transcript is no longer sent to an LLM: no cloud call, no charge.",
-					"Chinese transcripts that come back unpunctuated are now punctuated offline instead.",
-					"/voice-punctuation status shows whether it ran and why.",
-				].join("\n"),
-				"info"
-			);
-		} catch (err) {
-			voiceDebug("punctuation upgrade notice threw", { error: String(err) });
-		}
 	}
 
 	// ─── Transcript polish (post-processing) ─────────────────────────────────
@@ -3270,9 +3262,6 @@ export default function (pi: ExtensionAPI) {
 		// Migration / setup runs on EVERY session_start, regardless of reason.
 		// Only the first-run notification is gated on isStartup.
 		if (config.onboarding.completed) {
-			// One-time post-upgrade notice (spec §4.6). Gated on a completed onboarding so a first
-			// run shows its install hint alone; the flag then makes it a once-per-machine notice.
-			maybeShowPunctuationUpgradeNotice(startCtx);
 			// Always refresh the status bar — when voice is disabled,
 			// updateVoiceStatus() clears the entry so users don't see stale
 			// "MIC STREAM" text from a prior session. Hold-to-talk wiring
