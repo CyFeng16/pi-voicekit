@@ -178,8 +178,11 @@ produced it, and so is one whose punctuation fails at any point — the step is 
 so "no punctuation" always means "nothing was inserted", never "text was lost".
 
 The model is downloaded the first time a dictation needs it (~285 MB), and that first
-dictation is deliberately returned unchanged; the next qualifying one is punctuated.
-On a fresh install this is the usual explanation.
+dictation comes back unchanged while the download starts in the background. Once the
+download has completed, verified against its digest and the engine has been constructed —
+any of which can fail — later qualifying dictations are punctuated; until then they come
+back unchanged, and `/voice-punctuation status` reports the state. On a fresh install this
+is the usual explanation.
 
 ### Fix
 
@@ -189,9 +192,9 @@ On a fresh install this is the usual explanation.
   before/after.
 - `model: not downloaded` — wait for the background download (~285 MB), then dictate
   again.
-- `last: ... not-needed` — the switch is off, the transcript contained no Chinese, or it
-  was already punctuated. `status` prints the switch separately, so the other two are the
-  remaining reasons.
+- `last: ... not-needed` — the switch is off, the transcript contained no Chinese, or its
+  punctuation was already dense enough (one mark per 20 characters or more). `status` prints
+  the switch separately, so the other two are the remaining reasons.
 - `model: unusable` — the download is incomplete or corrupt. Delete it in the settings
   panel's Downloaded tab (or remove `~/.pi/models/punct-ct-transformer-zh-en/`) and let a
   later dictation fetch it again.

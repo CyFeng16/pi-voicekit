@@ -140,14 +140,17 @@ on by default. When a transcript contains Chinese and is essentially unpunctuate
 commas and question marks. It can only **insert** marks — every other byte of the
 transcript is preserved — and any problem leaves the text exactly as the recogniser
 produced it. English is not supported (the model measured F1 0.175 on English), and
-a transcript that already carries punctuation is left alone.
+a transcript whose punctuation is already dense enough — one mark per 20 characters or
+more — is left alone; a sparser one is punctuated even if it carries a mark or two.
 
 The model is a one-time ~285 MB download, fetched in the background the first time a
-dictation needs it: that dictation comes back unchanged with a notice saying so, and
-the next qualifying one is punctuated. The switch is the `punctuationEnabled` setting
-(a `settings.json` field, on by default — the panel has no row for it), and
-`/voice-punctuation status` shows whether the step ran, why it did not, and the state
-of the model.
+dictation needs it: that first dictation comes back unchanged while the download starts.
+Once the download has completed, verified against its digest and the engine has been
+constructed — any of which can fail — later qualifying dictations are punctuated; until
+then they come back unchanged, and `/voice-punctuation status` reports the state. The
+switch is the `punctuationEnabled` setting (a `settings.json` field, on by default — the
+panel has no row for it), and `/voice-punctuation status` shows whether the step ran, why
+it did not, and the state of the model.
 
 ---
 

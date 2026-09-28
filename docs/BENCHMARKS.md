@@ -111,10 +111,12 @@ not shipped tooling), 4 threads, CPU:
 | Reference punctuation density | AISHELL-4 reference transcripts measure 1 mark per 17.3 characters (11,139 marks / 192,491 characters); the step punctuates below 1 mark per 20 characters |
 
 **Honest limits.** The probes live outside the repository and are not a runnable protocol: one
-machine, four threads, one model revision, 70 utterances. The marks-only row is about the spliced
-*step* on a corpus without spaced ASCII — the mixed-terms row is why the splice is mandatory.
-English is skipped by the shipped rule rather than handled, so its 0.175 describes the model,
-not a path a user can reach.
+machine, four threads, one model revision, 70 utterances. The marks-only row (70/70) and the
+0.811 F1 describe the **model**'s punctuation quality on a probe corpus that contains no spaced
+ASCII; the shipped step wraps that model in the splice, whose own invariant — that only marks
+are inserted, byte for byte — was verified separately on the mixed-text probe. The mixed-terms
+row is why the splice is mandatory rather than optional. English is skipped by the shipped rule
+rather than handled, so its 0.175 describes the model, not a path a user can reach.
 
 ## Polish pass alone — single-call path (removed feature)
 

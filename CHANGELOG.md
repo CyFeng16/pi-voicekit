@@ -15,10 +15,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   transcript is preserved — and any failure leaves the text exactly as the recogniser
   produced it. The ~285 MB model is fetched in the background the first time a dictation
   needs it (that dictation is returned unchanged), English is not supported, and a
-  transcript that already carries punctuation is left alone. `/voice-punctuation status`
-  reports the switch, the model state and the last decision. Measured on the maintainer's
-  machine: Chinese punctuation F1 0.000 → 0.811 and marks-only on 70/70 probe rows, p50
-  2.9 ms / p95 3.1 ms per call after a one-time 544 ms load.
+  transcript whose punctuation is already dense enough (one mark per 20 characters or more)
+  is left alone, while a sparser one is punctuated even if it carries a mark or two.
+  `/voice-punctuation status` reports the switch, the model state and the last decision.
+  Measured on the maintainer's machine: Chinese punctuation F1 0.000 → 0.811 and marks-only
+  on 70/70 probe rows, p50 2.9 ms / p95 3.1 ms per call after a one-time 544 ms load.
 
 ### Removed
 
