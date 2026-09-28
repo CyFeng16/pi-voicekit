@@ -225,11 +225,11 @@ function voiceDebug(...args: unknown[]) {
 
 /**
  * Render a thrown value for a log line without ever throwing itself (R18): `String(err)` is
- * not total — a null-prototype object or a hostile `toString` makes it throw — and the one
- * caller that must not throw is the punctuation step's fail-open fallback, which runs inside
- * the completion path.
+ * not total — a null-prototype object or a hostile `toString` makes it throw — and every caller
+ * must not throw: the punctuation step's fail-open fallback runs inside the completion path, and
+ * the upgrade notice's catch blocks must not escape session initialisation (R24).
  */
-function safeErrorText(err: unknown): string {
+export function safeErrorText(err: unknown): string {
 	if (typeof err === "string") return err;
 	try {
 		return String(err);
@@ -948,7 +948,7 @@ export default function (pi: ExtensionAPI) {
 		try {
 			saveGlobalVoiceFields({ punctuationNoticeShown: true });
 		} catch (err) {
-			voiceDebug("punctuation notice setting write failed", { error: String(err) });
+			voiceDebug("punctuation notice setting write failed", { error: safeErrorText(err) });
 		}
 		try {
 			sessionCtx.ui.notify(
@@ -960,7 +960,7 @@ export default function (pi: ExtensionAPI) {
 				"info"
 			);
 		} catch (err) {
-			voiceDebug("punctuation upgrade notice threw", { error: String(err) });
+			voiceDebug("punctuation upgrade notice threw", { error: safeErrorText(err) });
 		}
 	}
 
@@ -3769,6 +3769,18 @@ export default function (pi: ExtensionAPI) {
 				return;
 			}
 			cmdCtx.ui.notify(punctuationStatusReport(), "info");
+		},
+	});
+
+	pi.registerCommand("voice-speak-stop", {
+		description: "Stop in-flight TTS playback",
+		handler: async (_args, cmdCtx) => {
+			ctx = cmdCtx;
+			if (abortActiveSpeak()) {
+				cmdCtx.ui.notify("Speech stopped.", "info");
+			} else {
+				cmdCtx.ui.notify("No active speech.", "info");
+			}
 		},
 	});
 

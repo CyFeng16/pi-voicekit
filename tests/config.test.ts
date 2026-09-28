@@ -2,6 +2,7 @@ import { afterEach, describe, expect, spyOn, test } from "bun:test";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import voiceExtension, { safeErrorText } from "../extensions/voice";
 import {
 	DEFAULT_CONFIG,
 	getSessionStartPersistedConfig,
@@ -595,6 +596,67 @@ describe("v3 config migration (post-process keys removed in v4)", () => {
 		expect(Object.keys(saved.voice).some((key) => key.startsWith("postProcess"))).toBe(false);
 	});
 
+	test("a v3 project file's postProcess* keys are ignored and the punctuation scope rules still hold", () => {
+		const cwd = makeTempDir();
+		const agentDir = path.join(cwd, "agent-home");
+		writeSettings(agentDir, "settings.json", {
+			version: 3,
+			punctuationEnabled: false,
+			punctuationNoticeShown: true,
+		});
+		writeSettings(cwd, ".pi/settings.json", {
+			version: 3,
+			postProcessEnabled: true,
+			postProcessModel: "session",
+			postProcessContextTurns: 2,
+			postProcessTimeoutMs: 12000,
+			postProcessNoticeShown: true,
+			// Scope-agnostic switch: the project value wins over the global one.
+			punctuationEnabled: true,
+			// Global-only flag: a project file must not be able to silence the notice.
+			punctuationNoticeShown: false,
+		});
+
+		const result = loadConfigWithSource(cwd, { agentDir });
+
+		expect(result.source).toBe("project");
+		expect(result.config.version).toBe(VOICE_CONFIG_VERSION);
+		expect(result.config.punctuationEnabled).toBe(true);
+		expect(result.config.punctuationNoticeShown).toBe(true);
+		for (const key of [
+			"postProcessEnabled",
+			"postProcessModel",
+			"postProcessContextTurns",
+			"postProcessTimeoutMs",
+			"postProcessNoticeShown",
+		]) {
+			expect(key in result.config).toBe(false);
+		}
+	});
+
+	test("a v3 project file that omits punctuationEnabled inherits the global value and writes no postProcess* key back", () => {
+		const cwd = makeTempDir();
+		const agentDir = path.join(cwd, "agent-home");
+		writeSettings(agentDir, "settings.json", { version: 3, punctuationEnabled: false });
+		writeSettings(cwd, ".pi/settings.json", {
+			version: 3,
+			postProcessEnabled: true,
+			postProcessNoticeShown: true,
+		});
+
+		const result = loadConfigWithSource(cwd, { agentDir });
+		expect(result.source).toBe("project");
+		expect(result.config.punctuationEnabled).toBe(false); // inherited from the global block, not the default
+
+		const savedPath = saveConfig(result.config, "project", cwd, { agentDir });
+		const saved = JSON.parse(fs.readFileSync(savedPath, "utf8")) as { voice: Record<string, unknown> };
+		expect(saved.voice.version).toBe(VOICE_CONFIG_VERSION);
+		expect(Object.keys(saved.voice).some((key) => key.startsWith("postProcess"))).toBe(false);
+		// The switch is scope-agnostic and persists; the notice flag stays global-only.
+		expect(saved.voice.punctuationEnabled).toBe(false);
+		expect(saved.voice.punctuationNoticeShown).toBeUndefined();
+	});
+
 	test("ignores an API key and a non-loopback endpoint from a project config", () => {
 		const cwd = makeTempDir();
 		const agentDir = path.join(cwd, "agent-home");
@@ -646,5 +708,64 @@ describe("v3 config migration (post-process keys removed in v4)", () => {
 		}
 
 		expect(chunks.join("")).not.toContain("localEndpoint");
+	});
+});
+
+describe("/voice-speak-stop registration (regression)", () => {
+	// There is no command harness: `extensions/voice.ts` registers its commands only when its
+	// default export runs. This drives the real registration with a minimal mock, then executes
+	// the captured handler. It pins that the command exists and that its handler routes through
+	// `abortActiveSpeak` — it does not exercise live playback, whose state can only be set by
+	// driving the TTS player.
+	test("is registered and its handler reports no active speech when idle", async () => {
+		const commands = new Map<string, { description?: string; handler: (args: string, cmdCtx: any) => Promise<void> }>();
+		const pi = {
+			on: () => {},
+			registerShortcut: () => {},
+			registerCommand: (name: string, definition: any) => commands.set(name, definition),
+		} as any;
+
+		voiceExtension(pi);
+
+		const command = commands.get("voice-speak-stop");
+		expect(command).toBeDefined();
+		expect(command!.description).toBe("Stop in-flight TTS playback");
+
+		const notices: Array<[string, string]> = [];
+		await command!.handler("", {
+			hasUI: true,
+			ui: { notify: (message: string, type: string) => notices.push([message, type]) },
+		});
+
+		expect(notices).toEqual([["No active speech.", "info"]]);
+	});
+
+	test("its registration still calls abortActiveSpeak", () => {
+		// Structural companion to the handler test above: reaching the idle notice requires
+		// `abortActiveSpeak()` to return false, so pin the call as well.
+		const source = fs.readFileSync(new URL("../extensions/voice.ts", import.meta.url), "utf8");
+		const start = source.indexOf('pi.registerCommand("voice-speak-stop", {');
+		expect(start).toBeGreaterThan(-1);
+		const next = source.indexOf("pi.registerCommand(", start + 1);
+		const block = source.slice(start, next === -1 ? undefined : next);
+		expect(block).toContain("abortActiveSpeak()");
+	});
+});
+
+describe("safeErrorText (cannot throw on a hostile thrown value)", () => {
+	// Both of the upgrade notice's catch blocks log through this renderer: if it threw, the
+	// persistence failure or the notice's own throw would escape and cost session initialisation.
+	test("degrades to a fixed string for a value that cannot be stringified", () => {
+		const hostile = Object.create(null) as any;
+		hostile.toString = () => {
+			throw new Error("toString is hostile");
+		};
+		expect(safeErrorText(hostile)).toBe("<unprintable error>");
+		expect(safeErrorText(Object.create(null))).toBe("<unprintable error>");
+	});
+
+	test("keeps the ordinary renderings", () => {
+		expect(safeErrorText("plain failure")).toBe("plain failure");
+		expect(safeErrorText(new Error("boom"))).toContain("boom");
 	});
 });
