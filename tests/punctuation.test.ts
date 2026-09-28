@@ -490,6 +490,92 @@ describe("preparePunctuation — it yields the caller's stack before any work", 
 	});
 });
 
+// ─── preparePunctuation: the unavailable hook ──────────────────────────────
+
+/**
+ * The failure notice has to distinguish "the download is still running" from "the prepare gave
+ * up": `punctuateWithStatus` reports a failed transfer as `no-model` (the module's pinned
+ * semantics), and the dictation path must not ask `isPunctuationModelReady()` because that hashes
+ * the model on first call. The hook is therefore the one signal that covers a failed download, an
+ * unverifiable file, a native-module load failure and a throwing construction (spec §4.6).
+ */
+describe("preparePunctuation — the unavailable hook", () => {
+	test("reports a transfer that produced no model", async () => {
+		resetPunctuationForTest(null, runOnMicrotask);
+		let reported = 0;
+		preparePunctuation({
+			ensure: async () => false,
+			onUnavailable: () => reported++,
+		});
+		await settle();
+
+		expect(reported).toBe(1);
+		expect(punctuateWithStatus("这个方案可行", true).status.reason).toBe("no-model");
+	});
+
+	test("reports a throwing construction, and reports each failed retry", async () => {
+		resetPunctuationForTest(null, runOnMicrotask);
+		let reported = 0;
+		const options = {
+			ensure: async () => true,
+			modelDir: "/tmp/pi-voice-punct-test",
+			createEngine: (): PunctuationEngine => {
+				throw new Error("onnx runtime refused the graph");
+			},
+			onUnavailable: () => reported++,
+		};
+
+		preparePunctuation(options);
+		await settle();
+		expect(reported).toBe(1);
+		expect(punctuateWithStatus("这个方案可行", true).status.reason).toBe("load-failed");
+
+		// The next qualifying dictation retries the prepare — and reports again when it fails again.
+		preparePunctuation(options);
+		await settle();
+		expect(reported).toBe(2);
+	});
+
+	test("stays silent when the prepare produced an engine", async () => {
+		resetPunctuationForTest(null, runOnMicrotask);
+		let reported = 0;
+		preparePunctuation({
+			ensure: async () => true,
+			modelDir: "/tmp/pi-voice-punct-test",
+			createEngine: () => punctuationEngine,
+			onUnavailable: () => reported++,
+		});
+		await settle();
+
+		expect(reported).toBe(0);
+		expect(punctuateWithStatus("这个方案可行", true).status.applied).toBe(true);
+	});
+
+	test("a throwing hook cannot break the fail-open lifecycle", async () => {
+		resetPunctuationForTest(null, runOnMicrotask);
+		preparePunctuation({
+			ensure: async () => false,
+			onUnavailable: () => {
+				throw new Error("the notice path threw");
+			},
+		});
+		await settle();
+
+		// The slot is free again and the step is still the plain `no-model` no-op.
+		expect(punctuateWithStatus("这个方案可行", true).status.reason).toBe("no-model");
+		let reported = 0;
+		preparePunctuation({
+			ensure: async () => true,
+			modelDir: "/tmp/pi-voice-punct-test",
+			createEngine: () => punctuationEngine,
+			onUnavailable: () => reported++,
+		});
+		await settle();
+		expect(reported).toBe(0);
+		expect(punctuateWithStatus("这个方案可行", true).status.applied).toBe(true);
+	});
+});
+
 // ─── Settings panel: the model is not a recogniser ──────────────────────────
 
 /**

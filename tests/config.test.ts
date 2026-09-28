@@ -481,6 +481,49 @@ describe("punctuation config (scope-agnostic, default true)", () => {
 	});
 });
 
+describe("punctuation notice flag (global-only, default false)", () => {
+	test("defaults to false when no settings exist", () => {
+		const cwd = makeTempDir();
+		const result = loadConfigWithSource(cwd, { agentDir: path.join(cwd, "agent-home") });
+		expect(result.config.punctuationNoticeShown).toBe(false);
+	});
+
+	test("is read from the global block even in a project-scoped session", () => {
+		const cwd = makeTempDir();
+		const agentDir = path.join(cwd, "agent-home");
+		// The flag describes the machine, so a project block must neither carry it nor hide it.
+		writeSettings(agentDir, "settings.json", { version: 3, punctuationNoticeShown: true });
+		writeSettings(cwd, ".pi/settings.json", { version: 3, punctuationNoticeShown: false });
+
+		const result = loadConfigWithSource(cwd, { agentDir });
+		expect(result.source).toBe("project");
+		expect(result.config.punctuationNoticeShown).toBe(true);
+	});
+
+	test("is stripped from a project-scoped save", () => {
+		const cwd = makeTempDir();
+		const agentDir = path.join(cwd, "agent-home");
+		const savedPath = saveConfig(
+			{ ...DEFAULT_CONFIG, scope: "project", punctuationNoticeShown: true },
+			"project",
+			cwd,
+			{ agentDir }
+		);
+
+		const saved = JSON.parse(fs.readFileSync(savedPath, "utf8")) as { voice: Record<string, unknown> };
+		expect(saved.voice.punctuationNoticeShown).toBeUndefined();
+	});
+
+	test("is written field by field into the global file", () => {
+		const cwd = makeTempDir();
+		const agentDir = path.join(cwd, "agent-home");
+		const savedPath = saveGlobalVoiceFields({ punctuationNoticeShown: true }, { agentDir });
+
+		const saved = JSON.parse(fs.readFileSync(savedPath, "utf8")) as { voice: Record<string, unknown> };
+		expect(saved.voice.punctuationNoticeShown).toBe(true);
+	});
+});
+
 describe("isLoopbackEndpoint", () => {
 	test("accepts localhost", () => {
 		expect(isLoopbackEndpoint("http://localhost:8080")).toBe(true);

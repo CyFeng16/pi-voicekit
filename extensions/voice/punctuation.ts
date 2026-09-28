@@ -168,6 +168,16 @@ export interface PreparePunctuationOptions {
 	modelDir?: string;
 	/** Test seam — engine factory; also bypasses the native-module load. Defaults to sherpa. */
 	createEngine?: (modelDir: string) => PunctuationEngine;
+	/**
+	 * Diagnostics hook — called, off the caller's stack, when a prepare settles without producing
+	 * an engine: a transfer that failed or could not be verified, a native-module load failure, or
+	 * a throwing construction. It is the only signal that covers a failed download, because
+	 * `punctuateWithStatus` reports "no usable model" and the dictation path must not ask
+	 * `isPunctuationModelReady()` (it hashes unverified files). Every failure path of the
+	 * lifecycle calls it, so a caller that only wants to tell the user once owns that once-ness.
+	 * A throw from the hook is swallowed: diagnostics never break the fail-open lifecycle.
+	 */
+	onUnavailable?: () => void;
 }
 
 /**
@@ -177,7 +187,8 @@ export interface PreparePunctuationOptions {
  * on every qualifying dictation; it never throws, does nothing once the engine exists, and
  * repeated calls — including calls made before the queued work starts — share one prepare. The
  * 544 ms construction is allowed to happen here and nowhere else, and nothing is constructed
- * until the files verify (spec §6.5).
+ * until the files verify (spec §6.5). A prepare that settles without an engine reports through
+ * `onUnavailable`, so a caller can tell "still running" from "gave up" without checking readiness.
  */
 export function preparePunctuation(options: PreparePunctuationOptions = {}): void {
 	if (engine || prepareInFlight) return;
@@ -216,7 +227,13 @@ export function preparePunctuation(options: PreparePunctuationOptions = {}): voi
 async function prepareInBackground(options: PreparePunctuationOptions, gen: number): Promise<void> {
 	try {
 		const ensure = options.ensure ?? ensurePunctuationModel;
-		if (!(await ensure({ modelDir: options.modelDir }))) return;
+		if (!(await ensure({ modelDir: options.modelDir }))) {
+			// No usable model: it is absent, the transfer failed, or the files did not verify. The
+			// reason stays `no-model` (the model is not there); the hook is what tells a caller that
+			// the prepare gave up rather than still running.
+			if (generation === gen) reportUnavailable(options);
+			return;
+		}
 		if (generation !== gen || engine) return;
 
 		const modelDir = options.modelDir ?? punctuationModelPath();
@@ -224,7 +241,10 @@ async function prepareInBackground(options: PreparePunctuationOptions, gen: numb
 		if (!create) {
 			// The engine needs the native module; loading it is cached and idempotent.
 			if (!(await loadSherpa())) {
-				if (generation === gen) loadFailed = true;
+				if (generation === gen) {
+					loadFailed = true;
+					reportUnavailable(options);
+				}
 				return;
 			}
 			if (generation !== gen || engine) return;
@@ -237,7 +257,19 @@ async function prepareInBackground(options: PreparePunctuationOptions, gen: numb
 			loadFailed = false;
 		}
 	} catch {
-		if (generation === gen) loadFailed = true;
+		if (generation === gen) {
+			loadFailed = true;
+			reportUnavailable(options);
+		}
+	}
+}
+
+/** Run the diagnostics hook without letting it reach the lifecycle — `preparePunctuation` must never throw. */
+function reportUnavailable(options: PreparePunctuationOptions): void {
+	try {
+		options.onUnavailable?.();
+	} catch {
+		// A thrown notice is a lost notice, not a broken prepare.
 	}
 }
 

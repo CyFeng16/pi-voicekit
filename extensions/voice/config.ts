@@ -45,6 +45,12 @@ export interface VoiceConfig {
 	 * OFF survives a project block — this is the feature's only user control.
 	 */
 	punctuationEnabled?: boolean;
+	/**
+	 * Set once the one-time post-upgrade notice about the removed LLM polish pass has
+	 * been shown (spec §4.6). Global-only — it describes this machine, not the
+	 * repository, and it is written field by field so a project block cannot carry it.
+	 */
+	punctuationNoticeShown?: boolean;
 	/** Global-only shortcut used to toggle recording without hold-to-talk */
 	toggleShortcut?: string;
 
@@ -157,6 +163,7 @@ export const DEFAULT_CONFIG: VoiceConfig = {
 	localModel: undefined,
 	localEndpoint: undefined,
 	punctuationEnabled: PUNCTUATION_ENABLED_DEFAULT,
+	punctuationNoticeShown: false,
 	toggleShortcut: "ctrl+shift+v",
 	// Post-processing defaults — on by default (D5), reusing the session model
 	postProcessEnabled: true,
@@ -274,6 +281,9 @@ function migrateConfig(rawVoice: any, source: VoiceConfigSource, globalVoice?: u
 			rawVoice.punctuationEnabled,
 			projectScoped ? asBoolean(globalRaw.punctuationEnabled, PUNCTUATION_ENABLED_DEFAULT) : PUNCTUATION_ENABLED_DEFAULT
 		),
+		// Global-only for the same reason the post-processing notice flag is: it describes this
+		// machine, not the repository, so a cloned project file cannot silence it.
+		punctuationNoticeShown: asBoolean(globalOnly("punctuationNoticeShown"), false),
 		localModel: typeof rawVoice.localModel === "string" ? rawVoice.localModel : undefined,
 		localEndpoint: projectScoped
 			? typeof rawVoice.localEndpoint === "string" && isLoopbackEndpoint(rawVoice.localEndpoint)
@@ -450,6 +460,7 @@ function serializeConfig(config: VoiceConfig, scope: VoiceSettingsScope): VoiceC
 		postProcessEnabled: scope === "project" ? undefined : config.postProcessEnabled,
 		postProcessModel: scope === "project" ? undefined : config.postProcessModel,
 		postProcessNoticeShown: scope === "project" ? undefined : config.postProcessNoticeShown,
+		punctuationNoticeShown: scope === "project" ? undefined : config.punctuationNoticeShown,
 		// Shortcut registration is static at extension load time — project-scoped overrides cannot apply
 		toggleShortcut: scope === "project" ? undefined : config.toggleShortcut,
 		onboarding: {
@@ -494,7 +505,11 @@ export function saveConfig(
  * carry them — `serializeConfig` strips them and the loader ignores them — so
  * they always belong in the global file.
  */
-type GlobalVoiceFieldKey = "postProcessEnabled" | "postProcessModel" | "postProcessNoticeShown";
+type GlobalVoiceFieldKey =
+	| "postProcessEnabled"
+	| "postProcessModel"
+	| "postProcessNoticeShown"
+	| "punctuationNoticeShown";
 
 /**
  * Field-level writer for the global-only voice settings (R26).

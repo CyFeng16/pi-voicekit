@@ -119,6 +119,15 @@ import {
 import { createPolishQueue, type PolishQueue } from "./voice/post-process-queue";
 import { DEFAULT_CONTEXT_LIMITS, type EntryLike } from "./voice/post-process-context";
 import { polishMaxTokens } from "./voice/post-process-prompt";
+import { isPunctuationModelReady, punctuationModelFilePath, punctuationModelPath } from "./voice/punctuation-model";
+import {
+	preparePunctuation,
+	punctuateWithStatus,
+	shouldPunctuate,
+	type PunctuationReason,
+	type PunctuationResult,
+	type PunctuationStatus,
+} from "./voice/punctuation";
 
 /** Adapter for the real event loop — lets GapTimer run under the real setTimeout. */
 const realTimerPort: TimerPort = {
@@ -774,6 +783,165 @@ export default function (pi: ExtensionAPI) {
 
 	// Streaming session state
 	let activeSession: VoiceSession | null = null;
+
+	// ─── Offline punctuation (spec §4.3–§4.6) ────────────────────────────────
+	// One synchronous, marks-only step between the final transcript and the editor write. The
+	// policy is a pure read of the text and the switch; the model is never loaded on this path.
+	/**
+	 * The last decision of this session, for `/voice-punctuation status`. In memory only — no
+	 * `appendEntry`, no file (spec §4.6) — and cleared when a new session starts.
+	 */
+	let lastPunctuationDecision: { chars: number; status: PunctuationStatus } | null = null;
+	/** The first-need notice fires once per runtime, however many dictations follow. */
+	let punctuationDownloadNoticeShown = false;
+	/** The failure notice fires once per runtime; later needs still retry the download. */
+	let punctuationUnavailableNoticeShown = false;
+	/** The upgrade notice fires once per runtime even when the flag cannot be persisted. */
+	let punctuationUpgradeNoticeShown = false;
+
+	/** A plain-language note per reason code, so `status` explains itself (spec §4.6). */
+	const PUNCTUATION_REASON_NOTES: Record<PunctuationReason, string> = {
+		"no-model": "the model is not available yet",
+		"load-failed": "the model could not be loaded",
+		"empty-input": "there was nothing to punctuate",
+		"altered-text": "the model's output changed the text, so it was rejected",
+		"not-needed": "the switch is off, the text is not Chinese, or it is already punctuated",
+		error: "the model call failed",
+	};
+
+	/**
+	 * The completion path's punctuation step: decide, apply, record, and never wait.
+	 *
+	 * `shouldPunctuate` is the whole policy (spec §4.3); the already-decided boolean goes to
+	 * `punctuateWithStatus`, which only splices marks and returns the input unchanged on every
+	 * failure (invariant 2). Nothing here loads, downloads or constructs anything: a qualifying
+	 * dictation with no engine keeps the raw text and hands that work to `preparePunctuation()`,
+	 * which returns before doing any of it (invariant 7).
+	 */
+	function punctuateTranscript(text: string): string {
+		let result: PunctuationResult;
+		try {
+			const shouldApply = shouldPunctuate(text, config.punctuationEnabled !== false);
+			result = punctuateWithStatus(text, shouldApply);
+		} catch (err) {
+			// The module is fail-open by construction; this guard is the wiring's last line, so a
+			// throw can never cost the dictation its write, its history record or its state reset.
+			voiceDebug("punctuation step threw — keeping the transcript as recognised", { error: String(err) });
+			return text;
+		}
+		const chars = Array.from(text).length;
+		lastPunctuationDecision = { chars, status: result.status };
+
+		// One debug line per dictation, applied or not (spec §4.6).
+		voiceDebug("punctuation", {
+			applied: result.status.applied,
+			reason: result.status.reason,
+			chars,
+			marksBefore: result.status.marksBefore,
+			marksAfter: result.status.marksAfter,
+			elapsedMs: result.status.elapsedMs,
+		});
+
+		if (result.status.reason === "no-model" && !punctuationDownloadNoticeShown) {
+			// First need (spec §4.2, §4.6): say that the download starts now, and never wait for it.
+			punctuationDownloadNoticeShown = true;
+			try {
+				ctx?.ui.notify(
+					"punctuation model is being downloaded in the background, 285 MB; the next dictation will be punctuated",
+					"info"
+				);
+			} catch (err) {
+				voiceDebug("punctuation download notice threw", { error: String(err) });
+			}
+		}
+
+		const unavailable = result.status.reason === "no-model" || result.status.reason === "load-failed";
+		if (unavailable) {
+			// Retry the background prepare on every qualifying need — it verifies, downloads and
+			// constructs off this stack, and does nothing at all once the engine exists. A settle
+			// without an engine reports through the hook, which is what the failure notice uses.
+			preparePunctuation({ onUnavailable: notifyPunctuationUnavailable });
+		}
+
+		return result.text;
+	}
+
+	/**
+	 * The one failure notice (spec §4.6). Called from the prepare's background hook — off the
+	 * dictation's stack — and guarded so later failed retries stay silent.
+	 */
+	function notifyPunctuationUnavailable(): void {
+		if (punctuationUnavailableNoticeShown || !ctx?.hasUI) return;
+		punctuationUnavailableNoticeShown = true;
+		try {
+			ctx.ui.notify(
+				"Punctuation model could not be downloaded or loaded — transcripts are left unchanged. /voice-punctuation status",
+				"warning"
+			);
+		} catch (err) {
+			voiceDebug("punctuation failure notice threw", { error: String(err) });
+		}
+	}
+
+	/** `/voice-punctuation status` (spec §4.6): read-only switch, model state and last decision. */
+	function punctuationStatusReport(): string {
+		const enabled = config.punctuationEnabled !== false;
+		const lines = [`Voice punctuation: ${enabled ? "on" : "off"}`];
+		const modelDir = punctuationModelPath();
+		if (isPunctuationModelReady(modelDir)) {
+			lines.push("  model: ready — present and digest-verified");
+		} else if (fs.existsSync(punctuationModelFilePath("model", modelDir))) {
+			// The readiness check above hashed the files, so this branch is a real mismatch or a
+			// missing companion file, not a pending verification.
+			lines.push("  model: unusable — present but not verified (incomplete or corrupt download)");
+		} else {
+			lines.push("  model: not downloaded — a qualifying dictation fetches it in the background");
+		}
+
+		const last = lastPunctuationDecision;
+		if (!last) {
+			lines.push("  last:  no dictation in this session yet");
+		} else {
+			const { applied, reason } = last.status;
+			const note = reason ? ` (${PUNCTUATION_REASON_NOTES[reason]})` : "";
+			lines.push(
+				`  last:  ${applied ? "applied" : `not applied — ${reason}`}${note} — marks ` +
+					`${last.status.marksBefore} → ${last.status.marksAfter}, ${last.status.elapsedMs} ms, ${last.chars} chars`
+			);
+		}
+
+		if (!enabled) lines.push("  switch: voice.punctuationEnabled = false in settings.json");
+		return lines.join("\n");
+	}
+
+	/**
+	 * The one-time post-upgrade notice (spec §4.6): the LLM polish pass is gone, so no dictated
+	 * transcript is sent to a model and nothing is charged for one. The flag is global-only and
+	 * written field by field, so a read-only settings file costs the persistence but never the
+	 * disclosure — the runtime flag still suppresses a repeat until the process ends.
+	 */
+	function maybeShowPunctuationUpgradeNotice(sessionCtx: ExtensionContext): void {
+		if (!sessionCtx.hasUI || punctuationUpgradeNoticeShown || config.punctuationNoticeShown === true) return;
+		punctuationUpgradeNoticeShown = true;
+		config.punctuationNoticeShown = true;
+		try {
+			saveGlobalVoiceFields({ punctuationNoticeShown: true });
+		} catch (err) {
+			voiceDebug("punctuation notice setting write failed", { error: String(err) });
+		}
+		try {
+			sessionCtx.ui.notify(
+				[
+					"Voice polish has been removed — a dictated transcript is no longer sent to an LLM: no cloud call, no charge.",
+					"Chinese transcripts that come back unpunctuated are now punctuated offline instead.",
+					"/voice-punctuation status shows whether it ran and why.",
+				].join("\n"),
+				"info"
+			);
+		} catch (err) {
+			voiceDebug("punctuation upgrade notice threw", { error: String(err) });
+		}
+	}
 
 	// ─── Transcript polish (post-processing) ─────────────────────────────────
 	// One bounded pass between the final transcript and the editor write. The
@@ -2069,7 +2237,12 @@ export default function (pi: ExtensionAPI) {
 				if (ctx?.hasUI) {
 					const prefix = editorTextBeforeVoice ? editorTextBeforeVoice + " " : "";
 					const isLocal = config.backend === "local";
-					const finalText = prefix + spokenText;
+					// Offline punctuation (spec §4.3–§4.6): one synchronous, marks-only step over the
+					// transcript that is about to be written. It decides from the text alone, never waits
+					// for a download or a load, and leaves the text unchanged on any failure. Only the
+					// transcript is punctuated — the prefix is the user's own editor text.
+					const punctuatedText = punctuateTranscript(spokenText);
+					const finalText = prefix + punctuatedText;
 					// R21: history records what was actually written, not what was planned.
 					let wroteEditor = false;
 					let editorWriteFailed = false;
@@ -2152,7 +2325,9 @@ export default function (pi: ExtensionAPI) {
 					// agent immediately instead of sitting in the editor
 					// waiting for [enter]. Defaults OFF; user toggles via
 					// /voice-autosubmit or settings panel.
-					if (config.autoSubmitOnSpeak === true && finalText.trim().length > 0 && !skipWrite) {
+					// A failed editor write must not auto-submit: the transcript never reached the
+					// editor, so the user never saw the text that would be sent.
+					if (config.autoSubmitOnSpeak === true && finalText.trim().length > 0 && !skipWrite && !editorWriteFailed) {
 						// v7.2.3 — if the agent is currently mid-turn
 						// (especially mid-retry), DON'T auto-submit.
 						// followUp queueing during a retry pile-up
@@ -3082,6 +3257,8 @@ export default function (pi: ExtensionAPI) {
 		const loaded = loadConfigWithSource(startCtx.cwd);
 		config = loaded.config;
 		configSource = loaded.source;
+		// `/voice-punctuation status` reports the last decision of *this* session (spec §4.6).
+		lastPunctuationDecision = null;
 
 		// v7.1.3 — version banner emitted to debug log on every session
 		// start. Lets users / support verify which extension build is
@@ -3093,6 +3270,9 @@ export default function (pi: ExtensionAPI) {
 		// Migration / setup runs on EVERY session_start, regardless of reason.
 		// Only the first-run notification is gated on isStartup.
 		if (config.onboarding.completed) {
+			// One-time post-upgrade notice (spec §4.6). Gated on a completed onboarding so a first
+			// run shows its install hint alone; the flag then makes it a once-per-machine notice.
+			maybeShowPunctuationUpgradeNotice(startCtx);
 			// Always refresh the status bar — when voice is disabled,
 			// updateVoiceStatus() clears the entry so users don't see stale
 			// "MIC STREAM" text from a prior session. Hold-to-talk wiring
@@ -4320,6 +4500,22 @@ export default function (pi: ExtensionAPI) {
 			config.autoSubmitOnSpeak = next;
 			saveConfig(config, config.scope === "project" ? "project" : "global", currentCwd);
 			cmdCtx.ui.notify(`Auto-submit on speak: ${next ? "ON" : "OFF"}`, "info");
+		},
+	});
+
+	// Read-only diagnostics for the offline punctuation step (spec §4.6): the switch, the model's
+	// state, and what happened on the last dictation of this session. The switch itself is a
+	// config field (`voice.punctuationEnabled`) — this command never writes.
+	pi.registerCommand("voice-punctuation", {
+		description: "Voice: /voice-punctuation status — offline punctuation state and last decision",
+		handler: async (args, cmdCtx) => {
+			ctx = cmdCtx;
+			const verb = (args || "").trim().toLowerCase();
+			if (verb && verb !== "status") {
+				cmdCtx.ui.notify("Usage: /voice-punctuation status", "warning");
+				return;
+			}
+			cmdCtx.ui.notify(punctuationStatusReport(), "info");
 		},
 	});
 
