@@ -856,7 +856,7 @@ export default function (pi: ExtensionAPI) {
 						"info"
 					);
 				} catch (err) {
-					voiceDebug("punctuation download notice threw", { error: String(err) });
+					voiceDebug("punctuation download notice threw", { error: safeErrorText(err) });
 				}
 			}
 
@@ -900,7 +900,7 @@ export default function (pi: ExtensionAPI) {
 				"warning"
 			);
 		} catch (err) {
-			voiceDebug("punctuation failure notice threw", { error: String(err) });
+			voiceDebug("punctuation failure notice threw", { error: safeErrorText(err) });
 		}
 	}
 
