@@ -1125,9 +1125,9 @@ async function transcribeInProcess(
 
 	// Create/reuse recognizer and transcribe
 	const recognizer = getOrCreateRecognizer(model, modelDir, config.language || "en");
-	// Every in-process model decodes long audio in VAD-sized pieces, so a pipelining caller can
-	// polish one piece while the rest still decodes; audio at or below the segment threshold takes
-	// the same single-decode fast path as before and the concatenation is unchanged.
+	// Every in-process model decodes long audio in VAD-sized pieces and reports each piece through
+	// `onSegment` as it decodes, in order; audio at or below the segment threshold takes the same
+	// single-decode fast path as before and the concatenation is unchanged.
 	return transcribeBufferSegmented(pcmData, recognizer, undefined, onSegment);
 }
 
