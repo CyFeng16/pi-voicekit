@@ -167,57 +167,37 @@ You released SPACE before finishing your sentence. The tail recording feature (1
 - Finish speaking before releasing SPACE
 - Or use `/voice dictate` for continuous dictation (no hold needed)
 
-## Symptom: the polish pass changed nothing, or changed too much
-
-### What it means
-Transcript polish is fail-open: most failure paths keep the raw transcript, so "changed nothing" usually means the pass was skipped or rejected, not that you lost text. A result that changed too much is a model rewrite the size guardrails still accepted. If polish never seems to run at all, check `/voice-polish` — the status output should say `Voice polish: on`.
-
-### Read the result line
-Run with `PI_VOICE_DEBUG=1` and search the log for the `polish result` line:
-
-```
-[voice 12:34:56.789Z] polish result {"model":"anthropic/claude-sonnet-4-6","configured":"session","status":"rejected","ms":812,"contextChars":340,"truncated":false,"reason":"too-long","disposition":"failed"}
-```
-
-- `status` — `applied`, `rejected` (raw text kept), or `skipped` (a newer recording or session took over).
-- `reason` — why a result was not applied: `timeout`, `call-failed`, `stop-reason:*`, `error-message`, `empty-output`, `scaffolding-echo`, `too-short`, `too-long`, or `invalidated`.
-- `contextChars` — how much conversation context was sent, after the caps.
-
-### Compare and restore
-- `/voice-polish last` prints the newest dictation a pass ran on — including one whose result was discarded — as its `STATUS`, `RAW`, and `WRITTEN` text (or a note that nothing was written); the settings panel's Polish tab shows the raw/polished pair for the last dictation.
-- `/voice-polish restore` puts the raw transcript back into the editor — only if the editor still holds exactly what the pass wrote.
-
-The raw/polished history is in-memory for the current Pi session only. It is not written to disk and is gone after a restart.
-
-### Two failures you may hit
-- A configured model that is unavailable or malformed keeps the raw transcript and warns instead of silently switching provider. That is deliberate: the model choice decides where your dictated text is sent.
-- If you edit the editor while a pass is still waiting for the model, the polished result is discarded with a one-line notice. Your text is kept; nothing is overwritten.
-
-## Symptom: part of a dictation comes back unpolished
+## Symptom: a Chinese dictation came back without punctuation
 
 ### What it means
 
-On the local backend, polish runs per recogniser segment — each roughly 10 s of speech — with
-up to three segment calls in flight, so recognition and polish overlap. A segment whose call
-times out is retried once, and the retry runs with thinking disabled for that call. If it
-still fails, only that segment keeps its raw text while its neighbours keep their polished
-text. A partly polished dictation is therefore the designed outcome of a slow or unstable
-endpoint, not data loss: the raw range is exactly the text the recogniser produced, and the
-rest of the dictation keeps its rewrite.
+Offline punctuation runs only when all of these hold: `punctuationEnabled` is on, the
+transcript contains Chinese, and the text carries fewer than one punctuation mark per
+20 characters. A transcript that fails the rule is returned exactly as the recogniser
+produced it, and so is one whose punctuation fails at any point — the step is fail-open,
+so "no punctuation" always means "nothing was inserted", never "text was lost".
+
+The model is downloaded the first time a dictation needs it (~285 MB), and that first
+dictation is deliberately returned unchanged; the next qualifying one is punctuated.
+On a fresh install this is the usual explanation.
 
 ### Fix
 
-- Nothing, usually: the polished text around the raw segment is still valid. Re-read it before
-  deciding to dictate again.
-- Run with `PI_VOICE_DEBUG=1` and search the log for `polish result`; a segmented dictation's
-  line carries a `segments` object (`count`, `polished`, `failed`, `retried`), and the
-  per-segment lines (`polish timeout`, `polish call-failed`, …) carry the segment index.
-  A `reason` of `timeout` or `call-failed` identifies the failed call.
-- The `voice-polish` audit entry in the session file records the same summary, so a past
-  dictation can be checked after the fact — it shows how many segments were polished, how
-  many fell back to raw text, and how many were retried.
-- If segments routinely time out, raise `postProcessTimeoutMs` in the Polish tab
-  (`1000`–`30000` ms); on the local backend it applies to each segment call.
+- Run `/voice-punctuation status`. It prints the switch state, whether the model is
+  present and digest-verified, and the last decision of this session with the reason
+  (`not-needed`, `no-model`, `load-failed`, `altered-text`, `error`) and the marks
+  before/after.
+- `model: not downloaded` — wait for the background download (~285 MB), then dictate
+  again.
+- `last: ... not-needed` — the switch is off, the transcript contained no Chinese, or it
+  was already punctuated. `status` prints the switch separately, so the other two are the
+  remaining reasons.
+- `model: unusable` — the download is incomplete or corrupt. Delete it in the settings
+  panel's Downloaded tab (or remove `~/.pi/models/punct-ct-transformer-zh-en/`) and let a
+  later dictation fetch it again.
+- Run with `PI_VOICE_DEBUG=1` and search the log for the `punctuation` line: it carries
+  the character count, marks before and after, the reason when it did not run, and the
+  elapsed milliseconds.
 
 ## Symptom: project config is ignored
 

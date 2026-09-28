@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Offline punctuation replaces the LLM transcript-polish pass.** A Chinese dictation that
+  comes back unpunctuated now gets full stops, commas and question marks from an in-process
+  sherpa-onnx CT-Transformer model. It can only insert marks — every other byte of the
+  transcript is preserved — and any failure leaves the text exactly as the recogniser
+  produced it. The ~285 MB model is fetched in the background the first time a dictation
+  needs it (that dictation is returned unchanged), English is not supported, and a
+  transcript that already carries punctuation is left alone. `/voice-punctuation status`
+  reports the switch, the model state and the last decision. Measured on the maintainer's
+  machine: Chinese punctuation F1 0.000 → 0.811 and marks-only on 70/70 probe rows, p50
+  2.9 ms / p95 3.1 ms per call after a one-time 544 ms load.
+
+### Removed
+
+- **The LLM transcript-polish pass.** It rewrote the whole transcript with a cloud model and
+  measured net-negative on all four recognisers tested (480 paired runs: punctuation F1 0.569
+  against a 0.60 bar on meeting windows, and a character error rate increase of about 0.02 per
+  pass with intervals excluding zero); the ASR-EC benchmark (EMNLP 2025 industry track)
+  likewise reports prompt-only correction raising error rates. It is deleted, not disabled:
+  `/voice-polish`, the Polish settings tab, the five `postProcess*` settings and the
+  `voice-polish` session entries are gone, and a dictated transcript is no longer sent to a
+  model provider. Old `postProcess*` keys are ignored and left in place, not migrated.
+
 ## [0.3.2] - 2026-09-27
 
 ### Changed

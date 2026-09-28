@@ -1,9 +1,11 @@
 # Benchmarks
 
-Measured performance of the local backend and the transcript polish pass, with the
-protocol needed to read the numbers correctly. The compact table a
-package user sees is in the [README](../README.md); this is the deep version, and it
-lives on GitHub because npm ships only the extension and the README.
+Measured performance of the local backend and the transcript polish pass that 0.3.x
+shipped, with the protocol needed to read the numbers correctly. The polish pass was
+removed in favour of the offline punctuation step; its tables below are kept as recorded
+history, not as a description of the current code. The compact table a package user sees
+is in the [README](../README.md); this is the deep version, and it lives on GitHub
+because npm ships only the extension and the README.
 
 **RTF (real-time factor) is processing time divided by audio duration.** Lower is
 better: 0.1 means the work took one tenth of the audio's duration. A value below 1.0
@@ -20,7 +22,7 @@ speech.
   utterances each. Total audio: 181.6 s Chinese, 168.6 s English, 59.5 s mixed.
 - **Recognition** — the local backend (`sherpa-onnx`) on CPU, no network. A time
   covers the decode call only; audio capture is not part of it.
-- **Polish** — the evaluation harness's `openai` caller against a remote
+- **Polish (removed feature)** — the evaluation harness's `openai` caller against a remote
   OpenAI-compatible endpoint, left unnamed here. That
   endpoint's latency varies run to run, so the polish numbers describe one measurement
   window, not a service guarantee.
@@ -32,8 +34,8 @@ speech.
 Local recognition runs on the maintainer's machine: an **AMD Ryzen 9 7950X 16-Core
 Processor** running **Ubuntu 24.04.5 LTS** (kernel `7.0.0-31-generic`). These are
 single-machine numbers: the comparison between recognisers is what transfers, absolute
-times depend on the CPU. The polish numbers move with the endpoint and the network
-instead, not with this machine.
+times depend on the CPU. The polish numbers (removed feature) move with the endpoint and the
+network instead, not with this machine.
 
 ## Segmentation — how long a pause ends a segment
 
@@ -43,9 +45,9 @@ the setting that matters, and 1 s ships as of 0.3.2.
 
 **Protocol.** 12 audios of 60–92 s assembled at random from 42 Chinese and mixed-language
 corpus clips (8–17 clips each, inter-clip gaps drawn from 200–900 ms so no single gap sits on a
-threshold under test), decoded on CPU by two recognisers, with the offline polish caller
-(`--caller fake`, no network). Metric: raw character error rate of the transcript against the
-concatenated reference — lower is better. 96/96 runs produced a result.
+threshold under test), decoded on CPU by two recognisers, with the harness's offline fake
+caller (`--caller fake`, no network). Metric: raw character error rate of the transcript
+against the concatenated reference — lower is better. 96/96 runs produced a result.
 
 | Pause | paraformer-zh | sensevoice-small | Mean segments | Paired vs 0.25 s |
 | --- | --- | --- | --- | --- |
@@ -58,8 +60,9 @@ Values are means over the 12 audios; the paired column counts audios where the s
 the old default on the same audio and recogniser.
 
 **Reading.** Not segmenting is worse for both recognisers and catastrophic for sensevoice. 1 s
-and 0.8 s are close, and 1 s costs about half the segments — half the polish calls — for the
-same or better accuracy. The old 0.25 s default was the worst setting tried.
+and 0.8 s are close, and 1 s produces about half the segments — half the downstream calls
+in the pipeline the sweep measured — for the same or better accuracy. The old 0.25 s default
+was the worst setting tried.
 
 **Honest limits.** The audios are assembled from clips rather than natural continuous speech, so
 they support relative comparisons but not absolute accuracy claims; only two recognisers were
@@ -91,9 +94,32 @@ output characters per second of decode time across the three languages.
 All three ran faster than real time. `paraformer-zh` is the Chinese-first model of the
 three; its English and mixed rows were measured on the same corpus for completeness.
 
-## Polish pass alone — single-call path
+## Offline punctuation — the shipped step
 
-This isolates the pass from the pipeline: one call per utterance, timed and scored over
+The step that replaced the polish pass is local and deterministic: a sherpa-onnx CT-Transformer
+model (`punct-ct-transformer-zh-en`, ~285 MB) runs in process and can only insert marks. Measured
+on the maintainer's machine with local probes outside this repository (single-purpose scripts,
+not shipped tooling), 4 threads, CPU:
+
+| Measurement | Value |
+| --- | --- |
+| Chinese punctuation F1 | 0.000 → 0.811 on 70 uttered samples with punctuated references |
+| English punctuation F1 | 0.000 → 0.175; the output is a Chinese full stop and no commas |
+| Marks-only safety | 70/70 rows unchanged after stripping the mark set |
+| Mixed Chinese + English terms | the model's raw output is **not** marks-only: `base_url` → `base _ url`, CJK-boundary spaces move, `可行，` → `可行，，` — which is why the shipped step splices the model's marks into the recogniser's own string and refuses any output that alters a non-mark character |
+| Timing | one-time load 544 ms; `addPunct` p50 2.9 ms / p95 3.1 ms / max 3.4 ms on 27–32 character inputs |
+| Reference punctuation density | AISHELL-4 reference transcripts measure 1 mark per 17.3 characters (11,139 marks / 192,491 characters); the step punctuates below 1 mark per 20 characters |
+
+**Honest limits.** The probes live outside the repository and are not a runnable protocol: one
+machine, four threads, one model revision, 70 utterances. The marks-only row is about the spliced
+*step* on a corpus without spaced ASCII — the mixed-terms row is why the splice is mandatory.
+English is skipped by the shipped rule rather than handled, so its 0.175 describes the model,
+not a path a user can reach.
+
+## Polish pass alone — single-call path (removed feature)
+
+Kept as the recorded history of the deleted pass; it no longer describes anything the extension
+does. This isolates the pass from the pipeline: one call per utterance, timed and scored over
 the samples the pass actually applied. Fallbacks are excluded from the latency (a
 latency over a failed call is not a latency) and reported separately; "Applied" is out
 of 70 for sensevoice-small and whisper-turbo, and out of 28 for paraformer-zh. "Polish
@@ -113,9 +139,9 @@ p50/p95 per-call latency over those same samples.
 `paraformer-zh` has no English or mixed row here: that round used a Chinese-only
 corpus, by design, so only the Chinese column was measured.
 
-## End to end — segmented pipeline, local backend
+## End to end — segmented pipeline, local backend (removed feature)
 
-What a dictation actually costs today: four real dictations through the shipped
+What a dictation cost on the 0.3.x line: four real dictations through the then-shipped
 segmented path, as recorded by the polish audit entries. "End to end" is recognition
 plus polish; RTF is end to end over audio duration. Recognition is **derived** from the
 0.023 recognition RTF measured for the local recogniser, not timed separately per
@@ -143,10 +169,10 @@ dictation — read the column as that measurement reproduced per dictation.
   and a segment summary — polished, kept raw, retried — so these claims can be checked
   locally.
 
-## Accuracy context
+## Accuracy context — the removed polish pass
 
-Time is only half the picture. The same single-call measurement scores the pass against
-reference text: character error rate (CER) before and after polish, over applied
+Time is only half the picture. The same single-call measurement scores the deleted pass
+against reference text: character error rate (CER) before and after polish, over applied
 passes. Read this before reading the speed tables as "polish fixes recognition".
 
 | Recogniser       | Corpus                              | CER before | CER after | Gain   |
@@ -173,10 +199,10 @@ recorded history of what was measured, not as a runnable protocol against the cu
 - **The corpus is assembled from published recordings of read or spontaneous speech,
   not the maintainer's own microphone.**
 - **Only 70 utterances**, so the accuracy differences are indicative, not precise.
-- **Polish latency depends heavily on the remote endpoint and varies run to run.** The
-  same corpus at the same configuration produced fallback rates between 7% and 29% for
-  the single-call path on different runs.
-- **The measured accuracy gain from polish is close to zero on real recognition
+- **Polish latency (removed feature) depends heavily on the remote endpoint and varies run
+  to run.** The same corpus at the same configuration produced fallback rates between 7%
+  and 29% for the single-call path on different runs.
+- **The measured accuracy gain from the removed pass is close to zero on real recognition
   output, and can be slightly negative when the recogniser is already good.** Treat the
   pass as formatting, reliability and punctuation rather than as general error
   correction.
