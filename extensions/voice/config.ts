@@ -40,7 +40,9 @@ export interface VoiceConfig {
 	/**
 	 * Master switch for the offline punctuation step (spec §4.3). Ordinary and
 	 * scope-agnostic, like `language` or `backend`: a project file may set it and
-	 * it resolves with the usual project-over-global precedence.
+	 * it resolves with the usual project-over-global precedence. Unlike those
+	 * fields, an omitted project value falls back to the global one, so a global
+	 * OFF survives a project block — this is the feature's only user control.
 	 */
 	punctuationEnabled?: boolean;
 	/** Global-only shortcut used to toggle recording without hold-to-talk */
@@ -142,6 +144,9 @@ export interface ConfigPathOptions {
 	agentDir?: string;
 }
 
+/** Default of the punctuation switch (spec §4.5) — on unless the user turns it off. */
+const PUNCTUATION_ENABLED_DEFAULT = true;
+
 export const DEFAULT_CONFIG: VoiceConfig = {
 	version: VOICE_CONFIG_VERSION,
 	enabled: true,
@@ -151,7 +156,7 @@ export const DEFAULT_CONFIG: VoiceConfig = {
 	backend: undefined, // undefined = "deepgram" (default)
 	localModel: undefined,
 	localEndpoint: undefined,
-	punctuationEnabled: true,
+	punctuationEnabled: PUNCTUATION_ENABLED_DEFAULT,
 	toggleShortcut: "ctrl+shift+v",
 	// Post-processing defaults — on by default (D5), reusing the session model
 	postProcessEnabled: true,
@@ -263,10 +268,12 @@ function migrateConfig(rawVoice: any, source: VoiceConfigSource, globalVoice?: u
 		scope: (rawVoice.scope as VoiceSettingsScope | undefined) ?? (source === "project" ? "project" : "global"),
 		deepgramApiKey: asString(globalOnly("deepgramApiKey")),
 		backend: rawVoice.backend === "local" ? "local" : undefined,
-		punctuationEnabled:
-			typeof rawVoice.punctuationEnabled === "boolean"
-				? rawVoice.punctuationEnabled
-				: (DEFAULT_CONFIG.punctuationEnabled ?? true),
+		// An omitted project value inherits the global one (unlike `language`/`backend`):
+		// a global OFF must survive a project block (ruling R9), so the default is not the fallback.
+		punctuationEnabled: asBoolean(
+			rawVoice.punctuationEnabled,
+			projectScoped ? asBoolean(globalRaw.punctuationEnabled, PUNCTUATION_ENABLED_DEFAULT) : PUNCTUATION_ENABLED_DEFAULT
+		),
 		localModel: typeof rawVoice.localModel === "string" ? rawVoice.localModel : undefined,
 		localEndpoint: projectScoped
 			? typeof rawVoice.localEndpoint === "string" && isLoopbackEndpoint(rawVoice.localEndpoint)

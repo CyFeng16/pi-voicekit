@@ -439,6 +439,28 @@ describe("punctuation config (scope-agnostic, default true)", () => {
 		expect(result.config.punctuationEnabled).toBe(true);
 	});
 
+	test("a project block that omits the field inherits a global false", () => {
+		const cwd = makeTempDir();
+		const agentDir = path.join(cwd, "agent-home");
+		writeSettings(agentDir, "settings.json", { version: 3, punctuationEnabled: false });
+		writeSettings(cwd, ".pi/settings.json", { version: 3 });
+
+		const result = loadConfigWithSource(cwd, { agentDir });
+		expect(result.source).toBe("project");
+		expect(result.config.punctuationEnabled).toBe(false);
+	});
+
+	test("a project block that omits the field keeps the default when the global block is silent", () => {
+		const cwd = makeTempDir();
+		const agentDir = path.join(cwd, "agent-home");
+		writeSettings(agentDir, "settings.json", { version: 3 });
+		writeSettings(cwd, ".pi/settings.json", { version: 3 });
+
+		const result = loadConfigWithSource(cwd, { agentDir });
+		expect(result.source).toBe("project");
+		expect(result.config.punctuationEnabled).toBe(true);
+	});
+
 	test("is not stripped from a project-scoped save", () => {
 		const cwd = makeTempDir();
 		const agentDir = path.join(cwd, "agent-home");
