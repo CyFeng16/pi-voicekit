@@ -807,7 +807,8 @@ export default function (pi: ExtensionAPI) {
 		"load-failed": "the model could not be loaded",
 		"empty-input": "there was nothing to punctuate",
 		"altered-text": "the model's output changed the text, so it was rejected",
-		"not-needed": "the switch is off, the text is not Chinese, or it is already punctuated",
+		"not-needed":
+			"the switch is off, the text is not Chinese, or its punctuation density is already one mark per 20 characters or more",
 		error: "the punctuation step failed",
 	};
 
@@ -852,7 +853,7 @@ export default function (pi: ExtensionAPI) {
 				punctuationDownloadNoticeShown = true;
 				try {
 					ctx?.ui.notify(
-						"punctuation model is being downloaded in the background, 285 MB; the next dictation will be punctuated",
+						"punctuation model is being downloaded in the background, 285 MB; once the model has been downloaded, verified and the engine constructed, later qualifying dictations are punctuated — until then they come back unchanged",
 						"info"
 					);
 				} catch (err) {
