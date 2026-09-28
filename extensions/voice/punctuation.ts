@@ -318,10 +318,12 @@ export function hasCjk(text: string): boolean {
 /**
  * Marks per code point, `0` for input with no code points.
  *
- * NFKC-normalized first (ruling R8) so the denominator is canonical: NFKC can change the code-point
- * count (U+337F `㍿` becomes four characters), and a raw denominator would move the threshold for
- * text containing such forms. The numerator does not change — the mark set of invariant 1 already
- * carries every mark in both its full-width and ASCII forms (`。` and `、` are untouched by NFKC).
+ * NFKC-normalized first (ruling R8) so numerator and denominator come from the same string. NFKC
+ * is not numerator-neutral: it can change the code-point count (U+337F `㍿` becomes four
+ * characters) and it can fold a compatibility form that is outside the mark set into marks (`‼`
+ * U+203C becomes `!!`, so `这是中文‼` measures 1/3). That is intended — both sides of the ratio are
+ * read from the normalized text. The marks the set does carry are invariant, because it holds both
+ * the ASCII and the full-width forms (`。` and `、` are untouched by NFKC).
  */
 export function punctuationDensity(text: string): number {
 	const normalized = text.normalize("NFKC");
