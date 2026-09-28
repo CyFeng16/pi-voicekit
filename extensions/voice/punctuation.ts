@@ -142,10 +142,21 @@ export function spliceMarks(input: string, modelOutput: string): string | undefi
 let engine: PunctuationEngine | null = null;
 /** Set when a background prepare could not produce an engine, so status can explain why. */
 let loadFailed = false;
-/** The background prepare in flight — one at a time, however many dictations finish. */
+/** The background prepare in flight — from the moment it is queued until it settles. */
 let prepareInFlight: Promise<void> | null = null;
 /** Bumped by `resetPunctuationForTest`, so work started earlier cannot land in a later test. */
 let generation = 0;
+
+/**
+ * How a queued prepare is started. `setTimeout(task, 0)` by default: the timer can only run once
+ * the caller's stack has unwound, so `preparePunctuation()` returns before a single byte is read,
+ * hashed or downloaded (spec invariant 7). `resetPunctuationForTest` replaces it for tests.
+ */
+function runOnNextTurn(task: () => void): void {
+	setTimeout(task, 0);
+}
+
+let startPrepare: (task: () => void) => void = runOnNextTurn;
 
 /** 4 threads — the configuration the 526-544 ms load and the p50 2.9 ms calls were measured with. */
 const PUNCTUATION_NUM_THREADS = 4;
@@ -160,20 +171,45 @@ export interface PreparePunctuationOptions {
 }
 
 /**
- * Prepare the engine in the background: make sure the files are present and verified, then
- * construct the engine once. Safe to call on every qualifying dictation and cheap once the engine
- * exists — it never throws and never blocks the caller. The 544 ms construction is allowed to
- * happen here and nowhere else, so no dictation ever waits for it (spec invariant 7), and nothing
- * is constructed until the files verify (spec §6.5).
+ * Prepare the engine in the background: queue the work and return. The files are verified, the
+ * model is downloaded if needed, and the engine is constructed — all of it after the caller has
+ * resumed, so no part of it is ever paid for inside a dictation (spec invariant 7). Safe to call
+ * on every qualifying dictation; it never throws, does nothing once the engine exists, and
+ * repeated calls — including calls made before the queued work starts — share one prepare. The
+ * 544 ms construction is allowed to happen here and nowhere else, and nothing is constructed
+ * until the files verify (spec §6.5).
  */
 export function preparePunctuation(options: PreparePunctuationOptions = {}): void {
 	if (engine || prepareInFlight) return;
 
+	// Claim the slot synchronously, before anything is queued, so a second qualifying dictation in
+	// the same tick — or in the window before the scheduler runs — joins this prepare instead of
+	// queueing another.
 	const gen = generation;
-	prepareInFlight = prepareInBackground(options, gen).finally(() => {
-		// Only the prepare of this generation may clear the slot; a reset may already have
-		// installed a newer one.
-		if (generation === gen) prepareInFlight = null;
+	prepareInFlight = new Promise<void>((resolve) => {
+		const run = (): void => {
+			void prepareInBackground(options, gen)
+				.catch(() => {
+					if (generation === gen) loadFailed = true;
+				})
+				.finally(() => {
+					// Only the prepare of this generation may clear the slot; a reset may already have
+					// installed a newer one.
+					if (generation === gen) prepareInFlight = null;
+					resolve();
+				});
+		};
+		try {
+			startPrepare(run);
+		} catch {
+			// Only reachable through the test seam. A scheduler that cannot queue is a failed prepare,
+			// and the caller — a dictation — must not see the throw.
+			if (generation === gen) {
+				loadFailed = true;
+				prepareInFlight = null;
+			}
+			resolve();
+		}
 	});
 }
 
@@ -218,14 +254,19 @@ function createSherpaEngine(modelDir: string): PunctuationEngine {
 }
 
 /**
- * Test seam: replace the engine and clear the lifecycle state. Called with no argument (or null)
- * it means "no engine" — the cold start a fresh process sees.
+ * Test seam: replace the engine, clear the lifecycle state and restore (or replace) the scheduler
+ * that starts the queued prepare. Called with no argument (or null) it means "no engine" and the
+ * production scheduler — the cold start a fresh process sees.
  */
-export function resetPunctuationForTest(next: PunctuationEngine | null = null): void {
+export function resetPunctuationForTest(
+	next: PunctuationEngine | null = null,
+	scheduler: ((task: () => void) => void) | null = null
+): void {
 	generation++;
 	engine = next ?? null;
 	loadFailed = false;
 	prepareInFlight = null;
+	startPrepare = scheduler ?? runOnNextTurn;
 }
 
 // ─── The step ────────────────────────────────────────────────────────────────

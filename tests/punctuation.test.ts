@@ -1,7 +1,10 @@
 import { afterEach, describe, expect, test } from "bun:test";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
 import { DEFAULT_CONFIG, type VoiceConfig } from "../extensions/voice/config";
 import { detectDevice, getModelFitness } from "../extensions/voice/device";
-import { PUNCTUATION_MODEL } from "../extensions/voice/punctuation-model";
+import { ensurePunctuationModel, PUNCTUATION_MODEL } from "../extensions/voice/punctuation-model";
 import {
 	addPunctuation,
 	preparePunctuation,
@@ -145,6 +148,16 @@ describe("spliceMarks — the measured model outputs", () => {
 	});
 });
 
+describe("spliceMarks — an occupied slot keeps the input's own mark", () => {
+	test("drops the model's mark when the slot already carries a different one", () => {
+		// Ruling R5: the model's mark is dropped whenever the slot is occupied, not only when the
+		// occupant is the same mark. An already-punctuated input therefore keeps its own punctuation
+		// instead of gaining a second, incompatible one (spec §7 non-goal).
+		expect(spliceMarks("可行。", "可行，")).toBe("可行。");
+		expect(spliceMarks("可行，", "可行。")).toBe("可行，");
+	});
+});
+
 describe("spliceMarks — refusals and edges", () => {
 	test("refuses when the model output does not preserve the non-mark characters", () => {
 		expect(spliceMarks("这个方案可行", "这个方案可以行。")).toBeUndefined(); // inserted a character
@@ -279,12 +292,21 @@ describe("addPunctuation", () => {
 // ─── preparePunctuation ─────────────────────────────────────────────────────
 
 /**
- * Flush the microtask queue. `preparePunctuation` is fire-and-forget by design, so tests
- * observe its background work by yielding to the event loop, not by sleeping on a timer.
+ * Flush the microtask queue. `preparePunctuation` is fire-and-forget by design, so tests observe
+ * its background work by yielding to the event loop, not by sleeping on a timer; the scheduler
+ * `runOnMicrotask` below is what puts that work on the queue `settle()` drains.
  */
 async function settle(): Promise<void> {
 	for (let i = 0; i < 10; i++) await Promise.resolve();
 }
+
+/**
+ * Test scheduler: queue the prepare on the microtask queue so `settle()` can flush it. Production
+ * uses `setTimeout(task, 0)`; both start the work only once the caller's frame has unwound.
+ */
+const runOnMicrotask = (task: () => void): void => {
+	void Promise.resolve().then(task);
+};
 
 describe("preparePunctuation — one background construction", () => {
 	const createCountingEngine = (counter: { constructions: number }) => () => {
@@ -307,7 +329,7 @@ describe("preparePunctuation — one background construction", () => {
 	});
 
 	test("constructs the engine once however often a dictation calls it", async () => {
-		resetPunctuationForTest(null);
+		resetPunctuationForTest(null, runOnMicrotask);
 		const counter = { constructions: 0 };
 		for (let i = 0; i < 5; i++) {
 			preparePunctuation({
@@ -322,7 +344,7 @@ describe("preparePunctuation — one background construction", () => {
 	});
 
 	test("shares one prepare between concurrent callers", async () => {
-		resetPunctuationForTest(null);
+		resetPunctuationForTest(null, runOnMicrotask);
 		const counter = { constructions: 0 };
 		let release: () => void = () => {};
 		const gate = new Promise<void>((resolve) => {
@@ -345,7 +367,7 @@ describe("preparePunctuation — one background construction", () => {
 	});
 
 	test("constructs nothing until the model reports ready", async () => {
-		resetPunctuationForTest(null);
+		resetPunctuationForTest(null, runOnMicrotask);
 		const counter = { constructions: 0 };
 		preparePunctuation({
 			ensure: async () => false,
@@ -361,7 +383,7 @@ describe("preparePunctuation — one background construction", () => {
 	});
 
 	test("reports load-failed when construction throws, and retries on the next prepare", async () => {
-		resetPunctuationForTest(null);
+		resetPunctuationForTest(null, runOnMicrotask);
 		let attempts = 0;
 		const options = {
 			ensure: async () => true,
@@ -383,7 +405,7 @@ describe("preparePunctuation — one background construction", () => {
 	});
 
 	test("never rejects when the model lifecycle throws", async () => {
-		resetPunctuationForTest(null);
+		resetPunctuationForTest(null, runOnMicrotask);
 		preparePunctuation({
 			ensure: async () => {
 				throw new Error("disk on fire");
@@ -391,6 +413,80 @@ describe("preparePunctuation — one background construction", () => {
 		});
 		await settle();
 		expect(punctuateWithStatus("这个方案可行", true).status.reason).toBe("load-failed");
+	});
+});
+
+// ─── preparePunctuation: the caller's frame is yielded first ────────────────
+
+describe("preparePunctuation — it yields the caller's stack before any work", () => {
+	test("a present but unverified model is not hashed before the call returns", async () => {
+		const modelDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-voice-punct-unverified-"));
+		try {
+			// Exactly the state the review named: both files exist, but this process has not verified
+			// them yet, so the real readiness check would hash model.onnx (~150 ms) on its first call.
+			for (const name of Object.keys(PUNCTUATION_MODEL.sha256)) {
+				fs.writeFileSync(path.join(modelDir, name), "present but not the measured bytes");
+			}
+
+			// The real lifecycle runs against these files with only its transfer stubbed out. A
+			// synchronous entry into `ensurePunctuationModel` hashes the file and then reaches that
+			// stub — all before `preparePunctuation` could return — so the transfer count is the
+			// observable that proves the hash did not start in the caller's frame.
+			let transfers = 0;
+			const queued: (() => void)[] = [];
+			let constructions = 0;
+			resetPunctuationForTest(null, (task) => queued.push(task));
+
+			// Three qualifying dictations, i.e. three calls before the queued work has started.
+			for (let i = 0; i < 3; i++) {
+				preparePunctuation({
+					ensure: () =>
+						ensurePunctuationModel({
+							modelDir,
+							download: () => {
+								transfers++;
+								return Promise.resolve("stub");
+							},
+						}),
+					createEngine: () => {
+						constructions++;
+						return punctuationEngine;
+					},
+				});
+			}
+
+			// Nothing has run yet, and the three dictations queued exactly one prepare.
+			expect(queued).toHaveLength(1);
+			expect(transfers).toBe(0);
+			expect(constructions).toBe(0);
+
+			// The queued work does reach the real verification, which fails on the wrong bytes and
+			// stops at the transfer — so the assertions above cannot pass by nothing ever running.
+			queued[0]!();
+			await settle();
+			expect(transfers).toBe(1);
+			expect(constructions).toBe(0);
+			expect(punctuateWithStatus("这个方案可行", true).status.reason).toBe("no-model");
+		} finally {
+			fs.rmSync(modelDir, { recursive: true, force: true });
+		}
+	});
+
+	test("the production scheduler starts the work only after the event loop turns", async () => {
+		resetPunctuationForTest(null); // the default `setTimeout(task, 0)` scheduler
+		let lifecycleCalls = 0;
+		preparePunctuation({
+			ensure: async () => {
+				lifecycleCalls++;
+				return false;
+			},
+		});
+
+		expect(lifecycleCalls).toBe(0);
+		for (let i = 0; i < 20 && lifecycleCalls === 0; i++) {
+			await new Promise<void>((resolve) => setTimeout(resolve, 0));
+		}
+		expect(lifecycleCalls).toBe(1);
 	});
 });
 
