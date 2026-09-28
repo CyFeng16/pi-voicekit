@@ -860,3 +860,79 @@ describe("safeErrorText (cannot throw on a hostile thrown value)", () => {
 		expect(safeErrorText(new Error("boom"))).toContain("boom");
 	});
 });
+describe("settings writes refuse to destroy a configuration they could not read", () => {
+	// Incident this pins (2026-09-28): a session whose in-memory config was defaults — no settings
+	// file carried a `voice` block — saved it over the global file, which DID carry the user's
+	// block. backend, localModel and onboarding.completed were replaced by defaults, and the
+	// extension then never wired hold-to-talk again. The writer must refuse that write.
+	const richVoice = {
+		version: 2,
+		enabled: true,
+		language: "zh",
+		backend: "local",
+		localModel: "paraformer-zh",
+		onboarding: { completed: true, schemaVersion: 2 },
+	};
+
+	test("refuses to replace an existing voice block with defaults", () => {
+		const cwd = makeTempDir();
+		const agentDir = path.join(cwd, "agent-home");
+		writeSettings(agentDir, "settings.json", richVoice);
+
+		expect(() =>
+			saveConfig({ ...DEFAULT_CONFIG, scope: "global" }, "global", cwd, { agentDir, loadedSource: "default" })
+		).toThrow(/unread|refus/i);
+
+		const after = JSON.parse(fs.readFileSync(path.join(agentDir, "settings.json"), "utf8"));
+		expect(after.voice.backend).toBe("local");
+		expect(after.voice.localModel).toBe("paraformer-zh");
+		expect(after.voice.onboarding.completed).toBe(true);
+	});
+
+	test("still writes when the caller reports a real source", () => {
+		const cwd = makeTempDir();
+		const agentDir = path.join(cwd, "agent-home");
+		writeSettings(agentDir, "settings.json", richVoice);
+
+		const savedPath = saveConfig({ ...DEFAULT_CONFIG, scope: "global", language: "zh" }, "global", cwd, {
+			agentDir,
+			loadedSource: "global",
+		});
+
+		expect(savedPath).toBe(path.join(agentDir, "settings.json"));
+		const after = JSON.parse(fs.readFileSync(savedPath, "utf8"));
+		expect(after.voice.language).toBe("zh");
+	});
+
+	test("still writes defaults when the file carries no voice block", () => {
+		// First install: the settings file exists (packages, theme) but nothing about voice, so a
+		// default-derived config is the truth and must be persisted.
+		const cwd = makeTempDir();
+		const agentDir = path.join(cwd, "agent-home");
+		fs.mkdirSync(agentDir, { recursive: true });
+		fs.writeFileSync(path.join(agentDir, "settings.json"), JSON.stringify({ theme: "dark" }, null, 2));
+
+		const savedPath = saveConfig({ ...DEFAULT_CONFIG, scope: "global" }, "global", cwd, {
+			agentDir,
+			loadedSource: "default",
+		});
+
+		const after = JSON.parse(fs.readFileSync(savedPath, "utf8"));
+		expect(after.theme).toBe("dark");
+		expect(after.voice.enabled).toBe(true);
+	});
+
+	test("refuses to overwrite a settings file it cannot parse", () => {
+		const cwd = makeTempDir();
+		const agentDir = path.join(cwd, "agent-home");
+		fs.mkdirSync(agentDir, { recursive: true });
+		const settingsPath = path.join(agentDir, "settings.json");
+		fs.writeFileSync(settingsPath, "{ this is not json");
+
+		expect(() => saveConfig({ ...DEFAULT_CONFIG, scope: "global" }, "global", cwd, { agentDir })).toThrow(
+			/unread|refus/i
+		);
+		expect(() => saveGlobalVoiceFields({ punctuationEnabled: false }, { agentDir })).toThrow(/unread|refus/i);
+		expect(fs.readFileSync(settingsPath, "utf8")).toBe("{ this is not json");
+	});
+});

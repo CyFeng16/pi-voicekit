@@ -131,6 +131,14 @@ export interface LoadedVoiceConfig {
 
 export interface ConfigPathOptions {
 	agentDir?: string;
+	/**
+	 * Where the in-memory config came from, when the caller knows. `"default"` means no settings
+	 * file carried a `voice` block, so the object holds defaults — writing those over a file that
+	 * DOES carry a block replaces the user's configuration with defaults (measured 2026-09-28:
+	 * `backend`, `localModel` and `onboarding.completed` were wiped that way, which silently
+	 * stopped hold-to-talk from being wired on the next start). `saveConfig` refuses that write.
+	 */
+	loadedSource?: VoiceSettingsScope | "default";
 }
 
 /** Default of the punctuation switch (spec §4.5) — on unless the user turns it off. */
@@ -460,6 +468,23 @@ function writeSettingsFile(settingsPath: string, settings: Record<string, unknow
 	}
 }
 
+/**
+ * Read a settings file for a write. A missing file is `{}`; a file that exists but cannot be
+ * parsed must NOT be treated as missing — merging into `{}` would replace a damaged settings file
+ * with a fresh object and lose every other key. It is logged and left untouched instead, and the
+ * throw hands the failure to the caller's guard rather than reporting a write that never happened.
+ */
+function readSettingsForWrite(settingsPath: string): Record<string, unknown> {
+	if (!fs.existsSync(settingsPath)) return {};
+	try {
+		return JSON.parse(fs.readFileSync(settingsPath, "utf8"));
+	} catch (err) {
+		const reason = err instanceof Error ? err.message : String(err);
+		process.stderr.write(`[pi-voicekit] Warning: not writing ${settingsPath}: ${reason}\n`);
+		throw new Error(`Refusing to overwrite an unreadable settings file: ${settingsPath}`);
+	}
+}
+
 export function saveConfig(
 	config: VoiceConfig,
 	scope: VoiceSettingsScope,
@@ -467,12 +492,19 @@ export function saveConfig(
 	options: ConfigPathOptions = {}
 ): string {
 	const settingsPath = scope === "project" ? getProjectSettingsPath(cwd) : getGlobalSettingsPath(options);
-	const settings = readJsonFile(settingsPath);
+	const settings = readSettingsForWrite(settingsPath);
 	const serialized: Record<string, unknown> = { ...serializeConfig(config, scope) };
+	const existingVoice = settings[SETTINGS_KEY];
+	// A config loaded from nowhere (no settings file carried a `voice` block) holds defaults, so
+	// writing it over a block that exists replaces the user's configuration with defaults.
+	// A file without a `voice` block is a first save and still goes through.
+	if (options.loadedSource === "default" && existingVoice && typeof existingVoice === "object") {
+		process.stderr.write(`[pi-voicekit] Warning: not writing ${settingsPath}: the config came from defaults\n`);
+		throw new Error(`Refusing to overwrite the existing voice settings in ${settingsPath} with defaults`);
+	}
 	// Carry the legacy keys of THIS file's block through, raw values only: the loader ignores
 	// them (they never enter `config`), and a save into the other scope's file must neither
 	// copy them nor drop them from a user who rolls back to an older release.
-	const existingVoice = settings[SETTINGS_KEY];
 	if (existingVoice && typeof existingVoice === "object") {
 		for (const key of LEGACY_POST_PROCESS_KEYS) {
 			const value = (existingVoice as Record<string, unknown>)[key];
@@ -512,21 +544,8 @@ export function saveGlobalVoiceFields(
 	options: ConfigPathOptions = {}
 ): string {
 	const settingsPath = getGlobalSettingsPath(options);
-	// The shared reader reports a file it cannot parse exactly like a missing one, so this
-	// writer has to tell them apart itself: merging into `{}` would replace a damaged
-	// settings file with a fresh object and lose every other key. An existing file that
-	// cannot be read is logged and left untouched; throwing hands the failure to the
-	// caller's guard instead of silently reporting a write that never happened.
-	let settings: Record<string, unknown> = {};
-	if (fs.existsSync(settingsPath)) {
-		try {
-			settings = JSON.parse(fs.readFileSync(settingsPath, "utf8"));
-		} catch (err) {
-			const reason = err instanceof Error ? err.message : String(err);
-			process.stderr.write(`[pi-voicekit] Warning: not writing ${settingsPath}: ${reason}\n`);
-			throw new Error(`Refusing to overwrite an unreadable settings file: ${settingsPath}`);
-		}
-	}
+	// A file that exists but cannot be parsed is refused, not overwritten — see readSettingsForWrite.
+	const settings = readSettingsForWrite(settingsPath);
 	const existing = settings[SETTINGS_KEY];
 	const voice: Record<string, unknown> =
 		existing && typeof existing === "object" ? { ...(existing as Record<string, unknown>) } : {};

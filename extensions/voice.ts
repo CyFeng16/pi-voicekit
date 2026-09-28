@@ -1207,7 +1207,7 @@ export default function (pi: ExtensionAPI) {
 		const validated = isLocal || hasKey;
 		config = finalizeOnboardingConfig(nextConfig, { validated, source });
 		configSource = selectedScope;
-		const savedPath = saveConfig(config, selectedScope, currentCwd);
+		const savedPath = saveConfig(config, selectedScope, currentCwd, { loadedSource: configSource });
 		const statusHeader = validated
 			? "Voice setup complete."
 			: "Voice setup saved, but DEEPGRAM_API_KEY is still required.";
@@ -2580,7 +2580,9 @@ export default function (pi: ExtensionAPI) {
 				config,
 				envDeepgramApiKey: process.env.DEEPGRAM_API_KEY,
 			});
-			saveConfig(configToSave, config.scope === "project" ? "project" : "global", currentCwd);
+			saveConfig(configToSave, config.scope === "project" ? "project" : "global", currentCwd, {
+				loadedSource: configSource,
+			});
 			updateVoiceStatus();
 			setupHoldToTalk();
 			if (!isStartup) return;
@@ -3276,7 +3278,8 @@ export default function (pi: ExtensionAPI) {
 			deleteModel,
 			isSherpaAvailable,
 			formatDeviceSummary,
-			saveConfig: (cfg: VoiceConfig, scope: VoiceSettingsScope, cwd: string) => saveConfig(cfg, scope, cwd),
+			saveConfig: (cfg: VoiceConfig, scope: VoiceSettingsScope, cwd: string) =>
+				saveConfig(cfg, scope, cwd, { loadedSource: configSource }),
 			clearRecognizerCache: () => {
 				try {
 					clearRecognizerCache();
@@ -3714,7 +3717,7 @@ export default function (pi: ExtensionAPI) {
 			else if (trimmed === "off") next = false;
 			else next = !(config.ttsDeepgramStreaming === true);
 			config.ttsDeepgramStreaming = next;
-			saveConfig(config, config.scope === "project" ? "project" : "global", currentCwd);
+			saveConfig(config, config.scope === "project" ? "project" : "global", currentCwd, { loadedSource: configSource });
 			cmdCtx.ui.notify(`Deepgram WebSocket streaming TTS: ${next ? "ON" : "OFF"}`, "info");
 		},
 	});
@@ -3735,7 +3738,7 @@ export default function (pi: ExtensionAPI) {
 				return;
 			}
 			(config as any).holdThresholdMs = ms;
-			saveConfig(config, config.scope === "project" ? "project" : "global", currentCwd);
+			saveConfig(config, config.scope === "project" ? "project" : "global", currentCwd, { loadedSource: configSource });
 			cmdCtx.ui.notify(`Hold delay set to ${ms}ms.`, "info");
 		},
 	});
@@ -3752,7 +3755,7 @@ export default function (pi: ExtensionAPI) {
 			else if (trimmed === "off") next = false;
 			else next = !(config.autoSubmitOnSpeak === true);
 			config.autoSubmitOnSpeak = next;
-			saveConfig(config, config.scope === "project" ? "project" : "global", currentCwd);
+			saveConfig(config, config.scope === "project" ? "project" : "global", currentCwd, { loadedSource: configSource });
 			cmdCtx.ui.notify(`Auto-submit on speak: ${next ? "ON" : "OFF"}`, "info");
 		},
 	});
@@ -3791,7 +3794,7 @@ export default function (pi: ExtensionAPI) {
 			ctx = cmdCtx;
 			const nowEnabling = !config.ttsEnabled;
 			config.ttsEnabled = nowEnabling;
-			saveConfig(config, config.scope === "project" ? "project" : "global", currentCwd);
+			saveConfig(config, config.scope === "project" ? "project" : "global", currentCwd, { loadedSource: configSource });
 			if (!nowEnabling) abortActiveSpeak();
 			cmdCtx.ui.notify(`TTS ${nowEnabling ? "enabled" : "disabled"}.`, "info");
 			// First-time enable → v7.1 §9 rich onboarding overlay with
@@ -3805,7 +3808,9 @@ export default function (pi: ExtensionAPI) {
 					// §9: persist `ttsOnboardingShown = true` BEFORE any
 					// async work so a failed install/cancel never re-prompts.
 					(config as any).ttsOnboardingShown = true;
-					saveConfig(config, config.scope === "project" ? "project" : "global", currentCwd);
+					saveConfig(config, config.scope === "project" ? "project" : "global", currentCwd, {
+						loadedSource: configSource,
+					});
 
 					const result = await cmdCtx.ui.custom<import("./voice/tts-onboarding-overlay").OnboardingResult>(
 						(_tui, theme, _kb, done) => {
@@ -3836,7 +3841,7 @@ export default function (pi: ExtensionAPI) {
 						config,
 						device: detectDevice(),
 						cwd: currentCwd,
-						saveConfig: (cfg, scope, cwd) => saveConfig(cfg, scope, cwd),
+						saveConfig: (cfg, scope, cwd) => saveConfig(cfg, scope, cwd, { loadedSource: configSource }),
 					});
 				} catch {
 					/* onboarding hint is best-effort */
