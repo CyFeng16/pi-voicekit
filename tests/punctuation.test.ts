@@ -606,9 +606,6 @@ describe("settings panel — the punctuation model cannot be activated", () => {
 				clearRecognizerCache: () => {},
 				resolveApiKey: () => undefined,
 				deepgramLanguages: [],
-				getPolishModels: () => [],
-				getPolishScope: () => "global",
-				getLastDictation: () => undefined,
 			},
 			2 // the Downloaded tab
 		);

@@ -298,10 +298,10 @@ describe("saveGlobalVoiceFields", () => {
 			ttsLocalVoiceId: 7,
 		});
 
-		const savedPath = saveGlobalVoiceFields({ postProcessNoticeShown: true }, { agentDir });
+		const savedPath = saveGlobalVoiceFields({ punctuationNoticeShown: true }, { agentDir });
 		const saved = JSON.parse(fs.readFileSync(savedPath, "utf8")) as { voice: Record<string, unknown> };
 
-		expect(saved.voice.postProcessNoticeShown).toBe(true);
+		expect(saved.voice.punctuationNoticeShown).toBe(true);
 		expect(saved.voice.version).toBe(2); // the existing schema version is kept
 		expect(saved.voice.onboarding).toBeUndefined(); // patching must not invent an onboarding block
 		expect(saved.voice.ttsSpeed).toBe(0.8);
@@ -311,37 +311,17 @@ describe("saveGlobalVoiceFields", () => {
 		expect(saved.voice.ttsLocalVoiceId).toBe(7);
 	});
 
-	test("writes a global-only key that a project-scoped save would strip", () => {
-		const cwd = makeTempDir();
-		const agentDir = path.join(cwd, "agent-home");
-		const config: VoiceConfig = {
-			...DEFAULT_CONFIG,
-			postProcessModel: "test-provider/test-model",
-			onboarding: { completed: true, schemaVersion: DEFAULT_CONFIG.version },
-		};
-
-		saveConfig(config, "project", cwd, { agentDir });
-		const project = JSON.parse(fs.readFileSync(path.join(cwd, ".pi", "settings.json"), "utf8")) as {
-			voice: Record<string, unknown>;
-		};
-		expect(project.voice.postProcessModel).toBeUndefined();
-
-		const savedPath = saveGlobalVoiceFields({ postProcessModel: "test-provider/test-model" }, { agentDir });
-		const saved = JSON.parse(fs.readFileSync(savedPath, "utf8")) as { voice: Record<string, unknown> };
-		expect(saved.voice.postProcessModel).toBe("test-provider/test-model");
-	});
-
 	test("creates the file and the voice block when neither exists", () => {
 		const cwd = makeTempDir();
 		const agentDir = path.join(cwd, "agent-home");
 
-		const savedPath = saveGlobalVoiceFields({ postProcessNoticeShown: true }, { agentDir });
+		const savedPath = saveGlobalVoiceFields({ punctuationNoticeShown: true }, { agentDir });
 		const saved = JSON.parse(fs.readFileSync(savedPath, "utf8")) as { voice: Record<string, unknown> };
 
-		expect(saved.voice.postProcessNoticeShown).toBe(true);
+		expect(saved.voice.punctuationNoticeShown).toBe(true);
 		expect(saved.voice.version).toBe(VOICE_CONFIG_VERSION);
 		expect(saved.voice.onboarding).toBeUndefined(); // no onboarding block is created
-		expect(Object.keys(saved.voice).sort()).toEqual(["postProcessNoticeShown", "version"]);
+		expect(Object.keys(saved.voice).sort()).toEqual(["punctuationNoticeShown", "version"]);
 	});
 
 	test("preserves the other keys of the settings file when creating the voice block", () => {
@@ -351,14 +331,14 @@ describe("saveGlobalVoiceFields", () => {
 		fs.mkdirSync(path.dirname(settingsPath), { recursive: true });
 		fs.writeFileSync(settingsPath, JSON.stringify({ theme: "dark" }, null, 2));
 
-		saveGlobalVoiceFields({ postProcessEnabled: false }, { agentDir });
+		saveGlobalVoiceFields({ punctuationNoticeShown: false }, { agentDir });
 		const saved = JSON.parse(fs.readFileSync(settingsPath, "utf8")) as {
 			theme: string;
 			voice: Record<string, unknown>;
 		};
 
 		expect(saved.theme).toBe("dark");
-		expect(saved.voice.postProcessEnabled).toBe(false);
+		expect(saved.voice.punctuationNoticeShown).toBe(false);
 	});
 
 	test("merges the validated read without reading settings again", () => {
@@ -372,14 +352,14 @@ describe("saveGlobalVoiceFields", () => {
 			return (read as Function)(file, ...args);
 		}) as typeof fs.readFileSync);
 		try {
-			saveGlobalVoiceFields({ postProcessEnabled: false }, { agentDir });
+			saveGlobalVoiceFields({ punctuationNoticeShown: false }, { agentDir });
 			expect(reads).toBe(1);
 		} finally {
 			spy.mockRestore();
 		}
 		expect(JSON.parse(fs.readFileSync(settingsPath, "utf8"))).toMatchObject({
 			theme: "dark",
-			voice: { ttsSpeed: 0.8, postProcessEnabled: false },
+			voice: { ttsSpeed: 0.8, punctuationNoticeShown: false },
 		});
 	});
 
@@ -401,7 +381,7 @@ describe("saveGlobalVoiceFields", () => {
 			return true;
 		}) as typeof process.stderr.write;
 		try {
-			expect(() => saveGlobalVoiceFields({ postProcessNoticeShown: true }, { agentDir })).toThrow();
+			expect(() => saveGlobalVoiceFields({ punctuationNoticeShown: true }, { agentDir })).toThrow();
 		} finally {
 			process.stderr.write = original;
 		}
@@ -560,75 +540,73 @@ describe("isLoopbackEndpoint", () => {
 	});
 });
 
-describe("post-processing config (v3)", () => {
-	test("defaults enable the pass with the session model and two context turns", () => {
+describe("v3 config migration (post-process keys removed in v4)", () => {
+	test("a v3 file with the removed postProcess* keys still loads, ignoring them", () => {
 		const cwd = makeTempDir();
-		const result = loadConfigWithSource(cwd, { agentDir: path.join(cwd, "agent-home") });
-		expect(result.config.version).toBe(VOICE_CONFIG_VERSION);
-		expect(result.config.postProcessEnabled).toBe(true);
-		expect(result.config.postProcessModel).toBe("session");
-		expect(result.config.postProcessContextTurns).toBe(2);
-		expect(result.config.postProcessTimeoutMs).toBe(12000);
-		expect(result.config.postProcessNoticeShown).toBe(false);
-	});
-
-	test("clamps invalid numbers back to defaults", () => {
-		const cwd = makeTempDir();
-		writeSettings(cwd, ".pi/settings.json", {
-			postProcessContextTurns: Number.NaN,
-			postProcessTimeoutMs: 2.5,
+		const agentDir = path.join(cwd, "agent-home");
+		writeSettings(agentDir, "settings.json", {
 			version: 3,
+			postProcessEnabled: true,
+			postProcessModel: "session",
+			postProcessContextTurns: 2,
+			postProcessTimeoutMs: 12000,
+			postProcessNoticeShown: true,
+			punctuationEnabled: false,
+			onboarding: { completed: true, schemaVersion: 3 },
 		});
-		const result = loadConfigWithSource(cwd, { agentDir: path.join(cwd, "agent-home") });
-		expect(result.config.postProcessContextTurns).toBe(2);
-		expect(result.config.postProcessTimeoutMs).toBe(12000);
-	});
 
-	test("clamps out-of-range numbers into range", () => {
-		const cwd = makeTempDir();
-		writeSettings(cwd, ".pi/settings.json", { postProcessContextTurns: 99, postProcessTimeoutMs: 1, version: 3 });
-		const result = loadConfigWithSource(cwd, { agentDir: path.join(cwd, "agent-home") });
-		expect(result.config.postProcessContextTurns).toBe(10);
-		expect(result.config.postProcessTimeoutMs).toBe(1000);
-	});
-
-	test("honours the numeric fields in project scope", () => {
-		const cwd = makeTempDir();
-		const agentDir = path.join(cwd, "agent-home");
-		writeSettings(agentDir, "settings.json", { version: 3, postProcessContextTurns: 2, postProcessTimeoutMs: 8000 });
-		writeSettings(cwd, ".pi/settings.json", { version: 3, postProcessContextTurns: 5, postProcessTimeoutMs: 4000 });
 		const result = loadConfigWithSource(cwd, { agentDir });
-		expect(result.source).toBe("project");
-		expect(result.config.postProcessContextTurns).toBe(5);
-		expect(result.config.postProcessTimeoutMs).toBe(4000);
+
+		expect(result.source).toBe("global");
+		expect(result.config.version).toBe(VOICE_CONFIG_VERSION);
+		expect(result.config.punctuationEnabled).toBe(false); // the surviving field is still read
+		expect(result.config.onboarding.completed).toBe(true);
+		// The removed keys are not part of the loaded object at all.
+		expect("postProcessEnabled" in result.config).toBe(false);
+		expect("postProcessModel" in result.config).toBe(false);
+		expect("postProcessContextTurns" in result.config).toBe(false);
+		expect("postProcessTimeoutMs" in result.config).toBe(false);
+		expect("postProcessNoticeShown" in result.config).toBe(false);
 	});
 
-	test("ignores model selection, enablement and a key from a project config", () => {
+	test("the v3 → v4 bump does not re-trigger onboarding", () => {
 		const cwd = makeTempDir();
 		const agentDir = path.join(cwd, "agent-home");
-		writeSettings(agentDir, "settings.json", { version: 3, postProcessModel: "test-provider/test-model" });
+		writeSettings(agentDir, "settings.json", {
+			version: 3,
+			postProcessNoticeShown: true,
+			onboarding: { completed: true, schemaVersion: 3 },
+		});
+
+		const result = loadConfigWithSource(cwd, { agentDir });
+
+		expect(needsOnboarding(result.config, result.source)).toBe(false);
+	});
+
+	test("a global save of a migrated v3 config writes no postProcess* key back", () => {
+		const cwd = makeTempDir();
+		const agentDir = path.join(cwd, "agent-home");
+		writeSettings(agentDir, "settings.json", { version: 3, postProcessEnabled: true });
+		const loaded = loadConfigWithSource(cwd, { agentDir });
+		const savedPath = saveConfig(loaded.config, "global", cwd, { agentDir });
+
+		const saved = JSON.parse(fs.readFileSync(savedPath, "utf8")) as { voice: Record<string, unknown> };
+		expect(saved.voice.version).toBe(VOICE_CONFIG_VERSION);
+		expect(Object.keys(saved.voice).some((key) => key.startsWith("postProcess"))).toBe(false);
+	});
+
+	test("ignores an API key and a non-loopback endpoint from a project config", () => {
+		const cwd = makeTempDir();
+		const agentDir = path.join(cwd, "agent-home");
+		writeSettings(agentDir, "settings.json", { version: 3, deepgramApiKey: "saved-secret-123" });
 		writeSettings(cwd, ".pi/settings.json", {
 			version: 3,
-			postProcessEnabled: false,
-			postProcessModel: "attacker/model",
 			deepgramApiKey: "stolen",
 			localEndpoint: "https://evil.example.com",
 		});
 		const result = loadConfigWithSource(cwd, { agentDir });
-		expect(result.config.postProcessEnabled).toBe(true);
-		expect(result.config.postProcessModel).toBe("test-provider/test-model"); // the global value survives
-		expect(result.config.deepgramApiKey).toBeUndefined();
+		expect(result.config.deepgramApiKey).toBe("saved-secret-123"); // the global value survives
 		expect(result.config.localEndpoint).toBeUndefined();
-	});
-
-	test("a project block cannot turn the feature back on after a global off", () => {
-		const cwd = makeTempDir();
-		const agentDir = path.join(cwd, "agent-home");
-		writeSettings(agentDir, "settings.json", { version: 3, postProcessEnabled: false });
-		writeSettings(cwd, ".pi/settings.json", { version: 3, language: "zh" });
-		const result = loadConfigWithSource(cwd, { agentDir });
-		expect(result.source).toBe("project");
-		expect(result.config.postProcessEnabled).toBe(false);
 	});
 
 	test("keeps a project loopback endpoint but falls back to the global one for a non-loopback value", () => {
@@ -668,20 +646,5 @@ describe("post-processing config (v3)", () => {
 		}
 
 		expect(chunks.join("")).not.toContain("localEndpoint");
-	});
-
-	test("does not write post-processing fields into a project-scoped config", () => {
-		const cwd = makeTempDir();
-		const path1 = saveConfig(
-			{ ...DEFAULT_CONFIG, postProcessEnabled: true, postProcessModel: "x/y", postProcessNoticeShown: true },
-			"project",
-			cwd,
-			{ agentDir: path.join(cwd, "agent-home") }
-		);
-		const written = JSON.parse(fs.readFileSync(path1, "utf8")) as { voice: Record<string, unknown> };
-		expect(written.voice.postProcessEnabled).toBeUndefined();
-		expect(written.voice.postProcessModel).toBeUndefined();
-		expect(written.voice.postProcessNoticeShown).toBeUndefined();
-		expect(written.voice.postProcessContextTurns).toBe(2);
 	});
 });

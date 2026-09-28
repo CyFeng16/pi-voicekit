@@ -7,7 +7,10 @@ function getAgentDir(): string {
 }
 
 export const SETTINGS_KEY = "voice";
-export const VOICE_CONFIG_VERSION = 3;
+// v4 removed the LLM polish pass and its five `postProcess*` fields. Their values are
+// ignored, never migrated and never written back; the version is bumped so the schema
+// change is visible, and onboarding stays complete across the bump.
+export const VOICE_CONFIG_VERSION = 4;
 
 export type VoiceSettingsScope = "global" | "project";
 export type VoiceConfigSource = VoiceSettingsScope | "default";
@@ -53,27 +56,6 @@ export interface VoiceConfig {
 	punctuationNoticeShown?: boolean;
 	/** Global-only shortcut used to toggle recording without hold-to-talk */
 	toggleShortcut?: string;
-
-	// ─── Post-processing (optional transcript polish) — new in v3 ─────
-
-	/**
-	 * Master switch for the post-ASR polish pass. Global-only — the
-	 * enablement decides whether dictated text makes an extra model call,
-	 * so a project file must not be able to flip it.
-	 */
-	postProcessEnabled?: boolean;
-	/**
-	 * Model used by the polish pass — "session" reuses the active session
-	 * model, or "<provider>/<modelId>". Global-only: the value decides
-	 * where dictated text is sent.
-	 */
-	postProcessModel?: string;
-	/** How many recent conversation turns accompany the transcript. Honoured in both scopes; clamped to [0, 10]. */
-	postProcessContextTurns?: number;
-	/** Upper bound in milliseconds for one polish pass. Honoured in both scopes; clamped to [1000, 30000]. */
-	postProcessTimeoutMs?: number;
-	/** Set once the one-time default-on notice has been shown. Global-only — it describes this machine, not the repository. */
-	postProcessNoticeShown?: boolean;
 
 	// ─── TTS (text-to-speech) ─────────────────────────────────────────
 	// All TTS fields are opt-in (default: TTS disabled). New in v6.0.0.
@@ -165,12 +147,6 @@ export const DEFAULT_CONFIG: VoiceConfig = {
 	punctuationEnabled: PUNCTUATION_ENABLED_DEFAULT,
 	punctuationNoticeShown: false,
 	toggleShortcut: "ctrl+shift+v",
-	// Post-processing defaults — on by default (D5), reusing the session model
-	postProcessEnabled: true,
-	postProcessModel: "session",
-	postProcessContextTurns: 2,
-	postProcessTimeoutMs: 12000,
-	postProcessNoticeShown: false,
 	// TTS defaults — all opt-in
 	ttsEnabled: false,
 	ttsBackend: "local",
@@ -222,22 +198,14 @@ function normalizeOnboarding(input: any, fallbackCompleted: boolean): VoiceOnboa
 	};
 }
 
-/** Clamp an integer config value; non-numeric or non-finite input takes the default. */
-function clampInt(value: unknown, min: number, max: number, fallback: number): number {
-	if (typeof value !== "number" || !Number.isFinite(value) || !Number.isInteger(value)) return fallback;
-	return Math.max(min, Math.min(max, value));
-}
-
 function migrateConfig(rawVoice: any, source: VoiceConfigSource, globalVoice?: unknown): VoiceConfig {
 	if (!rawVoice || typeof rawVoice !== "object") {
 		return structuredClone(DEFAULT_CONFIG);
 	}
 
-	// D7: model selection, enablement and the notice flag are global-only, and a
-	// project file must not be able to inject an API key or point audio at a
-	// non-loopback host. These fields resolve from the global block in BOTH scopes —
-	// falling back to DEFAULT_CONFIG would let a cloned repository re-enable a
-	// feature the maintainer turned off globally (spec §4.2).
+	// D7: a project file must not be able to inject an API key or point audio at a
+	// non-loopback host. These fields resolve from the global block in BOTH scopes, so a
+	// cloned repository cannot redirect audio the maintainer pointed elsewhere (spec §4.2).
 	const projectScoped = source === "project";
 	const globalRaw: Record<string, unknown> =
 		globalVoice && typeof globalVoice === "object" ? (globalVoice as Record<string, unknown>) : {};
@@ -246,7 +214,7 @@ function migrateConfig(rawVoice: any, source: VoiceConfigSource, globalVoice?: u
 	const asBoolean = (value: unknown, fallbackValue: boolean): boolean =>
 		typeof value === "boolean" ? value : fallbackValue;
 
-	for (const key of ["postProcessEnabled", "postProcessModel", "deepgramApiKey", "localEndpoint"]) {
+	for (const key of ["deepgramApiKey", "localEndpoint"]) {
 		if (!projectScoped || rawVoice[key] === undefined) continue;
 		// A loopback project endpoint is honoured, not ignored — reporting it would
 		// cry wolf on the safe case and weaken the signal for the discarded ones.
@@ -281,8 +249,8 @@ function migrateConfig(rawVoice: any, source: VoiceConfigSource, globalVoice?: u
 			rawVoice.punctuationEnabled,
 			projectScoped ? asBoolean(globalRaw.punctuationEnabled, PUNCTUATION_ENABLED_DEFAULT) : PUNCTUATION_ENABLED_DEFAULT
 		),
-		// Global-only for the same reason the post-processing notice flag is: it describes this
-		// machine, not the repository, so a cloned project file cannot silence it.
+		// Global-only: it describes this machine, not the repository, so a cloned
+		// project file cannot silence the one-time upgrade notice.
 		punctuationNoticeShown: asBoolean(globalOnly("punctuationNoticeShown"), false),
 		localModel: typeof rawVoice.localModel === "string" ? rawVoice.localModel : undefined,
 		localEndpoint: projectScoped
@@ -294,14 +262,6 @@ function migrateConfig(rawVoice: any, source: VoiceConfigSource, globalVoice?: u
 			source !== "project" && typeof rawVoice.toggleShortcut === "string"
 				? rawVoice.toggleShortcut
 				: DEFAULT_CONFIG.toggleShortcut,
-		// Post-processing fields (v3). Model selection, enablement and the
-		// notice flag resolve through `globalOnly`; the two numeric knobs are
-		// honoured in both scopes.
-		postProcessEnabled: asBoolean(globalOnly("postProcessEnabled"), DEFAULT_CONFIG.postProcessEnabled ?? true),
-		postProcessModel: asString(globalOnly("postProcessModel")) ?? DEFAULT_CONFIG.postProcessModel,
-		postProcessContextTurns: clampInt(rawVoice.postProcessContextTurns, 0, 10, DEFAULT_CONFIG.postProcessContextTurns!),
-		postProcessTimeoutMs: clampInt(rawVoice.postProcessTimeoutMs, 1000, 30000, DEFAULT_CONFIG.postProcessTimeoutMs!),
-		postProcessNoticeShown: asBoolean(globalOnly("postProcessNoticeShown"), false),
 		// TTS fields — type-validated; mismatched persisted values fall
 		// back to safe defaults so a hand-edited config can't poison the
 		// engine. Notably: ttsLocalVoiceId rejects strings (would crash
@@ -455,11 +415,8 @@ function serializeConfig(config: VoiceConfig, scope: VoiceSettingsScope): VoiceC
 			scope === "project" && config.localEndpoint && !isLoopbackEndpoint(config.localEndpoint)
 				? undefined
 				: config.localEndpoint,
-		// D7: model selection and enablement are global-only, and the notice flag
+		// D7: API key and endpoint are global-only, and the punctuation notice flag
 		// describes this machine, not this repository.
-		postProcessEnabled: scope === "project" ? undefined : config.postProcessEnabled,
-		postProcessModel: scope === "project" ? undefined : config.postProcessModel,
-		postProcessNoticeShown: scope === "project" ? undefined : config.postProcessNoticeShown,
 		punctuationNoticeShown: scope === "project" ? undefined : config.punctuationNoticeShown,
 		// Shortcut registration is static at extension load time — project-scoped overrides cannot apply
 		toggleShortcut: scope === "project" ? undefined : config.toggleShortcut,
@@ -505,11 +462,7 @@ export function saveConfig(
  * carry them — `serializeConfig` strips them and the loader ignores them — so
  * they always belong in the global file.
  */
-type GlobalVoiceFieldKey =
-	| "postProcessEnabled"
-	| "postProcessModel"
-	| "postProcessNoticeShown"
-	| "punctuationNoticeShown";
+type GlobalVoiceFieldKey = "punctuationNoticeShown";
 
 /**
  * Field-level writer for the global-only voice settings (R26).
