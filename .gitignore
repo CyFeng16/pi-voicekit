@@ -3,6 +3,8 @@ node_modules/
 .ralph/
 .bug-hunter/
 docs/superpowers/
+# Fetched benchmark corpora (see bench/README.md): large, third-party licences, never published.
+bench/data/
 .worktrees/
 *.pyc
 __pycache__/

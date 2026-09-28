@@ -53,6 +53,14 @@ describe("npm publish surface", () => {
 
 		expect(rules).toContain("data/");
 	});
+
+	test("the root ignore file covers the fetched corpora too", () => {
+		const rules = readFileSync(".gitignore", "utf8")
+			.split("\n")
+			.map((line) => line.trim());
+
+		expect(rules).toContain("bench/data/");
+	});
 });
 
 describe("benchmark manifest contract", () => {
