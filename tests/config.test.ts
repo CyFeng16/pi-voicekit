@@ -725,7 +725,15 @@ describe("/voice-speak-stop registration (regression)", () => {
 			registerCommand: (name: string, definition: any) => commands.set(name, definition),
 		} as any;
 
-		voiceExtension(pi);
+		// Hermetic: the real factory resolves its toggle shortcut from the global settings file, so
+		// point the home directory at a temp dir for the call instead of reading the developer's
+		// real `~/.pi/agent/settings.json`. No assertion below depends on that value.
+		const homeSpy = spyOn(os, "homedir").mockReturnValue(makeTempDir());
+		try {
+			voiceExtension(pi);
+		} finally {
+			homeSpy.mockRestore();
+		}
 
 		const command = commands.get("voice-speak-stop");
 		expect(command).toBeDefined();
