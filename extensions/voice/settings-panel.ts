@@ -136,6 +136,15 @@ interface ModelGroup {
 
 // ─── Panel ────────────────────────────────────────────────────────────────────
 
+/**
+ * True when `id` names a recogniser the panel may activate. The Downloaded tab lists every
+ * directory under `~/.pi/models` — the punctuation model and the Silero VAD model among them —
+ * and activation writes `config.localModel`, so only catalogue entries may pass (spec §4.2).
+ */
+export function isRecogniserModelId(id: string): boolean {
+	return LOCAL_MODELS.some((model) => model.id === id);
+}
+
 export class VoiceSettingsPanel {
 	onClose?: (result?: PanelAction) => void;
 
@@ -1176,7 +1185,9 @@ export class VoiceSettingsPanel {
 					this.p.clearRecognizerCache();
 				} catch {}
 				const remaining = this.p.getDownloadedModels();
-				this.p.config.localModel = remaining.length > 0 ? remaining[0]!.id : undefined;
+				// Replace with the first remaining recogniser, never with a non-recogniser entry such
+				// as the punctuation model (spec §4.2).
+				this.p.config.localModel = remaining.find((model) => isRecogniserModelId(model.id))?.id;
 				this.save();
 			}
 			this.deletePendingId = null;
@@ -1190,6 +1201,11 @@ export class VoiceSettingsPanel {
 	}
 
 	private activateModel(modelId: string): void {
+		// The Downloaded tab lists every directory under ~/.pi/models, and activation writes
+		// `config.localModel`. Only recogniser catalogue entries may become the active model —
+		// the punctuation model lives in the same directory but cannot transcribe (spec §4.2).
+		if (!isRecogniserModelId(modelId)) return;
+
 		const { config } = this.p;
 		if (config.localModel !== modelId) {
 			try {
