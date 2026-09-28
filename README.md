@@ -25,7 +25,7 @@ speaks the agent's replies (Kitten, Kokoro, Piper, or Deepgram Aura).
 > `PULSE_SERVER` is set (SSH audio tunnel / remote PulseAudio), so remote
 > microphones record reliably. Voice in **and** voice out: 21 offline STT models,
 > 20 local TTS voices plus Deepgram Aura, driven by one `/voice-settings` panel
-> with 6 tabs. The 0.1.x line is documented in the [changelog](CHANGELOG.md).
+> with 5 tabs. The 0.1.x line is documented in the [changelog](CHANGELOG.md).
 
 ---
 
@@ -58,10 +58,10 @@ pi-voicekit supports two transcription backends:
 | ---------------- | -------------------------------------------------------- | --------------------------------------------------- |
 | **How it works** | Live streaming — text appears as you speak               | Batch mode — transcribes after you finish recording |
 | **Setup**        | API key required                                         | No API key, models auto-download on first use       |
-| **Internet**     | Required                                                 | Not required after model download for recognition; the polish step may use the network |
+| **Internet**     | Required                                                 | Not required after model download — recognition and punctuation run in process |
 | **Latency**      | Real-time interim results                                | 2–10 seconds after recording stops                  |
 | **Languages**    | Chinese and English locales                             | Chinese, English, mixed Chinese–English             |
-| **Cost**         | $200 free credit (lasts 6–12 months for most developers) | Recognition is free; the polish step may cost money |
+| **Cost**         | $200 free credit (lasts 6–12 months for most developers) | Free — recognition and punctuation are local        |
 
 Run `/voice-settings` inside Pi to choose your backend and configure everything from one panel.
 
@@ -104,7 +104,7 @@ pi-voicekit auto-detects your audio tool. No manual install needed if you alread
 
 ## Settings Panel
 
-All configuration lives in one place: `/voice-settings`. Six tabs cover everything you need.
+All configuration lives in one place: `/voice-settings`. Five tabs cover everything you need.
 
 ### General — backend, language, scope
 
@@ -136,17 +136,25 @@ agent replies is toggled here.
 
 See your hardware profile (RAM, CPU, GPU), dependency status (sherpa-onnx runtime), available disk space, and total downloaded models. Model recommendations are based on this profile.
 
-### Polish — transcript cleanup
+### Punctuation — offline, marks-only
 
-Optional post-ASR cleanup, on by default. Toggle it, pick the model, set how many
-recent conversation turns accompany the transcript (0–10), and cap how long one
-pass may take (`1000`–`30000` ms). The last row shows the most recent polished
-dictation as a `RAW` / `POLISHED` pair. `/voice-polish last` prints the newest
-dictation a pass ran on — including one whose result was discarded — with its
-`STATUS`, `RAW`, and `WRITTEN` text, or says that nothing was written.
+Not a tab: punctuation is an automatic step between the recogniser and the editor,
+on by default. When a transcript contains Chinese and is essentially unpunctuated
+(fewer than one mark per 20 characters), an in-process model inserts full stops,
+commas and question marks. It can only **insert** marks — every other byte of the
+transcript is preserved — and any problem leaves the text exactly as the recogniser
+produced it. English is not supported (the model measured F1 0.175 on English), and
+a transcript whose punctuation is already dense enough — one mark per 20 characters or
+more — is left alone; a sparser one is punctuated even if it carries a mark or two.
 
-`/voice-polish` takes `on`, `off`, `model`, `turns <0-10>`, `last` and `restore`;
-run it with no argument for the current status.
+The model is a one-time ~285 MB download, fetched in the background the first time a
+dictation needs it: that first dictation comes back unchanged while the download starts.
+Once the download has completed, verified against its digest and the engine has been
+constructed — any of which can fail — later qualifying dictations are punctuated; until
+then they come back unchanged, and `/voice-punctuation status` reports the state. The
+switch is the `punctuationEnabled` setting (a `settings.json` field, on by default — the
+panel has no row for it), and `/voice-punctuation status` shows whether the step ran, why
+it did not, and the state of the model.
 
 ---
 
@@ -181,7 +189,7 @@ run it with no argument for the current status.
 | `/voice-stream`          | Toggle Deepgram streaming TTS (cloud)                     |
 | `/voice-speak-stop`      | Stop in-flight TTS playback                               |
 | `/voice-autosubmit`      | Toggle: STT text auto-sent to the agent (`on`/`off`)      |
-| `/voice-polish [sub]`    | Transcript polish: on, off, model, turns, last, restore   |
+| `/voice-punctuation`     | Offline punctuation: status, model state, last decision   |
 | `/voice-hold-delay`      | Set hold-to-talk delay (200-3000 ms, default 700)         |
 | `/voice-speak-models`    | Browse / install TTS voice models                         |
 | `/voice-speak-info`      | Diagnose TTS state                                        |
@@ -295,17 +303,13 @@ duration — lower is better, and below 1.0 is faster than real time.
 | **sensevoice-small** | 0.028       | 0.029       | 0.040     | 134–451               |
 | **whisper-turbo**    | 0.372       | 0.369       | 0.395     | 7–27                  |
 
-End to end — local recognition plus the remote polish call — four real dictations of
-8.1–28.0 s came back in an estimated 0.56–2.98 s, an RTF of 0.07–0.15 (recognition time is
-derived from the measured recognition RTF, not timed per dictation: see docs/BENCHMARKS.md).
-The segmented polish pass is what
-keeps that together: the 0.2.x line polished in one call over the whole transcript, so one
-slow call returned the dictation unpolished, while against a degraded endpoint the segmented
-pipeline polished 35 of 35 segments where the old path fell back on 100% of the run.
-`whisper-turbo` is the slowest of the three by an order of magnitude and the least accurate
-on this corpus — measured for comparison, not recommended for CPU-only use.
+End to end, the punctuation step adds almost nothing when it runs: on 27–32 character
+inputs the model call measures p50 2.9 ms / p95 3.1 ms after a one-time 544 ms load,
+all on CPU (see docs/BENCHMARKS.md). `whisper-turbo` is the slowest of the three by an
+order of magnitude and the least accurate on this corpus — measured for comparison, not
+recommended for CPU-only use.
 
-Protocol, all result tables, reproduction commands and the honest limits live in
+Protocol, all result tables and the honest limits live in
 [docs/BENCHMARKS.md](docs/BENCHMARKS.md) — GitHub only, because npm ships the extension and
 this README.
 
@@ -325,7 +329,7 @@ this README.
 | **Pre-recording**                | Audio capture starts during warmup — you never miss the first word                       |
 | **Tail recording**               | Keeps recording 1.5s after release so your last word isn't clipped                       |
 | **Live streaming**               | Deepgram Nova 3 WebSocket (Nova 2 for Chinese locales) — live interim transcripts        |
-| **Transcript polish**            | Optional post-ASR cleanup — the local backend polishes each recogniser segment as it is decoded (up to three calls in flight); the last N conversation turns (default 2) are sent with the first segment, and no conversation context at all when the turn count is zero. Disable with `/voice-polish off` |
+| **Offline punctuation**          | Chinese dictations that come back unpunctuated get full stops, commas and question marks from an in-process model — marks only, no wording changes, fail-open, English not supported |
 | **Chinese + English**            | The supported and validated scope, mixed Chinese–English included. Every other language in the catalogue is unvalidated — see [Language scope](#language-scope). |
 | **Continuous dictation**         | `/voice dictate` for long-form input without holding keys                                |
 | **Typing cooldown**              | Space holds within 400ms of typing are ignored                                           |
@@ -353,10 +357,9 @@ extensions/voice/sherpa-loader.ts           Lazy native module loading
 extensions/voice/model-download.ts          Download manager — resume, progress, verification, Handy import
 extensions/voice/device.ts                  Device profiling — RAM, GPU, CPU, container detection
 
-# transcript post-processing
-extensions/voice/post-process.ts            Polish pass — fail-open guardrails, model resolution, bounded call
-extensions/voice/post-process-context.ts    Context assembly — recent turns and character caps
-extensions/voice/post-process-prompt.ts     Fixed polish prompt and request shape
+# offline punctuation
+extensions/voice/punctuation.ts             Offline punctuation — marks-only splice, fail-open step
+extensions/voice/punctuation-model.ts       Punctuation model — catalogue, digest verification, download
 
 # text-to-speech
 extensions/voice/speak.ts                   Speak entry point, auto-speak wiring
@@ -371,7 +374,7 @@ extensions/voice/tts-install-progress.ts    Model install progress widget
 extensions/voice/tts-playback-indicator.ts  Speaking indicator widget
 
 # settings and UI
-extensions/voice/settings-panel.ts          Settings panel — overlay, 6 tabs
+extensions/voice/settings-panel.ts          Settings panel — overlay, 5 tabs
 extensions/voice/ui-picker.ts               Generic list picker
 extensions/voice/ui-help-overlay.ts         Keyboard and command reference
 extensions/voice/ui-aura.ts                 Visual primitives (Liquid Braille, Aurora)
@@ -403,13 +406,13 @@ Settings stored in Pi's settings files under the `voice` key:
 ```json
 {
 	"voice": {
-		"version": 3,
+		"version": 4,
 		"enabled": true,
 		"language": "en",
 		"backend": "local",
 		"localModel": "parakeet-v3",
 		"scope": "global",
-		"onboarding": { "completed": true, "schemaVersion": 3 }
+		"onboarding": { "completed": true, "schemaVersion": 4 }
 	}
 }
 ```
@@ -420,74 +423,36 @@ an explicit save and it still goes to `~/.env.secrets` or `~/.zshrc`.
 
 Hold-to-talk delay defaults to **700 ms** (`/voice-hold-delay` accepts 200–3000 ms).
 
-### Transcript polish
+### Punctuation
 
-Transcript polish is on by default: every dictation runs an extra model pass. When
-the selected model is a cloud provider, the text that leaves your machine is:
+Punctuation is automatic and on by default. When a dictation finishes, the transcript
+is punctuated locally if the text contains Chinese and its punctuation density is below
+one mark per 20 characters; the recogniser's output is otherwise untouched. Nothing
+leaves your machine: the model runs in process, and the only network traffic is the
+one-time download of the model itself. English is not supported in this version, and
+English text is skipped by the same rule. A transcript the rule declines is returned
+exactly as the recogniser produced it, and so is any transcript whose punctuation fails
+at any point.
 
-- the transcript of the dictation;
-- the last N conversation turns of user and assistant text, where N is
-  `postProcessContextTurns` (default `2`; `0` sends no conversation context);
-- nothing else. The compaction summary is deliberately not sent: it is a digest built from
-  earlier messages, so it can carry residues of thinking and tool output, and it measured no
-  gain over the turns alone.
+| Setting                  | Scope              | Default | Notes                                                        |
+| ------------------------ | ------------------ | ------- | ------------------------------------------------------------ |
+| `punctuationEnabled`     | global and project | `true`  | Runs the offline punctuation step on qualifying transcripts. |
+| `punctuationNoticeShown` | global only        | `false` | Machine-local bookkeeping for the one-time upgrade notice.    |
 
-One measured behaviour is worth knowing: a model that thinks before it answers may normalise a
-spoken operator into its symbol — `select star` comes back as `select *`. The information is
-unchanged, there is no setting for it, and `/voice-polish off` is the way to keep the words verbatim.
-
-A reasoning model used to spend its whole token budget thinking about a long dictation, so the
-answer was truncated and the pass kept the raw transcript — which looked like polish quietly
-doing nothing past roughly half a minute of speech. Dictations longer than 200 characters now
-turn thinking off (the same 309-character input went from 10.2 s to 1.2 s with the same
-punctuation), while shorter ones keep it, because there it costs almost nothing and corrects
-terms and self-corrections better. The field only reaches OpenAI-compatible providers; one that
-ignores it behaves exactly as before.
-
-On the local backend, polish no longer waits for the whole transcript: each recogniser
-segment — roughly 10 s of speech — is polished as it is decoded, with up to three segment
-calls in flight. A long dictation may come back partly polished, and that is deliberate: a
-segment that times out is retried once with thinking disabled for that retry, and if it still
-fails, that segment keeps its raw text while its neighbours keep their polished text — so one
-slow call no longer costs the rest of the dictation. The conversation context is attached to
-the first segment only; a later segment sees just the previous segment's raw text.
-
-The gain is measurable: on 79.6 s of corpus audio (35 segments) against a degraded endpoint,
-the old single-call path fell back on 100% of the run, while the segmented path polished all
-35 segments. Real dictations after the change: 4 of 4 applied, with polish taking 0.4–2.3 s
-for 8–28 s of audio — roughly 5–13% of the audio duration.
-
-Assistant text can contain anything the conversation contained — file paths,
-identifiers, values the agent echoed. The character limits bound how much is sent,
-not how sensitive it is. With the local backend, nothing else leaves your machine,
-and audio never does: recognition runs on this machine with no API key. Turn the
-feature off with `/voice-polish off` or the Polish tab's Enabled row.
-
-Every dictation also writes one `voice-polish` entry into the session file: the raw
-transcript, what reached the editor and why the pass decided that. The model never sees
-these entries — they are not part of the conversation context — so they are there for
-analysis, and they do keep the raw text on disk for as long as the session file exists.
-Each entry also records how the pass was configured: the transcript length on its own
-(separate from any text already in the editor), whether thinking was turned off for it,
-and the output-token cap it carried, plus the audio seconds it covered and which recogniser
-produced it — which is what makes polish time readable as a speedup. A segmented pass adds a
-`segments` summary to the entry: how many segments were polished, how many kept their raw
-text, and how many were retried.
-
-| Setting                   | Scope              | Default     | Notes                                                   |
-| ------------------------- | ------------------ | ----------- | ------------------------------------------------------- |
-| `postProcessEnabled`      | global only        | `true`      | Master switch. A project `voice` block cannot flip it.  |
-| `postProcessModel`        | global only        | `"session"` | Reuses the session model, or `provider/modelId`.        |
-| `postProcessContextTurns` | global and project | `2`         | Conversation turns sent with the transcript, `0`–`10`.  |
-| `postProcessTimeoutMs`    | global and project | `12000`     | Per-pass timeout in milliseconds, `1000`–`30000`.       |
-
-The global-only fields resolve from `~/.pi/agent/settings.json` even when a
-repository provides its own `voice` block, so a cloned repo can neither turn the
-feature on nor redirect where dictated text goes. The model is chosen from a
-picker (`/voice-polish model`), never typed: a hand-typed reference is refused,
-and an unavailable or malformed model keeps the raw transcript instead of
-switching provider. `postProcessNoticeShown` is machine-local bookkeeping for the
-one-time notice, not a user setting.
+`punctuationEnabled` is an ordinary, scope-agnostic field: a project file may set it
+and the usual project-over-global precedence applies. Omitted from a project block, it
+inherits the global value rather than falling back to the default, so a global OFF cannot
+be silently ignored. The first project-scope save writes the value it resolved to —
+including an inherited one — into the repository's `.pi/settings.json`, and from then on
+that repository is pinned: a later global change no longer applies to it.
+`/voice-punctuation status` prints the switch state, whether the model is downloaded and
+digest-verified, and what the step decided on the last dictation of the session. The model
+lives in `~/.pi/models/punct-ct-transformer-zh-en/`, appears in the Downloaded tab like any
+other download, and selecting that row does not make it a recogniser. The step writes
+no session entry; under `PI_VOICE_DEBUG` it logs one line per dictation with the
+character count, marks before and after, the reason when it did not run, and the
+elapsed time. The removed `postProcess*` keys from older releases are ignored when
+loading — never migrated, and left in place when the settings file is saved.
 
 ---
 
