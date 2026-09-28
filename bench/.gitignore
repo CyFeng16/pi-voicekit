@@ -1,0 +1,3 @@
+# Corpora are never committed: they are third-party audio with their own licences, they are large,
+# and the repository is a published npm package. `bench/manifest.jsonl` pins what to fetch instead.
+data/
