@@ -19,6 +19,8 @@ the rest.
 - **STT:** Deepgram (cloud, WebSocket streaming) or local offline models
 - **TTS:** local (Kitten / Piper / Kokoro) or Deepgram Aura (cloud)
 
+- **Languages:** Chinese, English and mixed Chinese–English (supported and validated); every other language in the catalogue is unvalidated
+
 ## Authoritative sources
 
 - [README](https://github.com/CyFeng16/pi-voicekit/blob/main/README.md): current behaviour, setup, features, full command table

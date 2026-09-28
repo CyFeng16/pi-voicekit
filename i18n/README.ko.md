@@ -1,4 +1,8 @@
-[English](../README.md) | [简体中文](README.zh-CN.md) | [日本語](README.ja.md) | [한국어](README.ko.md) | [Español](README.es.md) | [Français](README.fr.md) | [Português](README.pt-BR.md) | [हिन्दी](README.hi.md)
+[English](../README.md) | [简体中文](README.zh-CN.md)
+
+> **This translation is retired.** Documentation now ships in English and 简体中文, and the supported
+> speech languages are Chinese and English — see the [English README](../README.md#language-scope).
+> This page is kept for reference and will be removed.
 
 # pi-voicekit
 
