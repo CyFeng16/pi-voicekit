@@ -8,8 +8,9 @@ function getAgentDir(): string {
 
 export const SETTINGS_KEY = "voice";
 // v4 removed the LLM polish pass and its five `postProcess*` fields. Their values are
-// ignored, never migrated and never written back; the version is bumped so the schema
-// change is visible, and onboarding stays complete across the bump.
+// ignored and never migrated, but an ordinary save keeps a file's own keys in place
+// (spec §4.1); the version is bumped so the schema change is visible, and onboarding
+// stays complete across the bump.
 export const VOICE_CONFIG_VERSION = 4;
 
 export type VoiceSettingsScope = "global" | "project";
@@ -428,6 +429,21 @@ function serializeConfig(config: VoiceConfig, scope: VoiceSettingsScope): VoiceC
 }
 
 /**
+ * The five settings removed with the LLM polish pass. v4 ignores them, but an ordinary
+ * save must not delete them (spec §4.1, decision 10): the maintainer's ruling is
+ * "ignored, never deleted" and no write-side migration happens, so a user who rolls
+ * back to an older release still finds their original switch state. They are copied
+ * through as raw values and never read into the runtime config.
+ */
+const LEGACY_POST_PROCESS_KEYS = [
+	"postProcessEnabled",
+	"postProcessModel",
+	"postProcessContextTurns",
+	"postProcessTimeoutMs",
+	"postProcessNoticeShown",
+] as const;
+
+/**
  * Atomic settings write: temp file + rename prevents corruption from partial
  * writes. Shared by every writer in this module so the path cannot diverge.
  */
@@ -452,7 +468,18 @@ export function saveConfig(
 ): string {
 	const settingsPath = scope === "project" ? getProjectSettingsPath(cwd) : getGlobalSettingsPath(options);
 	const settings = readJsonFile(settingsPath);
-	settings[SETTINGS_KEY] = serializeConfig(config, scope);
+	const serialized: Record<string, unknown> = { ...serializeConfig(config, scope) };
+	// Carry the legacy keys of THIS file's block through, raw values only: the loader ignores
+	// them (they never enter `config`), and a save into the other scope's file must neither
+	// copy them nor drop them from a user who rolls back to an older release.
+	const existingVoice = settings[SETTINGS_KEY];
+	if (existingVoice && typeof existingVoice === "object") {
+		for (const key of LEGACY_POST_PROCESS_KEYS) {
+			const value = (existingVoice as Record<string, unknown>)[key];
+			if (value !== undefined) serialized[key] = value;
+		}
+	}
+	settings[SETTINGS_KEY] = serialized;
 	writeSettingsFile(settingsPath, settings);
 	return settingsPath;
 }

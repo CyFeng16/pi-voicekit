@@ -542,6 +542,16 @@ describe("isLoopbackEndpoint", () => {
 });
 
 describe("v3 config migration (post-process keys removed in v4)", () => {
+	// The five settings the LLM polish pass used. v4 ignores them but must never delete them
+	// (spec §4.1, decision 10) — a user who rolls back to an older release finds them again.
+	const LEGACY_POST_PROCESS_KEYS = [
+		"postProcessEnabled",
+		"postProcessModel",
+		"postProcessContextTurns",
+		"postProcessTimeoutMs",
+		"postProcessNoticeShown",
+	] as const;
+
 	test("a v3 file with the removed postProcess* keys still loads, ignoring them", () => {
 		const cwd = makeTempDir();
 		const agentDir = path.join(cwd, "agent-home");
@@ -584,16 +594,32 @@ describe("v3 config migration (post-process keys removed in v4)", () => {
 		expect(needsOnboarding(result.config, result.source)).toBe(false);
 	});
 
-	test("a global save of a migrated v3 config writes no postProcess* key back", () => {
+	test("a global save keeps the legacy postProcess* keys already in the global file", () => {
 		const cwd = makeTempDir();
 		const agentDir = path.join(cwd, "agent-home");
-		writeSettings(agentDir, "settings.json", { version: 3, postProcessEnabled: true });
+		writeSettings(agentDir, "settings.json", {
+			version: 3,
+			postProcessEnabled: false,
+			postProcessModel: "session",
+			postProcessContextTurns: 2,
+			postProcessTimeoutMs: 12000,
+			postProcessNoticeShown: true,
+		});
 		const loaded = loadConfigWithSource(cwd, { agentDir });
-		const savedPath = saveConfig(loaded.config, "global", cwd, { agentDir });
+		// The runtime config ignores them even while the file carries them.
+		for (const key of LEGACY_POST_PROCESS_KEYS) {
+			expect(key in loaded.config).toBe(false);
+		}
 
+		const savedPath = saveConfig(loaded.config, "global", cwd, { agentDir });
 		const saved = JSON.parse(fs.readFileSync(savedPath, "utf8")) as { voice: Record<string, unknown> };
+
 		expect(saved.voice.version).toBe(VOICE_CONFIG_VERSION);
-		expect(Object.keys(saved.voice).some((key) => key.startsWith("postProcess"))).toBe(false);
+		expect(saved.voice.postProcessEnabled).toBe(false);
+		expect(saved.voice.postProcessModel).toBe("session");
+		expect(saved.voice.postProcessContextTurns).toBe(2);
+		expect(saved.voice.postProcessTimeoutMs).toBe(12000);
+		expect(saved.voice.postProcessNoticeShown).toBe(true);
 	});
 
 	test("a v3 project file's postProcess* keys are ignored and the punctuation scope rules still hold", () => {
@@ -634,7 +660,7 @@ describe("v3 config migration (post-process keys removed in v4)", () => {
 		}
 	});
 
-	test("a v3 project file that omits punctuationEnabled inherits the global value and writes no postProcess* key back", () => {
+	test("a project save keeps the legacy postProcess* keys already in the project file", () => {
 		const cwd = makeTempDir();
 		const agentDir = path.join(cwd, "agent-home");
 		writeSettings(agentDir, "settings.json", { version: 3, punctuationEnabled: false });
@@ -651,10 +677,67 @@ describe("v3 config migration (post-process keys removed in v4)", () => {
 		const savedPath = saveConfig(result.config, "project", cwd, { agentDir });
 		const saved = JSON.parse(fs.readFileSync(savedPath, "utf8")) as { voice: Record<string, unknown> };
 		expect(saved.voice.version).toBe(VOICE_CONFIG_VERSION);
-		expect(Object.keys(saved.voice).some((key) => key.startsWith("postProcess"))).toBe(false);
+		expect(saved.voice.postProcessEnabled).toBe(true);
+		expect(saved.voice.postProcessNoticeShown).toBe(true);
 		// The switch is scope-agnostic and persists; the notice flag stays global-only.
 		expect(saved.voice.punctuationEnabled).toBe(false);
 		expect(saved.voice.punctuationNoticeShown).toBeUndefined();
+	});
+
+	test("a project save neither copies the global file's legacy keys nor touches that file", () => {
+		const cwd = makeTempDir();
+		const agentDir = path.join(cwd, "agent-home");
+		writeSettings(agentDir, "settings.json", {
+			version: 3,
+			postProcessEnabled: false,
+			postProcessModel: "session",
+			postProcessContextTurns: 1,
+			postProcessTimeoutMs: 9000,
+			postProcessNoticeShown: true,
+		});
+		writeSettings(cwd, ".pi/settings.json", { version: 3, postProcessModel: "rules" });
+
+		const loaded = loadConfigWithSource(cwd, { agentDir });
+		const savedPath = saveConfig(loaded.config, "project", cwd, { agentDir });
+		const saved = JSON.parse(fs.readFileSync(savedPath, "utf8")) as { voice: Record<string, unknown> };
+		expect(saved.voice.postProcessModel).toBe("rules");
+		for (const key of LEGACY_POST_PROCESS_KEYS) {
+			if (key === "postProcessModel") continue;
+			expect(saved.voice[key]).toBeUndefined();
+		}
+
+		const global = JSON.parse(fs.readFileSync(path.join(agentDir, "settings.json"), "utf8")) as {
+			voice: Record<string, unknown>;
+		};
+		expect(global.voice.postProcessEnabled).toBe(false);
+		expect(global.voice.postProcessModel).toBe("session");
+	});
+
+	test("a save into a file that never carried the legacy keys invents none", () => {
+		// A fresh project file must not inherit the global file's legacy keys.
+		const cwd = makeTempDir();
+		const agentDir = path.join(cwd, "agent-home");
+		writeSettings(agentDir, "settings.json", {
+			version: 3,
+			postProcessEnabled: false,
+			postProcessModel: "session",
+			postProcessContextTurns: 1,
+			postProcessTimeoutMs: 9000,
+			postProcessNoticeShown: true,
+		});
+		const loaded = loadConfigWithSource(cwd, { agentDir });
+		const savedPath = saveConfig(loaded.config, "project", cwd, { agentDir });
+		const saved = JSON.parse(fs.readFileSync(savedPath, "utf8")) as { voice: Record<string, unknown> };
+		expect(Object.keys(saved.voice).some((key) => key.startsWith("postProcess"))).toBe(false);
+
+		// Nor may a fresh global file inherit the project file's legacy keys.
+		const otherCwd = makeTempDir();
+		const otherAgentDir = path.join(otherCwd, "agent-home");
+		writeSettings(otherCwd, ".pi/settings.json", { version: 3, postProcessModel: "rules" });
+		const projectLoaded = loadConfigWithSource(otherCwd, { agentDir: otherAgentDir });
+		const globalSavedPath = saveConfig(projectLoaded.config, "global", otherCwd, { agentDir: otherAgentDir });
+		const globalSaved = JSON.parse(fs.readFileSync(globalSavedPath, "utf8")) as { voice: Record<string, unknown> };
+		expect(Object.keys(globalSaved.voice).some((key) => key.startsWith("postProcess"))).toBe(false);
 	});
 
 	test("ignores an API key and a non-loopback endpoint from a project config", () => {

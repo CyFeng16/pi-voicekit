@@ -421,7 +421,7 @@ other download, and selecting that row does not make it a recogniser. The step w
 no session entry; under `PI_VOICE_DEBUG` it logs one line per dictation with the
 character count, marks before and after, the reason when it did not run, and the
 elapsed time. The removed `postProcess*` keys from older releases are ignored when
-loading — never migrated and never written back.
+loading — never migrated, and left in place when the settings file is saved.
 
 ---
 
