@@ -1,0 +1,7 @@
+# Corpora are never committed: they are third-party audio with their own licences, they are large,
+# and the repository is a published npm package. `bench/manifest.jsonl` pins what to fetch instead.
+#
+# The root `.gitignore` carries the same rule as well, so a corpus stays ignored on a checkout that
+# has no `bench/` directory (another branch or worktree) and this file is never the only thing
+# holding the guarantee.
+data/

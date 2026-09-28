@@ -1,4 +1,4 @@
-[English](README.md) | [简体中文](i18n/README.zh-CN.md) | [日本語](i18n/README.ja.md) | [한국어](i18n/README.ko.md) | [Español](i18n/README.es.md) | [Français](i18n/README.fr.md) | [Português](i18n/README.pt-BR.md) | [हिन्दी](i18n/README.hi.md)
+[English](README.md) | [简体中文](i18n/README.zh-CN.md)
 
 # pi-voicekit
 
@@ -12,6 +12,10 @@
 **Voice in and voice out for [Pi](https://github.com/earendil-works/pi-coding-agent).**
 Hold-to-talk STT — Deepgram streaming (cloud) or 21 offline models — plus TTS that
 speaks the agent's replies (Kitten, Kokoro, Piper, or Deepgram Aura).
+
+> **Language scope: Chinese and English.** Recognition and punctuation are validated for Chinese,
+> English and mixed Chinese–English dictation only. Every other language a model happens to cover
+> is out of scope and unvalidated — see [Language scope](#language-scope).
 
 [![npm version](https://img.shields.io/npm/v/pi-voicekit.svg)](https://www.npmjs.com/package/pi-voicekit)
 [![license](https://img.shields.io/npm/l/pi-voicekit.svg)](https://github.com/CyFeng16/pi-voicekit/blob/main/LICENSE)
@@ -56,7 +60,7 @@ pi-voicekit supports two transcription backends:
 | **Setup**        | API key required                                         | No API key, models auto-download on first use       |
 | **Internet**     | Required                                                 | Not required after model download for recognition; the polish step may use the network |
 | **Latency**      | Real-time interim results                                | 2–10 seconds after recording stops                  |
-| **Languages**    | 56+ with live streaming                                  | Depends on model (1–57 languages)                   |
+| **Languages**    | Chinese and English locales                             | Chinese, English, mixed Chinese–English             |
 | **Cost**         | $200 free credit (lasts 6–12 months for most developers) | Recognition is free; the polish step may cost money |
 
 Run `/voice-settings` inside Pi to choose your backend and configure everything from one panel.
@@ -210,19 +214,37 @@ in front):
 | `esc` | cancel active install (most-recent first), then stop playback |
 | `F1`  | open help overlay (always available)                          |
 
+## Language scope
+
+**Supported and validated: Chinese, English, and mixed Chinese–English dictation.** Every
+recognition, punctuation and quality decision in this repository is made against those two
+languages.
+
+Other languages are **not supported**: the models that cover them stay in the catalogue because
+they are general-purpose models, but nothing about them is validated here — no accuracy figures,
+no punctuation behaviour, no device recommendation. They are on the roadmap, not in the support
+matrix.
+
+| Area        | In scope                                    | Out of scope — unvalidated                                                                                                       |
+| ----------- | ------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| Recognition | Chinese, English, mixed Chinese–English      | every other language in the catalogue (Japanese, Korean, Russian, Arabic, Ukrainian, Vietnamese, Spanish, …)                      |
+| Punctuation | Chinese today; English under evaluation     | other languages                                                                                                                  |
+| Cloud       | Deepgram Chinese and English locales        | Deepgram's other 50+ locales                                                                                                     |
+
 ---
 
 ## Local Models
 
-21 models across 7 families. Sorted by quality — best models first.
+21 models across 7 families. Sorted by quality — best models first. Only Chinese and English are
+validated; every other language listed below is out of scope — see [Language scope](#language-scope).
 
 ### Top picks
 
-| Model               | Accuracy | Speed | Size   | Languages        | Notes                      |
-| ------------------- | -------- | ----- | ------ | ---------------- | -------------------------- |
-| **Parakeet TDT v3** | ●●●●○    | ●●●●○ | 671 MB | 25 (auto-detect) | Best overall. WER 6.3%.    |
-| **Parakeet TDT v2** | ●●●●●    | ●●●●○ | 661 MB | English          | Best English. WER 6.0%.    |
-| **Whisper Turbo**   | ●●●●○    | ●●○○○ | 1.0 GB | 57               | Broadest language support. |
+| Model               | Accuracy | Speed | Size   | Languages        | Notes                           |
+| ------------------- | -------- | ----- | ------ | ---------------- | ------------------------------- |
+| **Parakeet TDT v3** | ●●●●○    | ●●●●○ | 671 MB | 25 (auto-detect) | Best overall. WER 6.3%.         |
+| **Parakeet TDT v2** | ●●●●●    | ●●●●○ | 661 MB | English          | Best English. WER 6.0%.         |
+| **Whisper Turbo**   | ●●●●○    | ●●○○○ | 1.0 GB | 57               | Broadest coverage, unvalidated. |
 
 ### Fast and lightweight
 
@@ -230,7 +252,7 @@ in front):
 | --------------------- | -------- | ----- | ------ | --------------- | ------------------------------------ |
 | **Moonshine v2 Tiny** | ●●○○○    | ●●●●● | 43 MB  | English         | 34ms latency. Raspberry Pi friendly. |
 | **Moonshine Base**    | ●●●○○    | ●●●●● | 287 MB | English         | Handles accents well.                |
-| **SenseVoice Small**  | ●●●○○    | ●●●●● | 228 MB | zh/en/ja/ko/yue | Best for CJK languages.              |
+| **SenseVoice Small**  | ●●●○○    | ●●●●● | 228 MB | zh/en/ja/ko/yue | Best small Chinese model.            |
 
 ### Specialist
 
@@ -240,7 +262,8 @@ in front):
 | **Whisper Medium**   | ●●●●○    | ●●●○○ | 946 MB | 57        | Good accuracy, medium speed.           |
 | **Whisper Large v3** | ●●●●○    | ●○○○○ | 1.8 GB | 57        | Highest Whisper accuracy. Slow on CPU. |
 
-Plus 8 language-specialized Moonshine v2 variants for Japanese, Korean, Arabic, Chinese, Ukrainian, Vietnamese, and Spanish.
+Plus 8 language-specialized Moonshine v2 variants for Japanese, Korean, Arabic, Chinese, Ukrainian,
+Vietnamese, and Spanish — only the Chinese one is inside the supported scope.
 
 ### How local models work
 
@@ -303,7 +326,7 @@ this README.
 | **Tail recording**               | Keeps recording 1.5s after release so your last word isn't clipped                       |
 | **Live streaming**               | Deepgram Nova 3 WebSocket (Nova 2 for Chinese locales) — live interim transcripts        |
 | **Transcript polish**            | Optional post-ASR cleanup — the local backend polishes each recogniser segment as it is decoded (up to three calls in flight); the last N conversation turns (default 2) are sent with the first segment, and no conversation context at all when the turn count is zero. Disable with `/voice-polish off` |
-| **56+ languages**                | Deepgram: 56+ with live streaming. Local: up to 57 depending on model.                   |
+| **Chinese + English**            | The supported and validated scope, mixed Chinese–English included. Every other language in the catalogue is unvalidated — see [Language scope](#language-scope). |
 | **Continuous dictation**         | `/voice dictate` for long-form input without holding keys                                |
 | **Typing cooldown**              | Space holds within 400ms of typing are ignored                                           |
 | **Sound feedback**               | macOS system sounds for start, stop, and error events                                    |
@@ -357,6 +380,10 @@ extensions/voice/ui-render-ticker.ts        Shared render ticker
 extensions/voice/ui-icons.ts                Glyph and icon set
 extensions/voice/ui-width.ts                CJK-aware visual width helpers
 extensions/voice/ui-locale-labels.ts        Native language and voice labels
+
+# benchmarks (repository only — never published)
+bench/manifest.jsonl                        Benchmark slices: dataset, split, license, selection rule
+bench/fetch.py                              Deterministic fetcher — writes bench/data/ (gitignored)
 
 # types
 extensions/voice/sherpa-onnx-node.d.ts      Type declarations for the optional native module

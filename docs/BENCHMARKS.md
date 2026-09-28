@@ -5,6 +5,10 @@ protocol needed to read the numbers correctly and reproduce them. The compact ta
 package user sees is in the [README](../README.md); this is the deep version, and it
 lives on GitHub because npm ships only the extension and the README.
 
+Every measurement here is inside the supported language scope — Chinese, English and mixed
+Chinese–English (see [README → Language scope](../README.md#language-scope)). Other languages in
+the model catalogue are unvalidated and are not measured.
+
 **RTF (real-time factor) is processing time divided by audio duration.** Lower is
 better: 0.1 means the work took one tenth of the audio's duration. A value below 1.0
 is faster than real time; a value above 1.0 means the work did not keep up with the

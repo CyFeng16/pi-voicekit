@@ -1,10 +1,12 @@
 # pi-voicekit
 
-> Voice in + voice out for the Pi coding agent: hold-to-talk STT (Deepgram streaming or 21 offline models) plus TTS (Kitten Nano, Piper, Kokoro, or Deepgram Aura).
+> Voice in + voice out for the Pi coding agent: hold-to-talk STT for **Chinese and English** (Deepgram streaming or 21 offline models) plus TTS (Kitten Nano, Piper, Kokoro, or Deepgram Aura).
 
 ## Overview
 
 pi-voicekit adds voice input and voice output to Pi. Hold SPACE to record, release to transcribe. Two STT backends: Deepgram (cloud, live streaming as you speak) or local models (offline, batch mode after recording). 21 local models from Parakeet, Whisper, Moonshine, SenseVoice, GigaAM, Paraformer and Qwen3 with accuracy/speed ratings and device-aware recommendations. TTS covers Kitten Nano, Piper and Kokoro (offline) plus Deepgram Aura (cloud), including auto-speak of agent responses.
+
+Language scope: **Chinese, English and mixed Chinese–English** are supported and validated. Every other language a model happens to cover is unvalidated and on the roadmap — see the README's Language scope section.
 
 ## Setup
 
