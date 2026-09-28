@@ -413,10 +413,14 @@ at any point.
 | `punctuationNoticeShown` | global only        | `false` | Machine-local bookkeeping for the one-time upgrade notice.    |
 
 `punctuationEnabled` is an ordinary, scope-agnostic field: a project file may set it
-and the usual project-over-global precedence applies. `/voice-punctuation status`
-prints the switch state, whether the model is downloaded and digest-verified, and what
-the step decided on the last dictation of the session. The model lives in
-`~/.pi/models/punct-ct-transformer-zh-en/`, appears in the Downloaded tab like any
+and the usual project-over-global precedence applies. Omitted from a project block, it
+inherits the global value rather than falling back to the default, so a global OFF cannot
+be silently ignored. The first project-scope save writes the value it resolved to —
+including an inherited one — into the repository's `.pi/settings.json`, and from then on
+that repository is pinned: a later global change no longer applies to it.
+`/voice-punctuation status` prints the switch state, whether the model is downloaded and
+digest-verified, and what the step decided on the last dictation of the session. The model
+lives in `~/.pi/models/punct-ct-transformer-zh-en/`, appears in the Downloaded tab like any
 other download, and selecting that row does not make it a recogniser. The step writes
 no session entry; under `PI_VOICE_DEBUG` it logs one line per dictation with the
 character count, marks before and after, the reason when it did not run, and the

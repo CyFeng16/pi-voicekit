@@ -114,9 +114,11 @@ not shipped tooling), 4 threads, CPU:
 machine, four threads, one model revision, 70 utterances. The marks-only row (70/70) and the
 0.811 F1 describe the **model**'s punctuation quality on a probe corpus that contains no spaced
 ASCII; the shipped step wraps that model in the splice, whose own invariant — that only marks
-are inserted, byte for byte — was verified separately on the mixed-text probe. The mixed-terms
-row is why the splice is mandatory rather than optional. English is skipped by the shipped rule
-rather than handled, so its 0.175 describes the model, not a path a user can reach.
+are inserted, byte for byte — is **asserted** by the test fixtures derived from the mixed-text
+probe, which recorded the model's raw-output defects (`base_url` → `base _ url`, moved
+CJK-boundary spaces, `可行，，`). The mixed-terms row is why the splice is mandatory rather than
+optional. English is skipped by the shipped rule rather than handled, so its 0.175 describes the
+model, not a path a user can reach.
 
 ## Polish pass alone — single-call path (removed feature)
 
