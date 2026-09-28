@@ -28,7 +28,8 @@ uv run bench/fetch.py --out /tmp/bench-data
 
 Audio is read with `decode=False`, so no ffmpeg is involved and the source wav bytes are written
 unchanged. Each row records `sha256`, `bytes`, the dataset revision and the licence in
-`bench/data/<slice>/manifest.jsonl`.
+`bench/data/<slice>/manifest.jsonl`, and names its audio by file name inside that directory, so the
+slice digest depends on the fetched content alone — not on where the run wrote it.
 
 ## The frozen corpus
 

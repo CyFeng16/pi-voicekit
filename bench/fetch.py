@@ -204,7 +204,10 @@ def fetch_slice(spec: dict[str, Any], out_dir: pathlib.Path) -> dict[str, Any]:
                 "dataset": repo,
                 "revision": spec["revision"],
                 "license": spec["license"],
-                "audio": str(path.relative_to(out_dir.parent)),
+                # The manifest lives inside the slice directory, so the audio is named by its
+                # basename: the digest below then depends only on the fetched content, not on
+                # where the run wrote it.
+                "audio": path.name,
                 "sha256": hashlib.sha256(payload).hexdigest(),
                 "bytes": len(payload),
                 "reference": reference,
