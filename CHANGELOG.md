@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Supported languages are scoped to Chinese and English.** Recognition, punctuation and the
+  quality decisions in this repository are validated for Chinese, English and mixed
+  Chinese–English dictation; every other language a model happens to cover is out of scope and
+  unvalidated.
+
+### Fixed
+
+- **A saved voice configuration can no longer be replaced by defaults.** A session that loaded
+  its config from nowhere — no settings file carried a `voice` block — could write that default
+  object over a file that did carry one, dropping `backend`, `localModel` and the onboarding
+  state. The extension then took its "no backend configured" branch on every start, so
+  hold-to-talk was never wired: holding space did nothing while the commands and the toggle
+  shortcut still worked. The writer now refuses that write, leaves the file untouched and names
+  it on stderr. A file without a `voice` block is still a first save, and one that exists but
+  cannot be parsed is refused instead of being replaced with a fresh object.
+
+### Removed
+
+- The six retired localised READMEs (`es`, `fr`, `hi`, `ja`, `ko`, `pt-BR`); the Chinese README
+  is kept.
 ## [0.4.0] - 2026-09-28
 
 ### Added
