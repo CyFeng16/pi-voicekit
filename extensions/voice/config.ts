@@ -37,6 +37,12 @@ export interface VoiceConfig {
 	localModel?: string;
 	/** Local transcription server URL (default: http://localhost:8080) */
 	localEndpoint?: string;
+	/**
+	 * Master switch for the offline punctuation step (spec §4.3). Ordinary and
+	 * scope-agnostic, like `language` or `backend`: a project file may set it and
+	 * it resolves with the usual project-over-global precedence.
+	 */
+	punctuationEnabled?: boolean;
 	/** Global-only shortcut used to toggle recording without hold-to-talk */
 	toggleShortcut?: string;
 
@@ -145,6 +151,7 @@ export const DEFAULT_CONFIG: VoiceConfig = {
 	backend: undefined, // undefined = "deepgram" (default)
 	localModel: undefined,
 	localEndpoint: undefined,
+	punctuationEnabled: true,
 	toggleShortcut: "ctrl+shift+v",
 	// Post-processing defaults — on by default (D5), reusing the session model
 	postProcessEnabled: true,
@@ -256,6 +263,10 @@ function migrateConfig(rawVoice: any, source: VoiceConfigSource, globalVoice?: u
 		scope: (rawVoice.scope as VoiceSettingsScope | undefined) ?? (source === "project" ? "project" : "global"),
 		deepgramApiKey: asString(globalOnly("deepgramApiKey")),
 		backend: rawVoice.backend === "local" ? "local" : undefined,
+		punctuationEnabled:
+			typeof rawVoice.punctuationEnabled === "boolean"
+				? rawVoice.punctuationEnabled
+				: (DEFAULT_CONFIG.punctuationEnabled ?? true),
 		localModel: typeof rawVoice.localModel === "string" ? rawVoice.localModel : undefined,
 		localEndpoint: projectScoped
 			? typeof rawVoice.localEndpoint === "string" && isLoopbackEndpoint(rawVoice.localEndpoint)

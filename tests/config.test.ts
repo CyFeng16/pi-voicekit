@@ -411,6 +411,54 @@ describe("saveGlobalVoiceFields", () => {
 	});
 });
 
+describe("punctuation config (scope-agnostic, default true)", () => {
+	test("defaults to enabled", () => {
+		const cwd = makeTempDir();
+		const result = loadConfigWithSource(cwd, { agentDir: path.join(cwd, "agent-home") });
+		expect(result.config.punctuationEnabled).toBe(true);
+	});
+
+	test("round-trips an explicit false through a global save", () => {
+		const cwd = makeTempDir();
+		const agentDir = path.join(cwd, "agent-home");
+		saveConfig({ ...DEFAULT_CONFIG, scope: "global", punctuationEnabled: false }, "global", cwd, { agentDir });
+
+		const result = loadConfigWithSource(cwd, { agentDir });
+		expect(result.source).toBe("global");
+		expect(result.config.punctuationEnabled).toBe(false);
+	});
+
+	test("a project block overrides the global value", () => {
+		const cwd = makeTempDir();
+		const agentDir = path.join(cwd, "agent-home");
+		writeSettings(agentDir, "settings.json", { version: 3, punctuationEnabled: false });
+		writeSettings(cwd, ".pi/settings.json", { version: 3, punctuationEnabled: true });
+
+		const result = loadConfigWithSource(cwd, { agentDir });
+		expect(result.source).toBe("project");
+		expect(result.config.punctuationEnabled).toBe(true);
+	});
+
+	test("is not stripped from a project-scoped save", () => {
+		const cwd = makeTempDir();
+		const agentDir = path.join(cwd, "agent-home");
+		const savedPath = saveConfig({ ...DEFAULT_CONFIG, scope: "project", punctuationEnabled: false }, "project", cwd, {
+			agentDir,
+		});
+		const saved = JSON.parse(fs.readFileSync(savedPath, "utf8")) as { voice: Record<string, unknown> };
+		expect(saved.voice.punctuationEnabled).toBe(false);
+	});
+
+	test("a v3 config without the field loads and yields the default", () => {
+		const cwd = makeTempDir();
+		const agentDir = path.join(cwd, "agent-home");
+		writeSettings(agentDir, "settings.json", { version: 3, language: "zh" });
+
+		const result = loadConfigWithSource(cwd, { agentDir });
+		expect(result.config.punctuationEnabled).toBe(true);
+	});
+});
+
 describe("isLoopbackEndpoint", () => {
 	test("accepts localhost", () => {
 		expect(isLoopbackEndpoint("http://localhost:8080")).toBe(true);

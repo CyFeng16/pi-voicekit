@@ -8,7 +8,7 @@
  * Every failure path returns the input unchanged (invariant 2), and the engine is constructed in
  * `preparePunctuation`'s background pass — never inside a dictation (invariant 7).
  *
- * Spec: docs/superpowers/specs/2026-09-28-punctuation-replacing-llm-polish-design.md §4.2, §4.4
+ * Spec: docs/superpowers/specs/2026-09-28-punctuation-replacing-llm-polish-design.md §4.2–§4.4
  */
 
 import { loadSherpa, getSherpaModule } from "./sherpa-loader";
@@ -267,6 +267,46 @@ export function resetPunctuationForTest(
 	loadFailed = false;
 	prepareInFlight = null;
 	startPrepare = scheduler ?? runOnNextTurn;
+}
+
+// ─── Applicability ───────────────────────────────────────────────────────────
+
+/**
+ * The threshold of spec §4.3, calibrated from AISHELL-4: reference transcripts measure 1 mark
+ * per 17.3 characters (§9), so a properly punctuated Chinese text sits above 1 mark per 20
+ * characters (0.05) while an unpunctuated recogniser output sits far below it.
+ */
+export const PUNCTUATION_DENSITY_MAX = 0.05;
+
+/** True when `text` contains at least one CJK ideograph (Han script). */
+export function hasCjk(text: string): boolean {
+	return /\p{Script=Han}/u.test(text);
+}
+
+/**
+ * Marks per code point, `0` for input with no code points.
+ *
+ * NFKC-normalized first (ruling R8): the mark set of invariant 1 carries both the full-width
+ * and the ASCII forms, and NFKC folds the former into the latter. Both the numerator and the
+ * denominator come from that same normalized string — NFKC can change the length, so a raw
+ * denominator would move the threshold.
+ */
+export function punctuationDensity(text: string): number {
+	const normalized = text.normalize("NFKC");
+	const codePoints = Array.from(normalized).length;
+	if (codePoints === 0) return 0;
+	return countMarks(normalized) / codePoints;
+}
+
+/**
+ * The applicability rule of spec §4.3 — a pure function of the text and the switch.
+ *
+ * No model identity, catalogue flag, provider or network state takes part (invariant 5).
+ * A transcript is punctuated only when the switch is on, the text contains CJK, and its
+ * punctuation density is strictly below `PUNCTUATION_DENSITY_MAX`.
+ */
+export function shouldPunctuate(text: string, enabled: boolean): boolean {
+	return enabled && hasCjk(text) && punctuationDensity(text) < PUNCTUATION_DENSITY_MAX;
 }
 
 // ─── The step ────────────────────────────────────────────────────────────────
