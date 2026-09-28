@@ -1,7 +1,7 @@
 # Benchmarks
 
 Measured performance of the local backend and the transcript polish pass, with the
-protocol needed to read the numbers correctly and reproduce them. The compact table a
+protocol needed to read the numbers correctly. The compact table a
 package user sees is in the [README](../README.md); this is the deep version, and it
 lives on GitHub because npm ships only the extension and the README.
 
@@ -65,17 +65,9 @@ same or better accuracy. The old 0.25 s default was the worst setting tried.
 they support relative comparisons but not absolute accuracy claims; only two recognisers were
 measured, on CPU; and the polish side of the pipeline was not part of this comparison.
 
-Reproduce (offline, no keys):
-
-```bash
-bun run scripts/polish-eval/assemble.ts --source-dir <pcm clips> --count 12 --seed 11 \
-  --min-seconds 55 --max-seconds 100 --min-clips 12 --max-clips 20 --out /tmp/seg/audio
-for i in $(seq 0 11); do
-  bun run scripts/polish-eval/pipeline.ts --caller fake --seconds 30 --gap-ms 0 --skip-files $i \
-    --audio-dir /tmp/seg/audio --local-model paraformer-zh --language auto \
-    --split vad --min-silence 1 --max-speech 10
-done
-```
+The harness that assembled these audios and swept the pause was removed from the repository
+with the polish pass; the numbers above are kept as recorded history, not as a runnable
+protocol.
 
 ## Recognition — local CPU, no network
 
@@ -172,42 +164,9 @@ than general error correction.
 
 ## Reproducing
 
-The evaluation scripts live in the repository only; they are **not published to npm**.
-The `openai` caller is refused unless `--allow-network` is passed — the call costs money
-and sends transcript text to a provider. The key is sent only in an authorization
-header and never printed.
-
-The polish tables come from the harness's `run` command: one call per sample, no
-recogniser and no segments. The corpus location is an argument; the harness's own
-default is `~/.pi/voicekit-eval/corpus.jsonl`, and `--out <dir>` writes `report.md`
-plus `run.json` there.
-
-```bash
-POLISH_EVAL_BASE_URL=<url> POLISH_EVAL_API_KEY=<key> POLISH_EVAL_MODEL=<model> \
-  bun run scripts/polish-eval/cli.ts run --corpus <corpus.jsonl> --caller openai \
-  --allow-network --out <dir>
-```
-
-The recognition and end-to-end numbers come from `pipeline.ts`, which runs the real
-`transcribeBufferSegmented` and the real `createPolishQueue` over concatenated corpus
-audio (default `~/.pi/voicekit-eval/audio`) and writes `pipeline.json`, including every
-segment outcome, to `--out`. The offline fake caller exercises the recogniser and the
-queue without a network or a cost:
-
-```bash
-POLISH_EVAL_LOCAL_MODEL=<recogniser> bun run scripts/polish-eval/pipeline.ts \
-  --repeats 3 --out <dir>
-
-POLISH_EVAL_BASE_URL=<url> POLISH_EVAL_API_KEY=<key> POLISH_EVAL_MODEL=<model> \
-  bun run scripts/polish-eval/pipeline.ts --caller openai --allow-network \
-  --repeats 3 --out <dir>
-```
-
-`POLISH_EVAL_LOCAL_MODEL` picks among installed recognisers (default
-`sensevoice-small`); `POLISH_EVAL_BASE_URL`, `POLISH_EVAL_API_KEY` and
-`POLISH_EVAL_MODEL` configure the remote caller. See
-[`scripts/polish-eval/README.md`](../scripts/polish-eval/README.md) for the full command
-reference and the scoring gates.
+The harness that produced the polish numbers was removed from the repository together with
+the polish pass, so those tables cannot be regenerated from a checkout: they are kept as the
+recorded history of what was measured, not as a runnable protocol against the current code.
 
 ## Honest limits
 

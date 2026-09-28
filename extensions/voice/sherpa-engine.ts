@@ -385,19 +385,21 @@ function getSileroVadPath(): string | null {
 }
 
 /**
+ * Pause length, in seconds, that ends a VAD segment.
+ *
+ * Measured on 12 assembled 60–90 s dictations across two local recognisers: a 1 s pause gave the lowest
+ * (or near-lowest) raw character error rate — about 8% below the previous 0.25 s, paired 9:1 for
+ * paraformer-zh — and about half the segments. 0.25 s is hesitation-sized and splits mid-sentence, so 1 s
+ * is the shipped value; see docs/BENCHMARKS.md. It is a constant because nothing in the product varies it.
+ */
+const VAD_MIN_SILENCE_SECS = 1;
+
+/**
  * Split Float32 PCM into speech segments via Silero VAD.
  * Each returned chunk is ≤ maxSpeechSecs of speech and ends at a pause of at least
- * minSilenceSecs. The shipped pause is 1 s: on 12 assembled 60–90 s dictations a 1 s pause
- * gave the lowest (or near-lowest) raw character error rate and about half the segments of
- * the previous 0.25 s, i.e. half the polish calls. Falls back to the whole buffer when no
- * VAD model is installed.
+ * VAD_MIN_SILENCE_SECS. Falls back to the whole buffer when no VAD model is installed.
  */
-export function segmentPcmForLongAudio(
-	samples: Float32Array,
-	sampleRate: number,
-	maxSpeechSecs = 10,
-	minSilenceSecs = 1
-): Float32Array[] {
+export function segmentPcmForLongAudio(samples: Float32Array, sampleRate: number, maxSpeechSecs = 10): Float32Array[] {
 	const vadModel = getSileroVadPath();
 	if (!vadModel) return [samples];
 
@@ -407,9 +409,7 @@ export function segmentPcmForLongAudio(
 			sileroVad: {
 				model: vadModel,
 				threshold: 0.5,
-				// Measured: 0.25 s is hesitation-sized and splits mid-sentence, which cost ~8% relative
-				// raw CER and doubled the segment count against 1 s. See docs/BENCHMARKS.md.
-				minSilenceDuration: minSilenceSecs,
+				minSilenceDuration: VAD_MIN_SILENCE_SECS,
 				minSpeechDuration: 0.25,
 				maxSpeechDuration: maxSpeechSecs,
 				windowSize: 512,
@@ -480,16 +480,12 @@ export async function decodeSegmentsInOrder(
  * `onSegment` is called for every decoded segment — the fast path's single segment included —
  * as soon as it decodes and before the next decode starts. Leaving it out keeps today's exact
  * return value (docs/superpowers/specs/2026-09-26-polish-pipeline-design.md §4.1).
- *
- * `segmentation` overrides the VAD boundaries and is only for the granularity experiment:
- * omitted, the shipped defaults (10 s cap, 1 s pause) apply unchanged.
  */
 export async function transcribeBufferSegmented(
 	pcmData: Buffer,
 	recognizer: SherpaRecognizer,
 	thresholdSecs = 10,
-	onSegment?: (text: string, index: number) => void,
-	segmentation?: { maxSpeechSecs?: number; minSilenceSecs?: number }
+	onSegment?: (text: string, index: number) => void
 ): Promise<string> {
 	getSherpaModule();
 	const samples = pcmToFloat32(pcmData);
@@ -498,11 +494,5 @@ export async function transcribeBufferSegmented(
 	if (samples.length / 16000 <= thresholdSecs) {
 		return (await decodeSegmentsInOrder(recognizer, [samples], onSegment)).join(" ");
 	}
-	const pieces = segmentPcmForLongAudio(
-		samples,
-		16000,
-		segmentation?.maxSpeechSecs ?? 10,
-		segmentation?.minSilenceSecs ?? 1
-	);
-	return (await decodeSegmentsInOrder(recognizer, pieces, onSegment)).join(" ");
+	return (await decodeSegmentsInOrder(recognizer, segmentPcmForLongAudio(samples, 16000), onSegment)).join(" ");
 }
