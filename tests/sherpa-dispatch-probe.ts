@@ -6,6 +6,28 @@ import { describe, expect, test, mock, afterEach } from "bun:test";
 // tests/sherpa-engine.test.ts observe version "0.0.0-mock" on CI.
 
 const capturedConfigs: any[] = [];
+const capturedVadConfigs: any[] = [];
+
+/** The segmenter only reads `config` and drains an empty queue; capture what it is handed. */
+class MockVad {
+	config: any;
+
+	constructor(config: any) {
+		capturedVadConfigs.push(config);
+		this.config = config;
+	}
+
+	acceptWaveform() {}
+	isEmpty() {
+		return true;
+	}
+	front() {
+		return { samples: new Float32Array(0) };
+	}
+	pop() {}
+	flush() {}
+}
+
 mock.module("sherpa-onnx-node", () => ({
 	version: "0.0.0-mock",
 	OfflineTts: { createAsync: async () => {} },
@@ -14,10 +36,12 @@ mock.module("sherpa-onnx-node", () => ({
 			capturedConfigs.push(config);
 		}
 	},
-	Vad: class {},
+	Vad: MockVad,
 }));
 
-const { initSherpa, getOrCreateRecognizer, clearRecognizerCache } = await import("../extensions/voice/sherpa-engine");
+const { initSherpa, getOrCreateRecognizer, clearRecognizerCache, segmentPcmForLongAudio } = await import(
+	"../extensions/voice/sherpa-engine"
+);
 const { LOCAL_MODELS } = await import("../extensions/voice/local");
 
 afterEach(() => (capturedConfigs.length = 0));
@@ -76,5 +100,19 @@ describe("recognizer dispatch (mock sherpa-onnx-node, isolated subprocess)", () 
 			getOrCreateRecognizer({ id: "bogus", sherpaModel: { type: "bogus_type" } } as any, "/tmp/x", "en")
 		).toThrow(/Unknown sherpa model type/);
 		clearRecognizerCache();
+	});
+});
+
+describe("VAD segmentation config (mock sherpa-onnx-node, isolated subprocess)", () => {
+	test("hands the shipped 1 s pause to the VAD", () => {
+		// `tests/sherpa-dispatch.test.ts` spawns this probe with HOME pointing at a temp dir that
+		// holds a marker `silero_vad.onnx`, so the segmenter takes the VAD path without touching
+		// the developer's real ~/.pi/models/vad. The pause is the value a 0.3.2 sweep justified,
+		// and this is the only assertion that stops it being changed silently.
+		segmentPcmForLongAudio(new Float32Array(16000 * 5), 16000, 10);
+		const config = capturedVadConfigs.at(-1);
+		expect(config).toBeDefined();
+		expect(config.sileroVad.minSilenceDuration).toBe(1);
+		expect(config.sileroVad.maxSpeechDuration).toBe(10);
 	});
 });
