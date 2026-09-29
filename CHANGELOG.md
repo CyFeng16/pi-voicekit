@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **The punctuation step no longer announces a download that is not happening.** The "285 MB is being
+  downloaded" notice hung off "the engine is not built yet", but the engine lives in the process, so every
+  new pi window showed it once even though the model had been on disk for days. The notice now hangs off
+  the lifecycle signal that only fires when the model files really are missing, and when the model is
+  already on disk the engine is built at session start instead: measured 0.16 ms for that call and 100 ms
+  from session start to a usable engine, so a session's first Chinese dictation is punctuated instead of
+  coming back raw.
+- **`/voice-punctuation status` now names the condition that declined.** "not-needed" is split into the
+  switch being off, the text having no Chinese, and its punctuation density already being one mark per 20
+  characters or more. Every dictation also writes one metadata-only `voice-punctuation` entry — no
+  transcript text — so "why did that one come back without punctuation?" can be answered after the fact.
+
 ## [0.4.1] - 2026-09-29
 ### Changed
 

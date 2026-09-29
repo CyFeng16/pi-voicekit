@@ -664,3 +664,169 @@ describe("settings panel — the punctuation model cannot be activated", () => {
 		expect(config.localModel).toBeUndefined();
 	});
 });
+
+// ─── preparePunctuation — a warm start that never downloads ─────────────────
+
+describe("preparePunctuation — requirePresent builds from what is already on disk", () => {
+	const createCountingEngine = (counter: { constructions: number }) => () => {
+		counter.constructions++;
+		return punctuationEngine;
+	};
+
+	test("constructs from an already verified model", async () => {
+		resetPunctuationForTest(null, runOnMicrotask);
+		const counter = { constructions: 0 };
+		let ensureCalls = 0;
+		preparePunctuation({
+			requirePresent: true,
+			isReady: () => true,
+			ensure: async () => {
+				ensureCalls++;
+				return true;
+			},
+			modelDir: "/tmp/pi-voice-punct-test",
+			createEngine: createCountingEngine(counter),
+		});
+		await settle();
+		expect(counter.constructions).toBe(1);
+		expect(ensureCalls).toBe(1);
+	});
+
+	test("declines without transferring anything when the model is absent", async () => {
+		resetPunctuationForTest(null, runOnMicrotask);
+		const counter = { constructions: 0 };
+		let ensureCalls = 0;
+		let unavailable = 0;
+		preparePunctuation({
+			requirePresent: true,
+			isReady: () => false,
+			ensure: async () => {
+				ensureCalls++;
+				return true;
+			},
+			modelDir: "/tmp/pi-voice-punct-test",
+			createEngine: createCountingEngine(counter),
+			onUnavailable: () => {
+				unavailable++;
+			},
+		});
+		await settle();
+		expect(ensureCalls).toBe(0);
+		expect(counter.constructions).toBe(0);
+		// A decline is not a failure: nothing was attempted, so no notice is owed and the reason
+		// stays "no model" rather than "load failed".
+		expect(unavailable).toBe(0);
+		expect(punctuateWithStatus("这个方案可行", true).status.reason).toBe("no-model");
+	});
+
+	test("leaves the slot free so a dictation that needs the model can still fetch it", async () => {
+		resetPunctuationForTest(null, runOnMicrotask);
+		const counter = { constructions: 0 };
+		let ready = false;
+		let ensureCalls = 0;
+		const ensure = async (): Promise<boolean> => {
+			ensureCalls++;
+			return true;
+		};
+		preparePunctuation({
+			requirePresent: true,
+			isReady: () => ready,
+			ensure,
+			modelDir: "/tmp/pi-voice-punct-test",
+			createEngine: createCountingEngine(counter),
+		});
+		await settle();
+		expect(ensureCalls).toBe(0);
+
+		ready = true;
+		preparePunctuation({ ensure, modelDir: "/tmp/pi-voice-punct-test", createEngine: createCountingEngine(counter) });
+		await settle();
+		expect(ensureCalls).toBe(1);
+		expect(punctuateWithStatus("这个方案可行", true).status.applied).toBe(true);
+	});
+
+	test("reads nothing before the caller's stack has unwound", async () => {
+		resetPunctuationForTest(null, runOnMicrotask);
+		let readyChecks = 0;
+		preparePunctuation({
+			requirePresent: true,
+			isReady: () => {
+				readyChecks++;
+				return true;
+			},
+			ensure: async () => true,
+			modelDir: "/tmp/pi-voice-punct-test",
+			createEngine: () => punctuationEngine,
+		});
+		expect(readyChecks).toBe(0);
+		await settle();
+		expect(readyChecks).toBe(1);
+	});
+});
+
+// ─── preparePunctuation — the transfer hook ─────────────────────────────────
+
+describe("preparePunctuation — onTransfer only fires when the model is missing", () => {
+	test("reports a transfer when the model is not on disk", async () => {
+		resetPunctuationForTest(null, runOnMicrotask);
+		let transfers = 0;
+		preparePunctuation({
+			isReady: () => false,
+			ensure: async () => true,
+			modelDir: "/tmp/pi-voice-punct-test",
+			createEngine: () => punctuationEngine,
+			onTransfer: () => {
+				transfers++;
+			},
+		});
+		await settle();
+		expect(transfers).toBe(1);
+	});
+
+	test("stays silent when the model is already on disk", async () => {
+		resetPunctuationForTest(null, runOnMicrotask);
+		let transfers = 0;
+		preparePunctuation({
+			isReady: () => true,
+			ensure: async () => true,
+			modelDir: "/tmp/pi-voice-punct-test",
+			createEngine: () => punctuationEngine,
+			onTransfer: () => {
+				transfers++;
+			},
+		});
+		await settle();
+		expect(transfers).toBe(0);
+		expect(punctuateWithStatus("这个方案可行", true).status.applied).toBe(true);
+	});
+
+	test("a warm start that declines reports nothing", async () => {
+		resetPunctuationForTest(null, runOnMicrotask);
+		let transfers = 0;
+		preparePunctuation({
+			requirePresent: true,
+			isReady: () => false,
+			modelDir: "/tmp/pi-voice-punct-test",
+			onTransfer: () => {
+				transfers++;
+			},
+		});
+		await settle();
+		expect(transfers).toBe(0);
+	});
+
+	test("a throwing hook cannot reach the lifecycle", async () => {
+		resetPunctuationForTest(null, runOnMicrotask);
+		preparePunctuation({
+			isReady: () => false,
+			ensure: async () => true,
+			modelDir: "/tmp/pi-voice-punct-test",
+			createEngine: () => punctuationEngine,
+			onTransfer: () => {
+				throw new Error("notice failed");
+			},
+		});
+		await settle();
+		expect(punctuateWithStatus("这个方案可行", true).status.applied).toBe(true);
+	});
+});

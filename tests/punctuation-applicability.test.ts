@@ -1,5 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { hasCjk, punctuationDensity, PUNCTUATION_DENSITY_MAX, shouldPunctuate } from "../extensions/voice/punctuation";
+import {
+	hasCjk,
+	punctuationDensity,
+	punctuationGate,
+	PUNCTUATION_DENSITY_MAX,
+	shouldPunctuate,
+} from "../extensions/voice/punctuation";
 
 // A 100-code-point sentence carrying exactly one stray mark — density 0.01, far below the
 // threshold, so the stray mark must not block the step (spec §4.3, revision 5).
@@ -114,5 +120,38 @@ describe("shouldPunctuate — the text rule of spec §4.3", () => {
 		// (text, enabled) and the same text always yields the same answer (invariant 5).
 		expect(shouldPunctuate.length).toBe(2);
 		expect(shouldPunctuate(CJK_UNPUNCTUATED, true)).toBe(shouldPunctuate(CJK_UNPUNCTUATED, true));
+	});
+});
+
+describe("punctuationGate — which of the three conditions declined", () => {
+	test("names the condition instead of collapsing them into one boolean", () => {
+		expect(punctuationGate(CJK_UNPUNCTUATED, true)).toBe("needed");
+		expect(punctuationGate(CJK_UNPUNCTUATED, false)).toBe("off");
+		expect(punctuationGate(PURE_ENGLISH, true)).toBe("no-cjk");
+		expect(punctuationGate(AT_ONE_MARK_PER_20, true)).toBe("dense");
+	});
+
+	test("agrees with shouldPunctuate on every case the rule knows", () => {
+		const cases: readonly (readonly [string, boolean])[] = [
+			[CJK_UNPUNCTUATED, true],
+			[CJK_UNPUNCTUATED, false],
+			[ONE_STRAY_MARK_IN_100, true],
+			[AT_ONE_MARK_PER_20, true],
+			[ABOVE_ONE_MARK_PER_20, true],
+			[PURE_ENGLISH, true],
+			[IDENTIFIERS_AND_PATHS, true],
+			[EMPTY, true],
+			[WHITESPACE_ONLY, true],
+		];
+		for (const [text, enabled] of cases) {
+			expect(shouldPunctuate(text, enabled)).toBe(punctuationGate(text, enabled) === "needed");
+		}
+	});
+
+	test("the switch is named before the text is read", () => {
+		// "off" wins over "no-cjk" and "dense", so a status line can never blame the text for a
+		// step the user turned off.
+		expect(punctuationGate(PURE_ENGLISH, false)).toBe("off");
+		expect(punctuationGate(AT_ONE_MARK_PER_20, false)).toBe("off");
 	});
 });

@@ -14,6 +14,7 @@
 import { loadSherpa, getSherpaModule } from "./sherpa-loader";
 import {
 	ensurePunctuationModel,
+	isPunctuationModelReady,
 	punctuationModelFilePath,
 	punctuationModelPath,
 	type EnsurePunctuationModelOptions,
@@ -178,6 +179,22 @@ export interface PreparePunctuationOptions {
 	 * A throw from the hook is swallowed: diagnostics never break the fail-open lifecycle.
 	 */
 	onUnavailable?: () => void;
+	/** Test seam — readiness check used by `requirePresent`. Defaults to `isPunctuationModelReady`. */
+	isReady?: (modelDir: string) => boolean;
+	/**
+	 * Warm start only: build the engine from a model that is already on disk and verified, and
+	 * transfer nothing. A missing model is left missing until a dictation genuinely needs it
+	 * (spec §4.2), and a decline is not a failure — nothing was attempted, so no notice is owed
+	 * and the reason stays `no-model` rather than `load-failed`.
+	 */
+	requirePresent?: boolean;
+	/**
+	 * Reported, off the caller's stack, when a prepare is about to transfer the model because it is
+	 * not on disk. This is the only place that can tell a first download from an engine that is
+	 * merely still being built, so a "downloading 285 MB" notice hangs off it and never fires for
+	 * a model that is already present. A throw from the hook is swallowed.
+	 */
+	onTransfer?: () => void;
 }
 
 /**
@@ -226,6 +243,15 @@ export function preparePunctuation(options: PreparePunctuationOptions = {}): voi
 
 async function prepareInBackground(options: PreparePunctuationOptions, gen: number): Promise<void> {
 	try {
+		// A warm start builds only from a model that is already on disk and verified; a dictation's
+		// prepare that finds no model is about to transfer one, which is what the notice hangs off.
+		const isReady = options.isReady ?? isPunctuationModelReady;
+		const ready = isReady(options.modelDir ?? punctuationModelPath());
+		if (!ready) {
+			if (options.requirePresent) return;
+			reportTransfer(options);
+		}
+
 		const ensure = options.ensure ?? ensurePunctuationModel;
 		if (!(await ensure({ modelDir: options.modelDir }))) {
 			// No usable model: it is absent, the transfer failed, or the files did not verify. The
@@ -268,6 +294,15 @@ async function prepareInBackground(options: PreparePunctuationOptions, gen: numb
 function reportUnavailable(options: PreparePunctuationOptions): void {
 	try {
 		options.onUnavailable?.();
+	} catch {
+		// A thrown notice is a lost notice, not a broken prepare.
+	}
+}
+
+/** Same rules as `reportUnavailable`: diagnostics never break the fail-open lifecycle. */
+function reportTransfer(options: PreparePunctuationOptions): void {
+	try {
+		options.onTransfer?.();
 	} catch {
 		// A thrown notice is a lost notice, not a broken prepare.
 	}
@@ -333,14 +368,32 @@ export function punctuationDensity(text: string): number {
 }
 
 /**
- * The applicability rule of spec §4.3 — a pure function of the text and the switch.
+ * Why the applicability rule declined — or `"needed"`. Diagnostics only: the switch is named
+ * before the text is read, so a `/voice-punctuation status` line never blames the transcript for
+ * a step the user turned off (spec §4.6).
+ */
+export type PunctuationGate = "off" | "no-cjk" | "dense" | "needed";
+
+/**
+ * The applicability rule of spec §4.3, in the form the diagnostics need.
  *
  * No model identity, catalogue flag, provider or network state takes part (invariant 5).
+ */
+export function punctuationGate(text: string, enabled: boolean): PunctuationGate {
+	if (!enabled) return "off";
+	if (!hasCjk(text)) return "no-cjk";
+	if (punctuationDensity(text) >= PUNCTUATION_DENSITY_MAX) return "dense";
+	return "needed";
+}
+
+/**
+ * The applicability rule of spec §4.3 — a pure function of the text and the switch.
+ *
  * A transcript is punctuated only when the switch is on, the text contains CJK, and its
  * punctuation density is strictly below `PUNCTUATION_DENSITY_MAX`.
  */
 export function shouldPunctuate(text: string, enabled: boolean): boolean {
-	return enabled && hasCjk(text) && punctuationDensity(text) < PUNCTUATION_DENSITY_MAX;
+	return punctuationGate(text, enabled) === "needed";
 }
 
 // ─── The step ────────────────────────────────────────────────────────────────

@@ -107,8 +107,10 @@ import {
 	preparePunctuation,
 	punctuateWithStatus,
 	shouldPunctuate,
+	punctuationGate,
 	type PunctuationReason,
 	type PunctuationStatus,
+	type PunctuationGate,
 } from "./voice/punctuation";
 
 /** Adapter for the real event loop — lets GapTimer run under the real setTimeout. */
@@ -790,10 +792,12 @@ export default function (pi: ExtensionAPI) {
 	// One synchronous, marks-only step between the final transcript and the editor write. The
 	// policy is a pure read of the text and the switch; the model is never loaded on this path.
 	/**
-	 * The last decision of this session, for `/voice-punctuation status`. In memory only — no
-	 * `appendEntry`, no file (spec §4.6) — and cleared when a new session starts.
+	/**
+	 * The last decision of this session, for `/voice-punctuation status`. In memory only — what
+	 * outlives the session is the metadata-only `voice-punctuation` record — and cleared when a
+	 * new session starts.
 	 */
-	let lastPunctuationDecision: { chars: number; status: PunctuationStatus } | null = null;
+	let lastPunctuationDecision: { chars: number; status: PunctuationStatus; gate?: PunctuationGate } | null = null;
 	/** The first-need notice fires once per runtime, however many dictations follow. */
 	let punctuationDownloadNoticeShown = false;
 	/** The failure notice fires once per runtime; later needs still retry the download. */
@@ -807,9 +811,16 @@ export default function (pi: ExtensionAPI) {
 		"load-failed": "the model could not be loaded",
 		"empty-input": "there was nothing to punctuate",
 		"altered-text": "the model's output changed the text, so it was rejected",
-		"not-needed":
-			"the switch is off, the text is not Chinese, or its punctuation density is already one mark per 20 characters or more",
+		"not-needed": "the applicability rule declined",
 		error: "the punctuation step failed",
+	};
+
+	/** The gate's own note, so `status` can say which of the three conditions declined (spec §4.6). */
+	const PUNCTUATION_GATE_NOTES: Record<PunctuationGate, string> = {
+		off: "voice.punctuationEnabled is false",
+		"no-cjk": "the transcript has no Chinese characters",
+		dense: "its punctuation density is already one mark per 20 characters or more",
+		needed: "the step should have run",
 	};
 
 	/**
@@ -831,8 +842,8 @@ export default function (pi: ExtensionAPI) {
 		let output = text;
 		let decided = false;
 		try {
-			const shouldApply = shouldPunctuate(text, config.punctuationEnabled !== false);
-			const result = punctuateWithStatus(text, shouldApply);
+			const gate = punctuationGate(text, config.punctuationEnabled !== false);
+			const result = punctuateWithStatus(text, gate === "needed");
 			output = result.text;
 			const chars = Array.from(text).length;
 			lastPunctuationDecision = { chars, status: result.status };
@@ -842,31 +853,23 @@ export default function (pi: ExtensionAPI) {
 			voiceDebug("punctuation", {
 				applied: result.status.applied,
 				reason: result.status.reason,
+				gate,
 				chars,
 				marksBefore: result.status.marksBefore,
 				marksAfter: result.status.marksAfter,
 				elapsedMs: result.status.elapsedMs,
 			});
 
-			if (result.status.reason === "no-model" && !punctuationDownloadNoticeShown) {
-				// First need (spec §4.2, §4.6): say that the download starts now, and never wait for it.
-				punctuationDownloadNoticeShown = true;
-				try {
-					ctx?.ui.notify(
-						"punctuation model is being downloaded in the background, 285 MB; once the model has been downloaded, verified and the engine constructed, later qualifying dictations are punctuated — until then they come back unchanged",
-						"info"
-					);
-				} catch (err) {
-					voiceDebug("punctuation download notice threw", { error: safeErrorText(err) });
-				}
-			}
+			// One metadata-only record per dictation (spec §4.6) — after the fact this is the only way
+			// to answer "why did that one come back without punctuation?"
+			recordPunctuationDecision(gate, chars, result.status);
 
 			const unavailable = result.status.reason === "no-model" || result.status.reason === "load-failed";
 			if (unavailable) {
 				// Retry the background prepare on every qualifying need — it verifies, downloads and
 				// constructs off this stack, and does nothing at all once the engine exists. A settle
 				// without an engine reports through the hook, which is what the failure notice uses.
-				preparePunctuation({ onUnavailable: notifyPunctuationUnavailable });
+				preparePunctuation({ onUnavailable: notifyPunctuationUnavailable, onTransfer: notifyPunctuationDownload });
 			}
 
 			return output;
@@ -885,6 +888,44 @@ export default function (pi: ExtensionAPI) {
 				error: safeErrorText(err),
 			});
 			return output;
+		}
+	}
+
+	/**
+	 * The "downloading the model" notice (spec §4.6). Only a genuinely missing model reports it:
+	 * an engine that is merely still being built must not, because after the first download the
+	 * model is already on disk and nothing is transferred.
+	 */
+	function notifyPunctuationDownload(): void {
+		if (punctuationDownloadNoticeShown) return;
+		punctuationDownloadNoticeShown = true;
+		try {
+			ctx?.ui.notify(
+				"punctuation model is being downloaded in the background, 285 MB; once the model has been downloaded, verified and the engine constructed, later qualifying dictations are punctuated — until then they come back unchanged",
+				"info"
+			);
+		} catch (err) {
+			voiceDebug("punctuation download notice threw", { error: safeErrorText(err) });
+		}
+	}
+
+	/**
+	 * One metadata-only record per dictation (spec §4.6). No transcript text is written, and a
+	 * failing record must never cost the dictation anything.
+	 */
+	function recordPunctuationDecision(gate: PunctuationGate, chars: number, status: PunctuationStatus): void {
+		try {
+			pi.appendEntry("voice-punctuation", {
+				applied: status.applied,
+				reason: status.reason,
+				gate,
+				chars,
+				marksBefore: status.marksBefore,
+				marksAfter: status.marksAfter,
+				elapsedMs: status.elapsedMs,
+			});
+		} catch (err) {
+			voiceDebug("punctuation record failed", { error: safeErrorText(err) });
 		}
 	}
 
@@ -925,7 +966,12 @@ export default function (pi: ExtensionAPI) {
 			lines.push("  last:  no dictation in this session yet");
 		} else {
 			const { applied, reason } = last.status;
-			const note = reason ? ` (${PUNCTUATION_REASON_NOTES[reason]})` : "";
+			const note =
+				reason === "not-needed" && last.gate
+					? ` (${PUNCTUATION_GATE_NOTES[last.gate]})`
+					: reason
+						? ` (${PUNCTUATION_REASON_NOTES[reason]})`
+						: "";
 			lines.push(
 				`  last:  ${applied ? "applied" : `not applied — ${reason}`}${note} — marks ` +
 					`${last.status.marksBefore} → ${last.status.marksAfter}, ${last.status.elapsedMs} ms, ${last.chars} chars`
@@ -2535,6 +2581,16 @@ export default function (pi: ExtensionAPI) {
 		configSource = loaded.source;
 		// `/voice-punctuation status` reports the last decision of *this* session (spec §4.6).
 		lastPunctuationDecision = null;
+
+		// Warm start (spec §4.2): the model is usually already on disk after the first download, and
+		// the engine lives in this process's memory, so build it now — measured 150 ms verify plus
+		// 544 ms construct, on the next turn and never inside a dictation — instead of making this
+		// session's first Chinese dictation wait for the background build. A missing model is left
+		// alone: it is fetched when a dictation genuinely needs it, and nothing is ever transferred
+		// from here.
+		if (config.enabled && config.punctuationEnabled !== false && startCtx.hasUI) {
+			preparePunctuation({ requirePresent: true });
+		}
 
 		// v7.1.3 — version banner emitted to debug log on every session
 		// start. Lets users / support verify which extension build is
