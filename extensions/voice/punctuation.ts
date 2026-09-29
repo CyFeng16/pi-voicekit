@@ -396,6 +396,24 @@ export function shouldPunctuate(text: string, enabled: boolean): boolean {
 	return punctuationGate(text, enabled) === "needed";
 }
 
+/** Everything the completion path needs from one dictation's punctuation step. */
+export interface PunctuationStageResult {
+	text: string;
+	status: PunctuationStatus;
+	gate: PunctuationGate;
+}
+
+/**
+ * The pipeline's punctuation step in one call: decide (the gate), apply (the splice) and report
+ * both, which is what a caller needs to write the transcript and to explain the decision
+ * afterwards. The stage is text-in/text-out and knows nothing about the recogniser, so any
+ * transcript source can be routed through it (spec §4.4).
+ */
+export function punctuateStage(text: string, enabled: boolean): PunctuationStageResult {
+	const gate = punctuationGate(text, enabled);
+	return { gate, ...punctuateWithStatus(text, gate === "needed") };
+}
+
 // ─── The step ────────────────────────────────────────────────────────────────
 
 function elapsedSince(started: number): number {

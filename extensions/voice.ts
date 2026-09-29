@@ -105,9 +105,7 @@ import { audioToolOrder, type AudioToolName } from "./voice/audio-tool";
 import { isPunctuationModelReady, punctuationModelFilePath, punctuationModelPath } from "./voice/punctuation-model";
 import {
 	preparePunctuation,
-	punctuateWithStatus,
-	shouldPunctuate,
-	punctuationGate,
+	punctuateStage,
 	type PunctuationReason,
 	type PunctuationStatus,
 	type PunctuationGate,
@@ -826,11 +824,11 @@ export default function (pi: ExtensionAPI) {
 	/**
 	 * The completion path's punctuation step: decide, apply, record, and never wait.
 	 *
-	 * `shouldPunctuate` is the whole policy (spec §4.3); the already-decided boolean goes to
-	 * `punctuateWithStatus`, which only splices marks and returns the input unchanged on every
-	 * failure (invariant 2). Nothing here loads, downloads or constructs anything: a qualifying
-	 * dictation with no engine keeps the raw text and hands that work to `preparePunctuation()`,
-	 * which returns before doing any of it (invariant 7).
+	 * `punctuateStage` is the whole step: it decides (the gate of spec §4.3), splices marks and reports
+	 * both, returning the input unchanged on every failure (invariant 2). The pipeline is therefore
+	 * *recognise → decide → insert marks → write*, and this is the one place the middle two happen.
+	 * Nothing here loads, downloads or constructs anything — a session builds the engine at start-up,
+	 * and a dictation that finds no engine keeps the raw text (invariant 7).
 	 *
 	 * The whole step — decision, splice, diagnostics, notices and the prepare — sits in one guard,
 	 * and the fallback itself uses nothing that can throw: a throw must never cost the dictation
@@ -842,8 +840,8 @@ export default function (pi: ExtensionAPI) {
 		let output = text;
 		let decided = false;
 		try {
-			const gate = punctuationGate(text, config.punctuationEnabled !== false);
-			const result = punctuateWithStatus(text, gate === "needed");
+			const result = punctuateStage(text, config.punctuationEnabled !== false);
+			const gate = result.gate;
 			output = result.text;
 			const chars = Array.from(text).length;
 			lastPunctuationDecision = { chars, status: result.status };
@@ -892,16 +890,16 @@ export default function (pi: ExtensionAPI) {
 	}
 
 	/**
-	 * The "downloading the model" notice (spec §4.6). Only a genuinely missing model reports it:
-	 * an engine that is merely still being built must not, because after the first download the
-	 * model is already on disk and nothing is transferred.
+	 * The one-time note about the punctuation model (spec §4.6). Only a real transfer reports it — an
+	 * engine that is merely still being built must not — and it is the whole disclosure: the model is
+	 * fetched once per machine, and both engines then stay resident for every session.
 	 */
 	function notifyPunctuationDownload(): void {
 		if (punctuationDownloadNoticeShown) return;
 		punctuationDownloadNoticeShown = true;
 		try {
 			ctx?.ui.notify(
-				"punctuation model is being downloaded in the background, 285 MB; once the model has been downloaded, verified and the engine constructed, later qualifying dictations are punctuated — until then they come back unchanged",
+				"pi-voicekit is fetching the punctuation model once (285 MB) and then keeps it resident alongside the recogniser — roughly 300 MB of memory each, and dictations are punctuated as soon as the model has been verified",
 				"info"
 			);
 		} catch (err) {
@@ -2582,14 +2580,13 @@ export default function (pi: ExtensionAPI) {
 		// `/voice-punctuation status` reports the last decision of *this* session (spec §4.6).
 		lastPunctuationDecision = null;
 
-		// Warm start (spec §4.2): the model is usually already on disk after the first download, and
-		// the engine lives in this process's memory, so build it now — measured 150 ms verify plus
-		// 544 ms construct, on the next turn and never inside a dictation — instead of making this
-		// session's first Chinese dictation wait for the background build. A missing model is left
-		// alone: it is fetched when a dictation genuinely needs it, and nothing is ever transferred
-		// from here.
+		// Both engines stay resident (spec §4.2): the recogniser as before, and the punctuation engine
+		// built from the session's first moment, so no dictation ever waits for a background build.
+		// A machine that has never fetched the model fetches it here — measured 285 MB on disk and
+		// ~292 MB resident beside the recogniser's ~316 MB — which the one-time notice explains.
+		// Measured: this call returns in 0.2 ms and the engine is usable within 100 ms.
 		if (config.enabled && config.punctuationEnabled !== false && startCtx.hasUI) {
-			preparePunctuation({ requirePresent: true });
+			preparePunctuation({ onTransfer: notifyPunctuationDownload });
 		}
 
 		// v7.1.3 — version banner emitted to debug log on every session

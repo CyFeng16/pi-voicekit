@@ -7,15 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Both engines are resident for every session.** The punctuation engine is built at session start —
+  fetching the model on a machine that has never done so — instead of waiting for a dictation that needs
+  it. Measured on the reference machine: the start-up call returns in 0.2 ms, the engine is usable within
+  100 ms, and it costs about 292 MB resident beside the recogniser's 316 MB, so the first Chinese
+  dictation of a session is punctuated like any other. Numbers and method:
+  [docs/BENCHMARKS.md](docs/BENCHMARKS.md#engine-residency).
+
 ### Fixed
 
 - **The punctuation step no longer announces a download that is not happening.** The "285 MB is being
   downloaded" notice hung off "the engine is not built yet", but the engine lives in the process, so every
   new pi window showed it once even though the model had been on disk for days. The notice now hangs off
-  the lifecycle signal that only fires when the model files really are missing, and when the model is
-  already on disk the engine is built at session start instead: measured 0.16 ms for that call and 100 ms
-  from session start to a usable engine, so a session's first Chinese dictation is punctuated instead of
-  coming back raw.
+  the lifecycle signal that only fires when the model files really are missing, so an already-present
+  model never produces it. See **Changed** above for when the engine is built.
 - **`/voice-punctuation status` now names the condition that declined.** "not-needed" is split into the
   switch being off, the text having no Chinese, and its punctuation density already being one mark per 20
   characters or more. Every dictation also writes one metadata-only `voice-punctuation` entry — no

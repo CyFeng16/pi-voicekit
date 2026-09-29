@@ -202,6 +202,30 @@ The harness that produced the polish numbers was removed from the repository tog
 the polish pass, so those tables cannot be regenerated from a checkout: they are kept as the
 recorded history of what was measured, not as a runnable protocol against the current code.
 
+## Engine residency
+
+Both engines stay in the process for the life of a session. Measured on the reference machine
+(32-core AMD, 62 GB, in-process `sherpa-onnx-node` through the extension's own factories, single
+run, model files already in the page cache):
+
+| Stage | Build | Resident memory |
+| --- | --- | --- |
+| Runtime baseline (Bun) | — | 44 MB |
+| `sherpa-onnx` native library | — | +8 MB |
+| Recogniser, `paraformer-zh` int8 | 740 ms | +316 MB |
+| Punctuation engine, CT-Transformer | 50 ms warm, 544 ms cold | +292 MB |
+| **Both engines resident** | — | **652 MB RSS (+608 MB)** |
+
+The punctuation model is 285 MB on disk (`~/.pi/models/punct-ct-transformer-zh-en/`) and is fetched
+once per machine. A session builds the engine at start-up, so no dictation waits for it: that call
+returns in 0.2 ms and the engine is usable within 100 ms. Punctuating a dictation costs 1–3 ms with
+both engines resident, and the two coexist without interference.
+
+Two consequences worth knowing. First, the punctuation step never shows up as a delay, which is why
+it can be unconditional. Second, the stage is text-in/text-out and knows nothing about the
+recogniser, so pointing it at a different model — an English punctuation model, for instance — is a
+single catalogue entry in `extensions/voice/punctuation-model.ts`.
+
 ## Honest limits
 
 - **The corpus is assembled from published recordings of read or spontaneous speech,

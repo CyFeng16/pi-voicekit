@@ -329,7 +329,7 @@ this README.
 | **Pre-recording**                | Audio capture starts during warmup — you never miss the first word                       |
 | **Tail recording**               | Keeps recording 1.5s after release so your last word isn't clipped                       |
 | **Live streaming**               | Deepgram Nova 3 WebSocket (Nova 2 for Chinese locales) — live interim transcripts        |
-| **Offline punctuation**          | Chinese dictations that come back unpunctuated get full stops, commas and question marks from an in-process model — marks only, no wording changes, fail-open, English not supported |
+| **Offline punctuation**          | Chinese dictations that come back unpunctuated get full stops, commas and question marks from an in-process model — marks only, no wording changes, fail-open, English not supported. Both engines stay resident (~300 MB each) and the model is fetched once — see [Engine residency](docs/BENCHMARKS.md#engine-residency) |
 | **Chinese + English**            | The supported and validated scope, mixed Chinese–English included. Every other language in the catalogue is unvalidated — see [Language scope](#language-scope). |
 | **Continuous dictation**         | `/voice dictate` for long-form input without holding keys                                |
 | **Typing cooldown**              | Space holds within 400ms of typing are ignored                                           |
@@ -434,6 +434,13 @@ English text is skipped by the same rule. A transcript the rule declines is retu
 exactly as the recogniser produced it, and so is any transcript whose punctuation fails
 at any point.
 
+Both engines stay resident for the session: the recogniser as before, and the punctuation engine
+built when a session starts, so no dictation waits for it (measured 0.2 ms for the call, engine
+usable within 100 ms, 50-544 ms to build). On a machine that has never fetched the model, that
+first session fetches it: 285 MB on disk, and roughly 300 MB of memory per engine on the reference
+machine — 292 MB for punctuation, 316 MB for the `paraformer-zh` recogniser. See
+[Engine residency](docs/BENCHMARKS.md#engine-residency) for the numbers.
+
 | Setting                  | Scope              | Default | Notes                                                        |
 | ------------------------ | ------------------ | ------- | ------------------------------------------------------------ |
 | `punctuationEnabled`     | global and project | `true`  | Runs the offline punctuation step on qualifying transcripts. |
@@ -449,8 +456,9 @@ that repository is pinned: a later global change no longer applies to it.
 digest-verified, and what the step decided on the last dictation of the session. The model
 lives in `~/.pi/models/punct-ct-transformer-zh-en/`, appears in the Downloaded tab like any
 other download, and selecting that row does not make it a recogniser. The step writes
-no session entry; under `PI_VOICE_DEBUG` it logs one line per dictation with the
-character count, marks before and after, the reason when it did not run, and the
+one metadata-only `voice-punctuation` entry per dictation — no transcript text — so a decision is
+fact; under `PI_VOICE_DEBUG` it also logs one line per dictation with the character count, marks
+before and after, the gate, the reason when it did not run, and the
 elapsed time. The removed `postProcess*` keys from older releases are ignored when
 loading — never migrated, and left in place when the settings file is saved.
 

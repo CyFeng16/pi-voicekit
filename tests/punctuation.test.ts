@@ -9,6 +9,7 @@ import {
 	addPunctuation,
 	preparePunctuation,
 	punctuateWithStatus,
+	punctuateStage,
 	resetPunctuationForTest,
 	spliceMarks,
 	type PunctuationEngine,
@@ -828,5 +829,46 @@ describe("preparePunctuation — onTransfer only fires when the model is missing
 		});
 		await settle();
 		expect(punctuateWithStatus("这个方案可行", true).status.applied).toBe(true);
+	});
+});
+
+// ─── The stage: decide, apply and report in one call ────────────────────────
+
+describe("punctuateStage — the pipeline's one step", () => {
+	const stub = () => resetPunctuationForTest({ addPunct: (text) => `${text}。` });
+
+	test("decides, applies and reports the gate in one call", () => {
+		stub();
+		const staged = punctuateStage("这个方案可行", true);
+		expect(staged.gate).toBe("needed");
+		expect(staged.status.applied).toBe(true);
+		expect(staged.text).toBe("这个方案可行。");
+	});
+
+	test("names the condition when it declines and returns the text untouched", () => {
+		stub();
+		const off = punctuateStage("这个方案可行", false);
+		expect(off.gate).toBe("off");
+		expect(off.status.applied).toBe(false);
+		expect(off.status.reason).toBe("not-needed");
+		expect(off.text).toBe("这个方案可行");
+
+		const english = punctuateStage("hello world", true);
+		expect(english.gate).toBe("no-cjk");
+		expect(english.text).toBe("hello world");
+
+		const dense = punctuateStage("你好。".repeat(5), true);
+		expect(dense.gate).toBe("dense");
+		expect(dense.text).toBe("你好。".repeat(5));
+	});
+
+	test("agrees with punctuateWithStatus for the same inputs", () => {
+		stub();
+		for (const text of ["这个方案可行", "hello world", "你好。"]) {
+			const staged = punctuateStage(text, true);
+			const direct = punctuateWithStatus(text, staged.gate === "needed");
+			expect(staged.text).toBe(direct.text);
+			expect(staged.status).toEqual(direct.status);
+		}
 	});
 });
