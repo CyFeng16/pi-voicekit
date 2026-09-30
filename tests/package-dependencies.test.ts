@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 
-const PI_VERSION = "0.85.0";
+const PI_VERSION = "0.87.1";
 const PI_DEV_RANGE = `^${PI_VERSION}`;
 const PI_PEER_RANGE = "*";
 
