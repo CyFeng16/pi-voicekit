@@ -21,6 +21,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   lockfiles move from 0.85.0 to 0.87.1 — the release the maintainers actually run — so a green
   `bun run check` says something about the CLI in use. `peerDependencies` stay `"*"`.
 
+### Fixed
+
+- **`ws` is a declared runtime dependency.** The Deepgram streaming path falls back to `import("ws")`
+  when the built-in Node WebSocket rejects the headers form, but the package was listed nowhere: it resolved
+  only because Pi's own tree hoists it. An npm or git install now pulls it in, and a new guard fails when an
+  extension imports a package that is neither declared nor supplied by Pi.
+
 ## [0.4.2] - 2026-09-29
 
 ### Changed
