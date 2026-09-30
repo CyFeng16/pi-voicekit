@@ -1,0 +1,40 @@
+name: Upstream watch
+
+# Tracks the Pi releases we do not run yet: the probe typechecks this repository
+# against the newest upstream package. It is deliberately outside the PR gate, so
+# an upstream release can never block normal work - a red run is a signal to read
+# docs/upstream-baseline.md and decide whether anything has to be adapted.
+on:
+  schedule:
+    # Mondays 06:17 UTC, off the hour so it does not queue behind the world's cron jobs.
+    - cron: "17 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.11
+      # No `bun install` here: the probe builds its own tree, so the repository
+      # dependency tree (and its optional native packages) stays out of the way.
+      - name: Probe the latest upstream Pi release
+        run: |
+          set -o pipefail
+          bun run compat:upstream latest | tee probe.log
+      - name: Write the step summary
+        if: always()
+        run: |
+          {
+            echo "### Upstream compat probe"
+            echo
+            echo '```'
+            cat probe.log 2>/dev/null || echo "the probe produced no output"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
