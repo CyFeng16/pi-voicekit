@@ -55,6 +55,9 @@
     "@earendil-works/pi-coding-agent": "*",
     "@earendil-works/pi-tui": "*"
   },
+  "dependencies": {
+    "ws": "^8.22.0"
+  },
   "devDependencies": {
     "@earendil-works/pi-coding-agent": "^0.87.1",
     "@earendil-works/pi-tui": "^0.87.1",
