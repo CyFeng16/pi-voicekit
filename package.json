@@ -48,6 +48,7 @@
     "check": "bun run typecheck && bun run test",
     "format": "prettier --write \"**/*.{ts,json,yml,yaml}\"",
     "format:check": "prettier --check \"**/*.{ts,json,yml,yaml}\"",
+    "compat:upstream": "node scripts/upstream-compat.mjs",
     "release:dry": "bun run check && bun publish --dry-run"
   },
   "peerDependencies": {
@@ -55,8 +56,8 @@
     "@earendil-works/pi-tui": "*"
   },
   "devDependencies": {
-    "@earendil-works/pi-coding-agent": "^0.85.0",
-    "@earendil-works/pi-tui": "^0.85.0",
+    "@earendil-works/pi-coding-agent": "^0.87.1",
+    "@earendil-works/pi-tui": "^0.87.1",
     "@types/ws": "^8",
     "prettier": "3.3.3"
   },

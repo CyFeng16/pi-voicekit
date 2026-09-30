@@ -12,6 +12,7 @@ Thank you for your interest in contributing to pi-voicekit! This document provid
 - [Testing](#testing)
 - [Pull Request Process](#pull-request-process)
 - [Release](#release)
+- [Upstream tracking](#upstream-tracking)
 - [Coding Standards](#coding-standards)
 - [Reporting Issues](#reporting-issues)
 
@@ -175,6 +176,36 @@ The tag is already public, so never move or delete it: fix forward with the next
 | `Publish to npm` fails | Nothing reached the registry | Fix the cause and re-run the workflow — the publish step skips a version that already exists |
 | `Verify the packed tarball` fails | The registry holds bytes you cannot reproduce from the tag | Treat the release as broken and investigate before doing anything else |
 | `Publish the GitHub Release` fails | npm already has the version; only the GitHub Release is missing | Re-run the workflow — the release step finishes a leftover draft, refills a missing tarball, refreshes the body, or skips a published release |
+
+## Upstream tracking
+
+Pi releases faster than we upgrade the CLI we run, so three versions have to stay distinct:
+
+| Layer | What it is | Where it lives |
+| --- | --- | --- |
+| Verification baseline | The release `bun run check` compiles and tests against | `devDependencies`, the `PI_VERSION` constant in `tests/package-dependencies.test.ts`, both lockfiles |
+| Production runtime | The Pi the maintainers actually run | the installed CLI on each machine |
+| Upstream probe | The newest release, typechecked but not run | results in `docs/upstream-baseline.md` |
+
+The baseline is deliberately the production runtime: a green `bun run check` should say something about the CLI in use. `peerDependencies` stay `"*"`, because Pi supplies the host packages to installed extensions and upstream asks packages not to bundle or pin them.
+
+Probe any release without touching the repository install:
+
+```bash
+bun run compat:upstream          # newest upstream release
+bun run compat:upstream 0.99.1   # one exact release
+bun run compat:upstream --keep   # keep the scratch tree, e.g. to read a failure
+```
+
+Exit code 0 means the extension's type surface still compiles against that release; 1 prints the compiler output. The weekly [Upstream watch](.github/workflows/upstream-watch.yml) workflow runs the `latest` probe outside the PR gate, so an upstream release never blocks normal work.
+
+When the probe goes red, classify it before changing anything:
+
+1. **We use something upstream removed or reshaped** — adapt the extension in the same change that raises the baseline.
+2. **The breakage sits in code paths we never call** — record it in `docs/upstream-baseline.md` and leave the code alone.
+3. **Types pass, behaviour is unknown** — a PASS is not a promise. Event timing, overlay lifecycles and audio paths still need a session on the production runtime.
+
+Raise the baseline — `devDependencies`, the `PI_VERSION` constant, both lockfiles — in its own commit, when there is a reason: a feature we want, or a release we are moving to.
 
 ## Coding Standards
 

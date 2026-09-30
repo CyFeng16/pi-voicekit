@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Upstream tracking.** `bun run compat:upstream [<version>|latest]` typechecks the extension against any
+  Pi release in a throwaway tree, and the weekly [Upstream watch](.github/workflows/upstream-watch.yml)
+  workflow runs the `latest` probe outside the PR gate. Results are recorded in
+  [docs/upstream-baseline.md](docs/upstream-baseline.md). The probe is a necessary condition, not a promise:
+  it cannot see event timing, overlay lifecycles or audio behaviour.
+
+### Changed
+
+- **The verification baseline is the production runtime.** `devDependencies`, the pin test and both
+  lockfiles move from 0.85.0 to 0.87.1 — the release the maintainers actually run — so a green
+  `bun run check` says something about the CLI in use. `peerDependencies` stay `"*"`.
+
 ## [0.4.2] - 2026-09-29
 
 ### Changed
