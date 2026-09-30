@@ -48,6 +48,7 @@
     "check": "bun run typecheck && bun run test",
     "format": "prettier --write \"**/*.{ts,json,yml,yaml}\"",
     "format:check": "prettier --check \"**/*.{ts,json,yml,yaml}\"",
+    "compat:upstream": "node scripts/upstream-compat.mjs",
     "release:dry": "bun run check && bun publish --dry-run"
   },
   "peerDependencies": {
