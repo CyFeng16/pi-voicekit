@@ -171,11 +171,13 @@ You released SPACE before finishing your sentence. The tail recording feature (1
 
 ### What it means
 
-Offline punctuation runs only when all of these hold: `punctuationEnabled` is on, the
-transcript contains Chinese, and the text carries fewer than one punctuation mark per
-20 characters. A transcript that fails the rule is returned exactly as the recogniser
-produced it, and so is one whose punctuation fails at any point — the step is fail-open,
-so "no punctuation" always means "nothing was inserted", never "text was lost".
+Offline punctuation runs only when all of these hold: `punctuationEnabled` resolves to on,
+the transcript contains Chinese, and the text carries fewer than one punctuation mark per
+20 characters. The switch resolves so that a machine-wide `false` is final — no project
+block can re-enable it — and otherwise an explicit project value wins over the global one.
+A transcript that fails the rule gets no mark added, and neither does one whose
+punctuation fails at any point — the step is fail-open, so "no punctuation" always means
+"nothing was inserted", never "text was lost".
 
 The model is downloaded the first time a dictation needs it (~285 MB), and that first
 dictation comes back unchanged while the download starts in the background. Once the

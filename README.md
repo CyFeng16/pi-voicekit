@@ -142,10 +142,10 @@ Not a tab: punctuation is an automatic step between the recogniser and the edito
 on by default. When a transcript contains Chinese and is essentially unpunctuated
 (fewer than one mark per 20 characters), an in-process model inserts full stops,
 commas and question marks. It can only **insert** marks — every other byte of the
-transcript is preserved — and any problem leaves the text exactly as the recogniser
-produced it. English is not supported (the model measured F1 0.175 on English), and
-a transcript whose punctuation is already dense enough — one mark per 20 characters or
-more — is left alone; a sparser one is punctuated even if it carries a mark or two.
+transcript is preserved — and any problem leaves the text with no mark added. English is
+not supported (the model measured F1 0.175 on English), and a transcript whose
+punctuation is already dense enough — one mark per 20 characters or more — is left alone;
+a sparser one is punctuated even if it carries a mark or two.
 
 The model is a one-time ~285 MB download, fetched in the background the first time a
 dictation needs it: that first dictation comes back unchanged while the download starts.
@@ -430,9 +430,8 @@ is punctuated locally if the text contains Chinese and its punctuation density i
 one mark per 20 characters; the recogniser's output is otherwise untouched. Nothing
 leaves your machine: the model runs in process, and the only network traffic is the
 one-time download of the model itself. English is not supported in this version, and
-English text is skipped by the same rule. A transcript the rule declines is returned
-exactly as the recogniser produced it, and so is any transcript whose punctuation fails
-at any point.
+English text is skipped by the same rule. A transcript the rule declines gets no mark
+added, and neither does any transcript whose punctuation fails at any point.
 
 Both engines stay resident for the session: the recogniser as before, and the punctuation engine
 built when a session starts, so no dictation waits for it (measured 0.2 ms for the call, engine
@@ -441,18 +440,26 @@ first session fetches it: 285 MB on disk, and roughly 300 MB of memory per engin
 machine — 292 MB for punctuation, 316 MB for the `paraformer-zh` recogniser. See
 [Engine residency](docs/BENCHMARKS.md#engine-residency) for the numbers.
 
-| Setting                  | Scope              | Default | Notes                                                        |
-| ------------------------ | ------------------ | ------- | ------------------------------------------------------------ |
-| `punctuationEnabled`     | global and project | `true`  | Runs the offline punctuation step on qualifying transcripts. |
-| `punctuationNoticeShown` | global only        | `false` | Machine-local bookkeeping for the one-time upgrade notice.    |
+| Setting                       | Scope              | Default | Notes                                                                         |
+| ----------------------------- | ------------------ | ------- | ----------------------------------------------------------------------------- |
+| `punctuationEnabled`          | global and project | `true`  | Runs the offline punctuation step on qualifying transcripts.                  |
+| `fillerRemovalEnabled`        | global and project | `true`  | Removes the filler particles `呃` and `嗯` from a finished transcript.        |
+| `numeralNormalizationEnabled` | global and project | `true`  | Restores digits in spoken identifiers (`k 八 s` → `k8s`, `bf 十六` → `bf16`). |
+| `punctuationNoticeShown`      | global only        | `false` | Machine-local bookkeeping for the one-time upgrade notice.                    |
 
-`punctuationEnabled` is an ordinary, scope-agnostic field: a project file may set it
-and the usual project-over-global precedence applies. Omitted from a project block, it
-inherits the global value rather than falling back to the default, so a global OFF cannot
-be silently ignored. The first project-scope save writes the value it resolved to —
-including an inherited one — into the repository's `.pi/settings.json`, and from then on
-that repository is pinned: a later global change no longer applies to it.
-`/voice-punctuation status` prints the switch state, whether the model is downloaded and
+All three switches resolve the same way. A machine-wide `false` is final: no project
+block can turn the step back on, even one that saved `true` before the global value was
+set to `false`. Below that, an explicit project value wins — a repository that saved
+`false` keeps the step off when the global value later turns on — then the global value,
+then the default. An omitted value in a project block inherits the global one rather than
+the default. The cleanup runs before punctuation and on its own switches, so turning
+punctuation off still leaves a cleaned transcript.
+
+The first project-scope save writes the values the config resolved to — including
+inherited ones — into the repository's `.pi/settings.json`, so all three keys become
+concrete booleans there. That pins the project value; it does not exempt the repository
+from a later machine-wide `false`, which still applies everywhere.
+`/voice-punctuation status` prints the punctuation switch state, whether the model is downloaded and
 digest-verified, and what the step decided on the last dictation of the session. The model
 lives in `~/.pi/models/punct-ct-transformer-zh-en/`, appears in the Downloaded tab like any
 other download, and selecting that row does not make it a recogniser. The step writes

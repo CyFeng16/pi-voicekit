@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Transcript cleanup runs before punctuation.** A finished dictation loses the filler particles
+  `呃` and `嗯` — together with the space runs and the one stranded leading mark a removal exposes —
+  and gets back the digits a recogniser spelled as Chinese numerals: inside a technical identifier
+  (`k 八 s` → `k8s`, `bf 十六` → `bf16`, `h 二百` → `h200`, `v 四点一` → `v4.1`) and in a bare
+  version with two or more decimal points (`零点九九点一` → `0.99.1`). Two new `settings.json`
+  switches, `fillerRemovalEnabled` and `numeralNormalizationEnabled`, are on by default and resolve
+  by the same rule as `punctuationEnabled`; they gate the two rules independently. The step is
+  deterministic and in process, and it writes one metadata-only `voice-cleanup` entry per dictation.
+
+### Changed
+
+- **A machine-wide `false` now wins for all three completion switches.** `punctuationEnabled` and the
+  two cleanup switches share one resolution: a global `false` is final, so no project block can
+  re-enable the step; otherwise an explicit project value wins, then the global value, then the
+  default. The visible consequence is punctuation: a repository that pinned
+  `punctuationEnabled: true` under a machine-level `false` now comes back unpunctuated. The
+  surviving precedence is unchanged — a project `false` still beats a later global `true` — and
+  a project-scope save still writes the resolved values into the repository's `.pi/settings.json`.
+
 ## [0.4.4] - 2026-10-18
 
 ### Fixed
