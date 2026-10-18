@@ -1000,7 +1000,7 @@ export default function (pi: ExtensionAPI) {
 		punctuationUnavailableNoticeShown = true;
 		try {
 			ctx.ui.notify(
-				"Punctuation model could not be downloaded or loaded — transcripts are left unchanged. /voice-punctuation status",
+				"Punctuation model could not be downloaded or loaded — transcripts are still cleaned, but get no marks added. /voice-punctuation status",
 				"warning"
 			);
 		} catch (err) {
