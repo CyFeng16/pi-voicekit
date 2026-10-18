@@ -179,7 +179,7 @@ function digitsOf(part: string): string {
 /** The part of a run before its first `点`: a digit sequence, or a value when it carries a unit. */
 function readWholeNumber(part: string): string | undefined {
 	const chars = Array.from(part);
-	if (chars.length === 0) return undefined;
+	if (chars.length === 0 || hasTrailingShorthand(part)) return undefined;
 	return chars.some((ch) => UNIT_CHARS.has(ch)) ? readValue(chars) : digitsOf(part);
 }
 
@@ -195,6 +195,22 @@ function readWholeNumber(part: string): string | undefined {
  * and 10005 for a spoken 120 and 15000 — because `hasTrailingShorthand` refuses that run beforehand.
  */
 function readValue(chars: readonly string[]): string | undefined {
+	// Validate the unit-bearing grammar before accumulation can overwrite a digit or add a unit.
+	let previous = "";
+	let previousUnit = Infinity;
+	const seenUnits = new Set<string>();
+	for (const ch of chars) {
+		const unit = UNIT_VALUES[ch];
+		if (unit !== undefined) {
+			if (seenUnits.has(ch) || unit > previousUnit || previous === "零") return undefined;
+			seenUnits.add(ch);
+			previousUnit = unit;
+		} else if (ARABIC_DIGITS[previous] !== undefined && previous !== "零") {
+			return undefined;
+		}
+		previous = ch;
+	}
+
 	let total = 0;
 	let group = 0;
 	let digit: number | undefined;
@@ -254,8 +270,6 @@ function hasTrailingShorthand(run: string): boolean {
  * which `hasTrailingShorthand` explains.
  */
 function readNumeralRun(run: string): string | undefined {
-	if (hasTrailingShorthand(run)) return undefined;
-
 	const parts: string[] = [];
 	let part = "";
 	for (const ch of run) {
@@ -304,8 +318,8 @@ interface NumeralPass {
  *
  * The text is cut at its ASCII spaces and every piece is offered to the reader as a candidate run,
  * because the recogniser leaves the numeral as its own word: `k 八 s`, `bf 十六`, `a 零二上`. A run
- * is only converted when a Latin/digit token of at most four characters sits on the side the rule
- * needs (spec §4.3), and only the space the conversion binds across is absorbed — a space next to
+ * is only converted when a Latin/digit token of at most four characters sits on its left or exactly
+ * one sits on its right (spec §4.3). Only the space the conversion binds across is absorbed — a space next to
  * Han text belongs to the sentence and stays (`八 d 指间` → `8d 指间`).
  *
  * The candidate is always a prefix of a piece, since `零二上复刻` is one piece whose first two
@@ -356,7 +370,8 @@ function convertNumeralsOnce(text: string): NumeralPass {
 
 		const remainder = piece.slice(run.length);
 		const afterToken = i > 0 && isBindableToken(rewritten[i - 1] ?? "");
-		const beforeToken = remainder.length === 0 && i + 1 < pieces.length && isBindableToken(pieces[i + 1] ?? "");
+		const rightToken = pieces[i + 1] ?? "";
+		const beforeToken = remainder.length === 0 && rightToken.length === 1 && isBindableToken(rightToken);
 		const bareVersion = remainder.length === 0 && decimalPoints(run) >= 2;
 		if (!afterToken && !beforeToken && !bareVersion) continue;
 
@@ -366,13 +381,19 @@ function convertNumeralsOnce(text: string): NumeralPass {
 		if (beforeToken) absorbed.add(i + 1);
 	}
 
-	if (converted === 0) return { text, converted: 0 };
-
 	let out = "";
 	for (let i = 0; i < rewritten.length; i++) {
 		if (i > 0 && !absorbed.has(i)) out += SPACE;
 		out += rewritten[i];
 	}
+	// Bare versions alone accept every whitespace boundary; identifier binding stays ASCII-only.
+	out = out.replace(/\S+/g, (piece) => {
+		if (numeralPrefix(piece) !== piece || decimalPoints(piece) < 2) return piece;
+		const value = readNumeralRun(piece);
+		if (value === undefined) return piece;
+		converted++;
+		return value;
+	});
 	return { text: out, converted };
 }
 

@@ -40,6 +40,14 @@ describe("cleanTranscript — numerals inside identifiers", () => {
 		expect(cleanTranscript("t 一 k 等于二", ON).text).toBe("t1k 等于二");
 	});
 
+	test.each([
+		["bf 十六 and fp 十六", "bf16 and fp16"],
+		["use 八 GPUs", "use8 GPUs"],
+	])("keeps the space before a multi-character right token: %s", (input, expected) => {
+		expect(cleanTranscript(input, ON).text).toBe(expected);
+		expect(cleanTranscript(expected, ON).text).toBe(expected);
+	});
+
 	test("restores a digit after a Latin token of at most four characters", () => {
 		expect(cleanTranscript("bf 十六", ON).text).toBe("bf16");
 		expect(cleanTranscript("h 二百 部署", ON).text).toBe("h200 部署");
@@ -52,12 +60,31 @@ describe("cleanTranscript — numerals inside identifiers", () => {
 		expect(cleanTranscript("四 p 十二 d", ON).text).toBe("4p12d");
 	});
 
-	test("restores a bare version with two decimal points", () => {
-		expect(cleanTranscript("现在最新的 零点九九点一", ON).text).toBe("现在最新的 0.99.1");
+	test.each([
+		["现在最新的 零点九九点一", "现在最新的 0.99.1"],
+		["版本\t零点九九点一", "版本\t0.99.1"],
+		["零点九九点一\n", "0.99.1\n"],
+	])("restores a bare version bounded by whitespace: %s", (input, expected) => {
+		expect(cleanTranscript(input, ON).text).toBe(expected);
+		expect(cleanTranscript(expected, ON).text).toBe(expected);
 	});
 
-	test("refuses a numeral it cannot read", () => {
-		expect(cleanTranscript("w 三点十", ON).text).toBe("w 三点十");
+	test.each(["k\t八 s", "八\ns", "a  八  b", "版本零点九九点一", "零点九九点一。"])(
+		"does not loosen identifier or bare-version boundaries: %s",
+		(input) => {
+			expect(cleanTranscript(input, ON).text).toBe(input);
+		}
+	);
+
+	test.each(["w 三点十", "h 一二百", "h 百百", "h 一百二三", "h 一百二千", "h 零百"])(
+		"refuses a numeral it cannot read: %s",
+		(input) => {
+			expect(cleanTranscript(input, ON).text).toBe(input);
+		}
+	);
+
+	test.each(["y 一万五点九", "h 一百二点五"])("refuses shorthand before a point: %s", (input) => {
+		expect(cleanTranscript(input, ON).text).toBe(input);
 	});
 
 	test("refuses a trailing shorthand rather than reading it positionally", () => {
@@ -71,6 +98,7 @@ describe("cleanTranscript — numerals inside identifiers", () => {
 		expect(cleanTranscript("h 一百二十", ON).text).toBe("h120");
 		expect(cleanTranscript("h 一千零一", ON).text).toBe("h1001");
 		expect(cleanTranscript("h 一万二千", ON).text).toBe("h12000");
+		expect(cleanTranscript("h 一千二百", ON).text).toBe("h1200");
 	});
 
 	test("reports the conversion it applied", () => {

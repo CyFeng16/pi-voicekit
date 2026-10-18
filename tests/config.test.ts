@@ -439,6 +439,17 @@ describe("punctuation and cleanup switches (scope-agnostic, default true)", () =
 		expect(tightened.config.fillerRemovalEnabled).toBe(false);
 	});
 
+	test("a global false beats a project block that re-enables numeralNormalizationEnabled", () => {
+		const cwd = makeTempDir();
+		const agentDir = path.join(cwd, "agent-home");
+		writeSettings(agentDir, "settings.json", { version: 4, numeralNormalizationEnabled: false });
+		writeSettings(cwd, ".pi/settings.json", { version: 4, numeralNormalizationEnabled: true });
+
+		const result = loadConfigWithSource(cwd, { agentDir });
+		expect(result.source).toBe("project");
+		expect(result.config.numeralNormalizationEnabled).toBe(false);
+	});
+
 	test("an explicit project value still wins when the global value is true", () => {
 		const cwd = makeTempDir();
 		const agentDir = path.join(cwd, "agent-home");
