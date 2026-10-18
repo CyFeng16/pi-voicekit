@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.5] - 2026-10-18
+
 ### Changed
 
 - **The declared `ws` range is now `^8.22.0`, and this repository's own install pins the vulnerable
