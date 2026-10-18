@@ -18,6 +18,8 @@ describe("cleanTranscript — filler particles", () => {
 
 	test("collapses only the space a removal exposed", () => {
 		expect(cleanTranscript("我希望 嗯 先看一下", ON).text).toBe("我希望 先看一下");
+		expect(cleanTranscript("我希望  嗯  先", ON).text).toBe("我希望 先");
+		expect(cleanTranscript("a  嗯  b", ON).text).toBe("a b");
 		expect(cleanTranscript("a  b", ON).text).toBe("a  b");
 	});
 
@@ -26,7 +28,8 @@ describe("cleanTranscript — filler particles", () => {
 		expect(cleanTranscript("呃呃", ON).text).toBe("呃呃");
 	});
 
-	test("leaves words that merely contain a particle character alone", () => {
+	test("removes nothing outside the two-character vocabulary", () => {
 		expect(cleanTranscript("这个逻辑没问题", ON).text).toBe("这个逻辑没问题");
+		expect(cleanTranscript("啊，那个就是这样哦", ON).text).toBe("啊，那个就是这样哦");
 	});
 });

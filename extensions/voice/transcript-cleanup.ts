@@ -48,7 +48,7 @@ const SPACE = " ";
 /**
  * What a character is to the filler rule. The whole text is classified before anything is rewritten,
  * so the space rule reads a position's neighbours as they were dictated: `a  b` keeps both of its
- * spaces, while the pair that a removal joined is closed up.
+ * spaces, while the two space runs that a removal joined are squeezed into one.
  */
 type CharClass = "filler" | "space" | "other";
 
@@ -67,17 +67,18 @@ interface FillerPass {
 /**
  * Delete every filler and repair only what the deletion exposed.
  *
- * Three things move and nothing else: the particles themselves, the second space of two runs that a
- * removal joined (`我希望 嗯 先看一下` → `我希望 先看一下`), and — at the very start of the text —
- * the whitespace and the one mark a removal left stranded there (`嗯，对` → `对`). Interior marks are
- * never touched, and whitespace that was already doubled away from a removal is left as it was.
+ * Three things move and nothing else: the particles themselves; the two space runs that a removal
+ * joined, squeezed into a single space however many spaces each side carried (`我希望 嗯 先看一下`
+ * → `我希望 先看一下`, `a  嗯  b` → `a b`); and — at the very start of the text — the whitespace
+ * and the one mark a removal left stranded there (`嗯，对` → `对`). Interior marks are never touched,
+ * and whitespace that was already doubled away from a removal is left as it was.
  */
 function removeFillerParticles(text: string): FillerPass {
 	const chars = Array.from(text);
 	const classes = chars.map(classify);
 	const kept: string[] = [];
 	let removed = 0;
-	/** The previous character was a filler, so the next space may be half of a joined pair. */
+	/** The previous character was a filler, so the next space is half of a run the removal joined. */
 	let afterRemoval = false;
 	/** One stranded opener has been taken; a second mark is text, not damage. */
 	let markDropped = false;
@@ -102,8 +103,14 @@ function removeFillerParticles(text: string): FillerPass {
 			}
 		}
 
-		// A removal between two spaces leaves the pair adjacent; one space is enough.
-		if (afterRemoval && cls === "space" && kept[kept.length - 1] === SPACE) continue;
+		// A removal joined a space run on each side, so the joined run collapses to one space —
+		// whichever side carried more than one, `a  嗯  b` is `a b`. Further spaces on the right
+		// belong to the same run and are skipped by the same branch.
+		if (afterRemoval && cls === "space" && kept[kept.length - 1] === SPACE) {
+			while (kept[kept.length - 1] === SPACE) kept.pop();
+			kept.push(SPACE);
+			continue;
+		}
 
 		kept.push(ch);
 		afterRemoval = false;
