@@ -23,6 +23,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import type { LocalModelInfo } from "./local";
 import { loadSherpa, getSherpaModule, getSherpaError, isSherpaAvailable } from "./sherpa-loader";
+import { joinTranscriptParts } from "./transcript-join";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -478,8 +479,9 @@ export async function decodeSegmentsInOrder(
  * Byte-identical fast path (single decode) for audio ≤ thresholdSecs.
  *
  * `onSegment` is called for every decoded segment — the fast path's single segment included —
- * as soon as it decodes and before the next decode starts. Leaving it out keeps today's exact
- * return value (docs/superpowers/specs/2026-09-26-polish-pipeline-design.md §4.1).
+ * as soon as it decodes and before the next decode starts. The parts are stitched by
+ * `joinTranscriptParts` (docs/superpowers/specs/2026-09-26-polish-pipeline-design.md §4): no
+ * separator between two CJK sides, one space otherwise.
  */
 export async function transcribeBufferSegmented(
 	pcmData: Buffer,
@@ -492,7 +494,9 @@ export async function transcribeBufferSegmented(
 	// The fast path is one segment too, so a pipelining caller sees exactly one segment and a
 	// short dictation keeps today's one-call behaviour.
 	if (samples.length / 16000 <= thresholdSecs) {
-		return (await decodeSegmentsInOrder(recognizer, [samples], onSegment)).join(" ");
+		return joinTranscriptParts(await decodeSegmentsInOrder(recognizer, [samples], onSegment));
 	}
-	return (await decodeSegmentsInOrder(recognizer, segmentPcmForLongAudio(samples, 16000), onSegment)).join(" ");
+	return joinTranscriptParts(
+		await decodeSegmentsInOrder(recognizer, segmentPcmForLongAudio(samples, 16000), onSegment)
+	);
 }

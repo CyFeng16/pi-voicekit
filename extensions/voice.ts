@@ -110,6 +110,7 @@ import {
 	type PunctuationStatus,
 	type PunctuationGate,
 } from "./voice/punctuation";
+import { joinTranscriptParts } from "./voice/transcript-join";
 
 /** Adapter for the real event loop — lets GapTimer run under the real setTimeout. */
 const realTimerPort: TimerPort = {
@@ -670,7 +671,7 @@ function finalizeSession(session: StreamingSession): void {
 		session.recProcess.kill("SIGKILL");
 	} catch {}
 
-	const fullText = session.finalizedParts.join(" ").trim();
+	const fullText = joinTranscriptParts(session.finalizedParts);
 	session.onDone(fullText, {
 		hadAudio: session.hadAudioData,
 		hadSpeech: session.hadSpeech,
@@ -1478,8 +1479,8 @@ export default function (pi: ExtensionAPI) {
 		// We still want the ● REC waveform + timer to show.
 		// Just update the editor text with the live transcript.
 
-		const finalized = finals.join(" ");
-		const displayText = finalized + (interim ? (finalized ? " " : "") + interim : "");
+		const finalized = joinTranscriptParts(finals);
+		const displayText = joinTranscriptParts([finalized, interim]);
 
 		// Show live text directly in the editor input (prepend any existing text)
 		if (displayText.trim()) {

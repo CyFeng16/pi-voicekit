@@ -3,6 +3,7 @@ import { EventEmitter } from "node:events";
 import type { ChildProcess } from "node:child_process";
 import { decodeSegmentsInOrder, initSherpa, transcribeBufferSegmented } from "../extensions/voice/sherpa-engine";
 import { startLocalSession } from "../extensions/voice/local";
+import { joinTranscriptParts } from "../extensions/voice/transcript-join";
 
 /**
  * Recogniser stub: one decoded text per segment, in decode order, plus an event log that
@@ -113,18 +114,18 @@ describe("transcribeBufferSegmented onSegment", () => {
 		expect(seen).toEqual([["hello", 0]]);
 	});
 
-	test("a long dictation reports every decoded segment in order and keeps today's join", async () => {
+	test("a long dictation reports every decoded segment in order and stitches them with the transcript rule", async () => {
 		await initSherpa();
 		const pcm = Buffer.alloc(16000 * 2 * 30); // 30s @16kHz 16-bit
 
 		const seen: Array<[string, number]> = [];
-		const recognizer = makeStubRecognizer(["t1", "t2", "t3", "t4"]).recognizer;
+		const recognizer = makeStubRecognizer(["第一段", "第二段", "第三段", "第四段"]).recognizer;
 		const result = await transcribeBufferSegmented(pcm, recognizer, 10, (text, index) => seen.push([text, index]));
 
 		// Whether or not a Silero VAD model is installed, every decode is reported.
 		expect(seen.length).toBeGreaterThan(0);
 		expect(seen.map(([, index]) => index)).toEqual(seen.map((_, index) => index));
-		expect(result).toBe(seen.map(([text]) => text).join(" "));
+		expect(result).toBe(joinTranscriptParts(seen.map(([text]) => text)));
 	});
 });
 
