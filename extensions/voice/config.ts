@@ -42,13 +42,24 @@ export interface VoiceConfig {
 	/** Local transcription server URL (default: http://localhost:8080) */
 	localEndpoint?: string;
 	/**
-	 * Master switch for the offline punctuation step (spec §4.3). Ordinary and
-	 * scope-agnostic, like `language` or `backend`: a project file may set it and
-	 * it resolves with the usual project-over-global precedence. Unlike those
-	 * fields, an omitted project value falls back to the global one, so a global
-	 * OFF survives a project block — this is the feature's only user control.
+	 * Master switch for the offline punctuation step (spec §4.3). Scope-agnostic:
+	 * a project file may set it, and `resolveSwitch` makes a machine-wide `false`
+	 * final — no project block can re-enable it. Otherwise an explicit project
+	 * value wins, and an omitted one inherits the global value.
 	 */
 	punctuationEnabled?: boolean;
+	/**
+	 * Master switch for the filler-particle cleanup (spec §4.4). Resolved by
+	 * `resolveSwitch` exactly like `punctuationEnabled`: a global `false` is final,
+	 * an explicit project value wins otherwise, and the default is on.
+	 */
+	fillerRemovalEnabled?: boolean;
+	/**
+	 * Master switch for the identifier-numeral cleanup (spec §4.4). Resolved by
+	 * `resolveSwitch` exactly like `punctuationEnabled`: a global `false` is final,
+	 * an explicit project value wins otherwise, and the default is on.
+	 */
+	numeralNormalizationEnabled?: boolean;
 	/**
 	 * Set once the one-time post-upgrade notice about the removed LLM polish pass has
 	 * been shown (spec §4.6). Global-only — it describes this machine, not the
@@ -143,6 +154,8 @@ export interface ConfigPathOptions {
 
 /** Default of the punctuation switch (spec §4.5) — on unless the user turns it off. */
 const PUNCTUATION_ENABLED_DEFAULT = true;
+/** Defaults of the two transcript-cleanup switches (spec §4.4) — on unless the machine turns them off. */
+const CLEANUP_ENABLED_DEFAULT = true;
 
 export const DEFAULT_CONFIG: VoiceConfig = {
 	version: VOICE_CONFIG_VERSION,
@@ -154,6 +167,8 @@ export const DEFAULT_CONFIG: VoiceConfig = {
 	localModel: undefined,
 	localEndpoint: undefined,
 	punctuationEnabled: PUNCTUATION_ENABLED_DEFAULT,
+	fillerRemovalEnabled: CLEANUP_ENABLED_DEFAULT,
+	numeralNormalizationEnabled: CLEANUP_ENABLED_DEFAULT,
 	punctuationNoticeShown: false,
 	toggleShortcut: "ctrl+shift+v",
 	// TTS defaults — all opt-in
@@ -207,6 +222,20 @@ function normalizeOnboarding(input: any, fallbackCompleted: boolean): VoiceOnboa
 	};
 }
 
+/**
+ * Resolve one of the three switch fields (spec §4.4). A machine-wide `false` is
+ * final and no project block can re-enable it; otherwise an explicit project value
+ * wins, then the global value, then the default. A corrupt or unreadable global
+ * settings file reads as `{}` (`readJsonFile`), so its value is absent here and the
+ * project value wins — a known limit of this helper, not a missing branch.
+ */
+function resolveSwitch(projectValue: unknown, globalValue: unknown, fallback: boolean): boolean {
+	if (globalValue === false) return false;
+	if (typeof projectValue === "boolean") return projectValue;
+	if (typeof globalValue === "boolean") return globalValue;
+	return fallback;
+}
+
 function migrateConfig(rawVoice: any, source: VoiceConfigSource, globalVoice?: unknown): VoiceConfig {
 	if (!rawVoice || typeof rawVoice !== "object") {
 		return structuredClone(DEFAULT_CONFIG);
@@ -252,11 +281,23 @@ function migrateConfig(rawVoice: any, source: VoiceConfigSource, globalVoice?: u
 		scope: (rawVoice.scope as VoiceSettingsScope | undefined) ?? (source === "project" ? "project" : "global"),
 		deepgramApiKey: asString(globalOnly("deepgramApiKey")),
 		backend: rawVoice.backend === "local" ? "local" : undefined,
-		// An omitted project value inherits the global one (unlike `language`/`backend`):
-		// a global OFF must survive a project block (ruling R9), so the default is not the fallback.
-		punctuationEnabled: asBoolean(
+		// The three switch fields share one resolution (spec §4.4): a global false is
+		// final, so it survives (and beats) a project block; otherwise the project value
+		// wins, then the global one, then the default.
+		punctuationEnabled: resolveSwitch(
 			rawVoice.punctuationEnabled,
-			projectScoped ? asBoolean(globalRaw.punctuationEnabled, PUNCTUATION_ENABLED_DEFAULT) : PUNCTUATION_ENABLED_DEFAULT
+			globalRaw.punctuationEnabled,
+			PUNCTUATION_ENABLED_DEFAULT
+		),
+		fillerRemovalEnabled: resolveSwitch(
+			rawVoice.fillerRemovalEnabled,
+			globalRaw.fillerRemovalEnabled,
+			CLEANUP_ENABLED_DEFAULT
+		),
+		numeralNormalizationEnabled: resolveSwitch(
+			rawVoice.numeralNormalizationEnabled,
+			globalRaw.numeralNormalizationEnabled,
+			CLEANUP_ENABLED_DEFAULT
 		),
 		// Global-only: it describes this machine, not the repository, so a cloned
 		// project file cannot silence the one-time upgrade notice.

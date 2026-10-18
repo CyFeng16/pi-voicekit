@@ -110,6 +110,7 @@ import {
 	type PunctuationStatus,
 	type PunctuationGate,
 } from "./voice/punctuation";
+import { cleanTranscript, type CleanupStatus } from "./voice/transcript-cleanup";
 import { joinTranscriptParts } from "./voice/transcript-join";
 
 /** Adapter for the real event loop — lets GapTimer run under the real setTimeout. */
@@ -823,28 +824,54 @@ export default function (pi: ExtensionAPI) {
 	};
 
 	/**
-	 * The completion path's punctuation step: decide, apply, record, and never wait.
+	 * The completion path's punctuation step: clean, decide, apply, record, and never wait.
 	 *
-	 * `punctuateStage` is the whole step: it decides (the gate of spec §4.3), splices marks and reports
-	 * both, returning the input unchanged on every failure (invariant 2). The pipeline is therefore
-	 * *recognise → decide → insert marks → write*, and this is the one place the middle two happen.
+	 * The cleanup (spec §4.1–§4.5) runs first and unconditionally on its own switches — a user who
+	 * turns marks off still gets clean text — so the model reads the cleaned string (spec §4.6).
+	 * `punctuateStage` is the punctuation step proper: it decides (the gate of spec §4.3), splices marks
+	 * and reports both, returning the input unchanged on every failure (invariant 2). The pipeline is
+	 * therefore *recognise → clean → decide → insert marks → write*, and this is the one place the
+	 * middle three happen.
 	 * Nothing here loads, downloads or constructs anything — a session builds the engine at start-up,
 	 * and a dictation that finds no engine keeps the raw text (invariant 7).
 	 *
-	 * The whole step — decision, splice, diagnostics, notices and the prepare — sits in one guard,
-	 * and the fallback itself uses nothing that can throw: a throw must never cost the dictation
+	 * The whole step — cleanup, decision, splice, diagnostics, notices and the prepare — sits in one
+	 * guard, and the fallback itself uses nothing that can throw: a throw must never cost the dictation
 	 * its write, its history record or its state reset.
 	 */
 	function punctuateTranscript(text: string): string {
-		// The text the caller writes: the recognised transcript until the splice produces a result,
-		// so a failure after that point cannot discard punctuation that already succeeded.
+		// The text the caller writes: the recognised transcript until a step produces a result, so a
+		// failure after that point cannot discard a cleanup or a punctuation that already succeeded.
 		let output = text;
+		let cleanedUp = false;
 		let decided = false;
 		try {
-			const result = punctuateStage(text, config.punctuationEnabled !== false);
+			// The cleanup (spec §4.1–§4.5) runs first and on its own switches only, so the model reads
+			// the text that is about to be written (spec §4.6) — a throw here still returns `text`.
+			const charsBefore = Array.from(text).length;
+			const cleanupStartedMs = Date.now();
+			const cleaned = cleanTranscript(text, {
+				fillers: config.fillerRemovalEnabled !== false,
+				numerals: config.numeralNormalizationEnabled !== false,
+			});
+			const elapsedMs = Date.now() - cleanupStartedMs;
+			// From here the fallback is the cleaned text: a throw after the cleanup returned must not
+			// hand the dictation back with its fillers and spoken numerals still in it.
+			output = cleaned.text;
+			cleanedUp = true;
+			recordCleanupDecision({
+				reason: cleaned.status,
+				fillersRemoved: cleaned.fillersRemoved,
+				numeralsConverted: cleaned.numeralsConverted,
+				charsBefore,
+				charsAfter: Array.from(cleaned.text).length,
+				elapsedMs,
+			});
+
+			const result = punctuateStage(cleaned.text, config.punctuationEnabled !== false);
 			const gate = result.gate;
 			output = result.text;
-			const chars = Array.from(text).length;
+			const chars = Array.from(cleaned.text).length;
 			lastPunctuationDecision = { chars, status: result.status };
 			decided = true;
 
@@ -874,16 +901,30 @@ export default function (pi: ExtensionAPI) {
 			return output;
 		} catch (err) {
 			// Fail-open fallback: `status` must report *this* dictation, never the previous one.
-			// Nothing here can throw — the record is a plain assignment, and `voiceDebug` swallows its
-			// own failures by contract — so this arm completes even when the throw it reports came
-			// from a diagnostic; `output` then keeps a punctuation that already succeeded.
+			// Nothing here can throw — the records are guarded, the decision is a plain assignment,
+			// and `voiceDebug` swallows its own failures by contract — so this arm completes even
+			// when the throw it reports came from a diagnostic; `output` then keeps a cleanup or a
+			// punctuation that already succeeded.
+			if (!cleanedUp) {
+				// The cleanup is what threw, so it is the one step with no result of its own: record
+				// the attempt as such. `text` is untouched, so both lengths are the recognised one.
+				const chars = Array.from(text).length;
+				recordCleanupDecision({
+					reason: "error",
+					fillersRemoved: 0,
+					numeralsConverted: 0,
+					charsBefore: chars,
+					charsAfter: chars,
+					elapsedMs: 0,
+				});
+			}
 			if (!decided) {
 				lastPunctuationDecision = {
 					chars: Array.from(text).length,
 					status: { applied: false, reason: "error", marksBefore: 0, marksAfter: 0, elapsedMs: 0 },
 				};
 			}
-			voiceDebug("punctuation step threw — continuing with the transcript as it stands", {
+			voiceDebug("completion step threw — continuing with the transcript as it stands", {
 				error: safeErrorText(err),
 			});
 			return output;
@@ -929,6 +970,28 @@ export default function (pi: ExtensionAPI) {
 	}
 
 	/**
+	 * One metadata-only record per dictation for the cleanup step (spec §4.5), beside the punctuation
+	 * record and with the same guarantees: `reason` is the module's status — `error` when the guard
+	 * caught a throw from the cleanup — and both lengths are code points, so they compare with the
+	 * punctuation record's `chars`. No transcript text is written, and a failing record must never
+	 * cost the dictation anything.
+	 */
+	function recordCleanupDecision(decision: {
+		reason: CleanupStatus | "error";
+		fillersRemoved: number;
+		numeralsConverted: number;
+		charsBefore: number;
+		charsAfter: number;
+		elapsedMs: number;
+	}): void {
+		try {
+			pi.appendEntry("voice-cleanup", decision);
+		} catch (err) {
+			voiceDebug("cleanup record failed", { error: safeErrorText(err) });
+		}
+	}
+
+	/**
 	 * The one failure notice (spec §4.6). Called from the prepare's background hook — off the
 	 * dictation's stack — and guarded so later failed retries stay silent.
 	 */
@@ -937,7 +1000,7 @@ export default function (pi: ExtensionAPI) {
 		punctuationUnavailableNoticeShown = true;
 		try {
 			ctx.ui.notify(
-				"Punctuation model could not be downloaded or loaded — transcripts are left unchanged. /voice-punctuation status",
+				"Punctuation model could not be downloaded or loaded — transcripts are still cleaned, but get no marks added. /voice-punctuation status",
 				"warning"
 			);
 		} catch (err) {

@@ -392,7 +392,7 @@ describe("saveGlobalVoiceFields", () => {
 	});
 });
 
-describe("punctuation config (scope-agnostic, default true)", () => {
+describe("punctuation and cleanup switches (scope-agnostic, default true)", () => {
 	test("defaults to enabled", () => {
 		const cwd = makeTempDir();
 		const result = loadConfigWithSource(cwd, { agentDir: path.join(cwd, "agent-home") });
@@ -409,15 +409,102 @@ describe("punctuation config (scope-agnostic, default true)", () => {
 		expect(result.config.punctuationEnabled).toBe(false);
 	});
 
-	test("a project block overrides the global value", () => {
+	test("a global false beats a project block that re-enables punctuationEnabled", () => {
 		const cwd = makeTempDir();
 		const agentDir = path.join(cwd, "agent-home");
-		writeSettings(agentDir, "settings.json", { version: 3, punctuationEnabled: false });
-		writeSettings(cwd, ".pi/settings.json", { version: 3, punctuationEnabled: true });
+		writeSettings(agentDir, "settings.json", { version: 4, punctuationEnabled: false });
+		writeSettings(cwd, ".pi/settings.json", { version: 4, punctuationEnabled: true });
 
 		const result = loadConfigWithSource(cwd, { agentDir });
 		expect(result.source).toBe("project");
-		expect(result.config.punctuationEnabled).toBe(true);
+		expect(result.config.punctuationEnabled).toBe(false);
+	});
+
+	test("both cleanup switches default to true", () => {
+		const cwd = makeTempDir();
+		const agentDir = path.join(cwd, "agent-home");
+		const inherited = loadConfigWithSource(cwd, { agentDir });
+		expect(inherited.config.fillerRemovalEnabled).toBe(true);
+		expect(inherited.config.numeralNormalizationEnabled).toBe(true);
+	});
+
+	test("a global false beats a project block that re-enables fillerRemovalEnabled", () => {
+		const cwd = makeTempDir();
+		const agentDir = path.join(cwd, "agent-home");
+		writeSettings(agentDir, "settings.json", { version: 4, fillerRemovalEnabled: false });
+		writeSettings(cwd, ".pi/settings.json", { version: 4, fillerRemovalEnabled: true });
+
+		const tightened = loadConfigWithSource(cwd, { agentDir });
+		expect(tightened.source).toBe("project");
+		expect(tightened.config.fillerRemovalEnabled).toBe(false);
+	});
+
+	test("a global false beats a project block that re-enables numeralNormalizationEnabled", () => {
+		const cwd = makeTempDir();
+		const agentDir = path.join(cwd, "agent-home");
+		writeSettings(agentDir, "settings.json", { version: 4, numeralNormalizationEnabled: false });
+		writeSettings(cwd, ".pi/settings.json", { version: 4, numeralNormalizationEnabled: true });
+
+		const result = loadConfigWithSource(cwd, { agentDir });
+		expect(result.source).toBe("project");
+		expect(result.config.numeralNormalizationEnabled).toBe(false);
+	});
+
+	test("an explicit project value still wins when the global value is true", () => {
+		const cwd = makeTempDir();
+		const agentDir = path.join(cwd, "agent-home");
+		writeSettings(agentDir, "settings.json", {
+			version: 4,
+			punctuationEnabled: true,
+			fillerRemovalEnabled: true,
+			numeralNormalizationEnabled: true,
+		});
+		writeSettings(cwd, ".pi/settings.json", {
+			version: 4,
+			punctuationEnabled: false,
+			fillerRemovalEnabled: false,
+			numeralNormalizationEnabled: false,
+		});
+
+		const result = loadConfigWithSource(cwd, { agentDir });
+		expect(result.source).toBe("project");
+		expect(result.config.punctuationEnabled).toBe(false);
+		expect(result.config.fillerRemovalEnabled).toBe(false);
+		expect(result.config.numeralNormalizationEnabled).toBe(false);
+	});
+
+	test("each switch reads its own project key", () => {
+		// The two cases differ in which field is off, so crossing any two key names at the
+		// call sites yields a wrong boolean in at least one case. The all-false case above
+		// cannot tell the keys apart — only that all three are read.
+		const scenarios = [
+			{
+				project: { punctuationEnabled: true, fillerRemovalEnabled: false, numeralNormalizationEnabled: false },
+				expected: [true, false, false],
+			},
+			{
+				project: { punctuationEnabled: false, fillerRemovalEnabled: true, numeralNormalizationEnabled: false },
+				expected: [false, true, false],
+			},
+		] as const;
+
+		for (const { project, expected } of scenarios) {
+			const cwd = makeTempDir();
+			const agentDir = path.join(cwd, "agent-home");
+			writeSettings(agentDir, "settings.json", {
+				version: 4,
+				punctuationEnabled: true,
+				fillerRemovalEnabled: true,
+				numeralNormalizationEnabled: true,
+			});
+			writeSettings(cwd, ".pi/settings.json", { version: 4, ...project });
+
+			const result = loadConfigWithSource(cwd, { agentDir });
+			expect(result.source).toBe("project");
+			expect(result.config.punctuationEnabled).toBe(expected[0]);
+			expect(result.config.fillerRemovalEnabled).toBe(expected[1]);
+			expect(result.config.numeralNormalizationEnabled).toBe(expected[2]);
+		}
 	});
 
 	test("a project block that omits the field inherits a global false", () => {
@@ -637,7 +724,8 @@ describe("v3 config migration (post-process keys removed in v4)", () => {
 			postProcessContextTurns: 2,
 			postProcessTimeoutMs: 12000,
 			postProcessNoticeShown: true,
-			// Scope-agnostic switch: the project value wins over the global one.
+			// Scope-agnostic switch: the project's explicit value wins over the global one,
+			// except that a machine-wide false is final.
 			punctuationEnabled: true,
 			// Global-only flag: a project file must not be able to silence the notice.
 			punctuationNoticeShown: false,
@@ -647,7 +735,8 @@ describe("v3 config migration (post-process keys removed in v4)", () => {
 
 		expect(result.source).toBe("project");
 		expect(result.config.version).toBe(VOICE_CONFIG_VERSION);
-		expect(result.config.punctuationEnabled).toBe(true);
+		// The global false is final, so the project's explicit true cannot re-enable it.
+		expect(result.config.punctuationEnabled).toBe(false);
 		expect(result.config.punctuationNoticeShown).toBe(true);
 		for (const key of [
 			"postProcessEnabled",
