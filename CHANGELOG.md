@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.3] - 2026-10-18
+
 ### Added
 
 - **Upstream tracking.** `bun run compat:upstream [<version>|latest]` typechecks the extension against any
