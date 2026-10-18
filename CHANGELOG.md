@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **The declared `ws` range is now `^8.22.0`, and this repository's own install pins the vulnerable
+  transitives.** The runtime floor moves off the floating `^8`, so an npm or git install cannot land below the
+  patched line, while a new `overrides` block fixes `protobufjs` at `^7.6.6`, `@protobufjs/utf8` at `^1.1.2` and
+  `ws` at the declared range. The development tree had carried a protobufjs remote-code-execution advisory and
+  a duplicated `ws` copy of 8.19.0, both reachable only through the pinned Pi packages; a consumer of this
+  extension sees nothing except the raised floor.
+
 ## [0.4.4] - 2026-10-18
 
 ### Fixed
