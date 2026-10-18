@@ -60,6 +60,25 @@ describe("cleanTranscript — numerals inside identifiers", () => {
 		expect(cleanTranscript("w 三点十", ON).text).toBe("w 三点十");
 	});
 
+	test("refuses a trailing shorthand rather than reading it positionally", () => {
+		// `一百二` is 120 and `一万五` is 15000; a place-by-place reading would write 102 and 10005.
+		expect(cleanTranscript("h 一百二", ON).text).toBe("h 一百二");
+		expect(cleanTranscript("h 一万五", ON).text).toBe("h 一万五");
+		// The exact readings around the same units still convert, so the refusal stays narrow.
+		expect(cleanTranscript("bf 十六", ON).text).toBe("bf16");
+		expect(cleanTranscript("h 十五", ON).text).toBe("h15");
+		expect(cleanTranscript("h 一百零二", ON).text).toBe("h102");
+		expect(cleanTranscript("h 一百二十", ON).text).toBe("h120");
+		expect(cleanTranscript("h 一千零一", ON).text).toBe("h1001");
+		expect(cleanTranscript("h 一万二千", ON).text).toBe("h12000");
+	});
+
+	test("reports the conversion it applied", () => {
+		const result = cleanTranscript("k 八 s", ON);
+		expect(result.status).toBe("applied");
+		expect(result.numeralsConverted).toBe(1);
+	});
+
 	test("leaves Chinese prose, long Latin words and existing digits alone", () => {
 		expect(cleanTranscript("统一口径", ON).text).toBe("统一口径");
 		expect(cleanTranscript("四卡 h200 部署", ON).text).toBe("四卡 h200 部署");
@@ -77,6 +96,11 @@ describe("cleanTranscript — switches and invariants", () => {
 	test("each switch only touches its own class", () => {
 		expect(cleanTranscript("呃 k 八 s", { fillers: true, numerals: false }).text).toBe("k 八 s");
 		expect(cleanTranscript("呃 k 八 s", { fillers: false, numerals: true }).text).toBe("呃 k8s");
+	});
+
+	test("fillers are removed before the numeral rule runs", () => {
+		// The other order would stop the numeral rule binding and leave `k 八 s` behind.
+		expect(cleanTranscript("k 呃 八 s", ON).text).toBe("k8s");
 	});
 
 	test("both switches off leaves the text alone and reports off", () => {

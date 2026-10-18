@@ -7,7 +7,7 @@
  * fillers comes back exactly as it was dictated (invariant 2, because an empty editor is worse than
  * a noisy one).
  *
- * Spec: docs/superpowers/specs/2026-10-18-transcript-cleanup-design.md §4.1–§4.2.
+ * Spec: docs/superpowers/specs/2026-10-18-transcript-cleanup-design.md §4.1–§4.3.
  */
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -150,6 +150,12 @@ const WAN = 10_000;
 /** The unit characters and their magnitudes. */
 const UNIT_VALUES: Record<string, number> = { 十: 10, 百: 100, 千: 1000, 万: WAN };
 
+/** The units a spoken digit may trail, where the trailing digit is not the last place's digit. */
+const TRAILING_SHORTHAND_UNITS = new Set([..."百千万"]);
+
+/** `一`…`九`: the digits that can be spoken as a trailing shorthand. A trailing `零` is not one. */
+const SPOKEN_DIGITS = new Set([..."一二三四五六七八九"]);
+
 /** A token the numeral rule may bind to: Latin letters and digits, nothing else (`h200` is one). */
 const LATIN_TOKEN = /^[A-Za-z0-9]+$/;
 
@@ -184,6 +190,9 @@ function readWholeNumber(part: string): string | undefined {
  * The run is a total (everything already closed by a `万`), a group of at most four places, and a
  * digit still waiting for its unit. A unit with no digit in front of it counts as `一`, which is how
  * `十六` is spoken and why `十` alone reads as `10`.
+ *
+ * The trailing shorthand of `一百二` and `一万五` never reaches this accumulation — it would answer 102
+ * and 10005 for a spoken 120 and 15000 — because `hasTrailingShorthand` refuses that run beforehand.
  */
 function readValue(chars: readonly string[]): string | undefined {
 	let total = 0;
@@ -220,14 +229,33 @@ function decimalPoints(run: string): number {
 }
 
 /**
+ * True when the run ends in the spoken shorthand: a digit sitting directly behind `百`, `千` or `万`.
+ *
+ * `一百二` is 120 and `一万五` is 15000, so a place-by-place reading would write 102 and 10005 — a
+ * number the speaker never said. The exact shapes around the same units stay readable and must not be
+ * refused with it: a digit behind `十` is the standard reading (`十六` is 16), and a digit behind a
+ * `零` or a `十` is too (`一百零二`, `一百二十`). Only the one adjacency is ambiguity, so only it is
+ * refused — the whole run goes back as it was dictated (invariant 4, refuse rather than guess).
+ */
+function hasTrailingShorthand(run: string): boolean {
+	const chars = Array.from(run);
+	const last = chars[chars.length - 1];
+	const before = chars[chars.length - 2];
+	return last !== undefined && SPOKEN_DIGITS.has(last) && before !== undefined && TRAILING_SHORTHAND_UNITS.has(before);
+}
+
+/**
  * Read one numeral run into Arabic form, or `undefined` when the shape cannot be read.
  *
  * The characters decide the reading: a run without a unit is a digit sequence and keeps its leading
  * zeros (`零二` → `02`, which is what `a 零二上` needs), a run with a unit is a value (`十六` →
  * `16`). Everything after the first `点` is a decimal part, and a unit inside one (`三点十`) is
- * refused rather than guessed at.
+ * refused rather than guessed at — as is a run ending in the trailing shorthand (`一百二`, `一万五`),
+ * which `hasTrailingShorthand` explains.
  */
 function readNumeralRun(run: string): string | undefined {
+	if (hasTrailingShorthand(run)) return undefined;
+
 	const parts: string[] = [];
 	let part = "";
 	for (const ch of run) {
@@ -256,7 +284,12 @@ function readNumeralRun(run: string): string | undefined {
 	return [whole, ...fractions].join(".");
 }
 
-/** True when `piece` is a token the rule may bind to: one to four Latin letters and/or digits. */
+/**
+ * True when `piece` is a token the rule may bind to: one to four Latin letters and/or digits.
+ *
+ * An empty piece — what a doubled separator leaves beside a run — is not a token, which is why
+ * `a  八  b` keeps its numeral: the refusal is the binding invariant working, not a whitespace bug.
+ */
 function isBindableToken(piece: string): boolean {
 	return piece.length > 0 && piece.length <= LATIN_TOKEN_MAX && LATIN_TOKEN.test(piece);
 }
@@ -298,7 +331,13 @@ function convertIdentifierNumerals(text: string): NumeralPass {
 	}
 }
 
-/** One left-to-right sweep of the numeral rule; a sweep can leave a run for the next one to license. */
+/**
+ * One left-to-right sweep of the numeral rule; a sweep can leave a run for the next one to license.
+ *
+ * Pieces are cut at single ASCII spaces only, so a doubled space leaves an empty piece beside the run
+ * and no conversion happens (`a  八  b` is handed back verbatim). That is a deliberate,
+ * invariant-safe refusal of an unbound shape — not a whitespace bug to repair.
+ */
 function convertNumeralsOnce(text: string): NumeralPass {
 	const pieces = text.split(SPACE);
 	const rewritten = pieces.map((piece) => piece);
