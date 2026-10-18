@@ -114,3 +114,72 @@ describe("Pi dependency support", () => {
 		expect(bunLock).toMatch(new RegExp(`"workspaces": \\{\\s*"": \\{\\s*"name": "${name}"`));
 	});
 });
+
+// The three packages the security overrides exist for. `ws` is the only one a
+// consumer receives; the other two arrive through the pinned Pi dev baseline.
+const GUARDED_PACKAGES = ["protobufjs", "@protobufjs/utf8", "ws"] as const;
+
+function escapeRegExp(value: string): string {
+	return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/** Every version `package-lock.json` resolved for this package, nested copies included. */
+function npmResolutions(npmLock: Record<string, unknown>, packageName: string): string[] {
+	const packages = (npmLock.packages ?? {}) as Record<string, { version?: string }>;
+	return Object.entries(packages)
+		.filter(([path]) => path === `node_modules/${packageName}` || path.endsWith(`/node_modules/${packageName}`))
+		.map(([, info]) => info.version ?? "");
+}
+
+/** Every version `bun.lock` resolved for this package, read from its flat package table. */
+function bunResolutions(bunLock: string, packageName: string): string[] {
+	const name = escapeRegExp(packageName);
+	const pattern = new RegExp(`"${name}": \\["${name}@([0-9][^"]*)"`, "g");
+	return [...bunLock.matchAll(pattern)].map((match) => match[1]);
+}
+
+describe("security override invariants", () => {
+	const manifest = readJson("package.json");
+	const overrides = (manifest.overrides ?? {}) as Record<string, string>;
+	const npmLock = readJson("package-lock.json");
+	const bunLock = readFileSync("bun.lock", "utf8");
+
+	/** The range that actually governs this package: a literal override, else the direct dependency. */
+	function declaredRange(packageName: string): string | undefined {
+		const override = overrides[packageName];
+		if (typeof override === "string" && !override.startsWith("$")) {
+			return override;
+		}
+		return manifest.dependencies?.[packageName];
+	}
+
+	for (const packageName of GUARDED_PACKAGES) {
+		test(`${packageName} resolves to exactly one version in each lockfile`, () => {
+			// A second copy is the regression that a stale generator or a dropped
+			// override produces, and `npm ci` accepts it silently.
+			expect(npmResolutions(npmLock, packageName)).toHaveLength(1);
+			expect(bunResolutions(bunLock, packageName)).toHaveLength(1);
+		});
+	}
+
+	test("both lockfiles agree on the guarded packages", () => {
+		for (const packageName of GUARDED_PACKAGES) {
+			const [npmVersion] = npmResolutions(npmLock, packageName);
+			const [bunVersion] = bunResolutions(bunLock, packageName);
+			expect(npmVersion).toBeTruthy();
+			expect(npmVersion).toBe(bunVersion);
+		}
+	});
+
+	test("the guarded packages stay inside the ranges package.json declares", () => {
+		for (const packageName of GUARDED_PACKAGES) {
+			const range = declaredRange(packageName);
+			expect(range).toBeTruthy();
+
+			const [npmVersion] = npmResolutions(npmLock, packageName);
+			const [bunVersion] = bunResolutions(bunLock, packageName);
+			expect(Bun.semver.satisfies(npmVersion, range as string)).toBe(true);
+			expect(Bun.semver.satisfies(bunVersion, range as string)).toBe(true);
+		}
+	});
+});
