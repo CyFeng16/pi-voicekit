@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.4] - 2026-10-18
+
+### Fixed
+
+- **Segments no longer meet with a space where a Chinese sentence was cut.** Long audio is cut into
+  segments at pauses, and the decoded pieces were stitched with a single space, so a dictation could come
+  back as `是 什么时候` / `一个 类似于 的 平台` whenever the cut landed inside a sentence. Stitching now
+  follows the rule the polish spec states — no separator when both sides of a boundary are CJK, one space
+  otherwise — on the local segment join and on both Deepgram paths (`0.4.2` and current `main` both
+  shipped the space). Reproduced on 35 s of Chinese with two 1.4 s pauses: two join spaces before, none after.
+
 ## [0.4.3] - 2026-10-18
 
 ### Added
