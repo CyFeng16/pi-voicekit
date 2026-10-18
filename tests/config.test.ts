@@ -392,7 +392,7 @@ describe("saveGlobalVoiceFields", () => {
 	});
 });
 
-describe("punctuation config (scope-agnostic, default true)", () => {
+describe("punctuation and cleanup switches (scope-agnostic, default true)", () => {
 	test("defaults to enabled", () => {
 		const cwd = makeTempDir();
 		const result = loadConfigWithSource(cwd, { agentDir: path.join(cwd, "agent-home") });
@@ -409,15 +409,28 @@ describe("punctuation config (scope-agnostic, default true)", () => {
 		expect(result.config.punctuationEnabled).toBe(false);
 	});
 
-	test("a project block overrides the global value", () => {
+	test("a global false beats a project block that re-enables the field", () => {
 		const cwd = makeTempDir();
 		const agentDir = path.join(cwd, "agent-home");
-		writeSettings(agentDir, "settings.json", { version: 3, punctuationEnabled: false });
-		writeSettings(cwd, ".pi/settings.json", { version: 3, punctuationEnabled: true });
+		writeSettings(agentDir, "settings.json", { version: 4, punctuationEnabled: false });
+		writeSettings(cwd, ".pi/settings.json", { version: 4, punctuationEnabled: true });
 
 		const result = loadConfigWithSource(cwd, { agentDir });
 		expect(result.source).toBe("project");
-		expect(result.config.punctuationEnabled).toBe(true);
+		expect(result.config.punctuationEnabled).toBe(false);
+	});
+
+	test("the cleanup switches default to true and follow the same rule", () => {
+		const cwd = makeTempDir();
+		const agentDir = path.join(cwd, "agent-home");
+		const inherited = loadConfigWithSource(cwd, { agentDir });
+		expect(inherited.config.fillerRemovalEnabled).toBe(true);
+		expect(inherited.config.numeralNormalizationEnabled).toBe(true);
+
+		writeSettings(agentDir, "settings.json", { version: 4, fillerRemovalEnabled: false });
+		writeSettings(cwd, ".pi/settings.json", { version: 4, fillerRemovalEnabled: true });
+		const tightened = loadConfigWithSource(cwd, { agentDir });
+		expect(tightened.config.fillerRemovalEnabled).toBe(false);
 	});
 
 	test("a project block that omits the field inherits a global false", () => {
@@ -637,7 +650,8 @@ describe("v3 config migration (post-process keys removed in v4)", () => {
 			postProcessContextTurns: 2,
 			postProcessTimeoutMs: 12000,
 			postProcessNoticeShown: true,
-			// Scope-agnostic switch: the project value wins over the global one.
+			// Scope-agnostic switch: the project's explicit value wins over the global one,
+			// except that a machine-wide false is final.
 			punctuationEnabled: true,
 			// Global-only flag: a project file must not be able to silence the notice.
 			punctuationNoticeShown: false,
@@ -647,7 +661,8 @@ describe("v3 config migration (post-process keys removed in v4)", () => {
 
 		expect(result.source).toBe("project");
 		expect(result.config.version).toBe(VOICE_CONFIG_VERSION);
-		expect(result.config.punctuationEnabled).toBe(true);
+		// The global false is final, so the project's explicit true cannot re-enable it.
+		expect(result.config.punctuationEnabled).toBe(false);
 		expect(result.config.punctuationNoticeShown).toBe(true);
 		for (const key of [
 			"postProcessEnabled",
