@@ -202,9 +202,14 @@ function readValue(chars: readonly string[]): string | undefined {
 	for (const ch of chars) {
 		const unit = UNIT_VALUES[ch];
 		if (unit !== undefined) {
-			if (seenUnits.has(ch) || unit > previousUnit || previous === "零") return undefined;
+			if (seenUnits.has(ch) || previous === "零") return undefined;
+			// `万` closes the four-place group, so the group-level comparison restarts behind it:
+			// `二十万` is a group of 二十 followed by a new one, not an increase from `十` to `万`.
+			// Inside a group the units still have to fall (`一百二千` stays refused), and `万`
+			// itself still may not repeat — `seenUnits` carries that across the reset.
+			if (unit !== WAN && unit > previousUnit) return undefined;
 			seenUnits.add(ch);
-			previousUnit = unit;
+			previousUnit = unit === WAN ? Infinity : unit;
 		} else if (ARABIC_DIGITS[previous] !== undefined && previous !== "零") {
 			return undefined;
 		}
@@ -330,7 +335,8 @@ interface NumeralPass {
  *
  * The passes repeat until nothing changes, because a restored digit is a token in its own right and
  * can license the run it left behind: `a 八 零二` is `a802` and `kubernetes 八 八 a` is
- * `kubernetes 88a`. That fixed point is what makes a second call a no-op (spec §5.2's idempotence),
+ * `kubernetes 八 8a` — the right-hand token must be the single character `a`, so the first `八`
+ * keeps its spoken form. That fixed point is what makes a second call a no-op (spec §5.2's idempotence),
  * and the loop ends because every pass that changes anything deletes a numeral character for good.
  */
 function convertIdentifierNumerals(text: string): NumeralPass {

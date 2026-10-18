@@ -87,6 +87,22 @@ describe("cleanTranscript — numerals inside identifiers", () => {
 		expect(cleanTranscript(input, ON).text).toBe(input);
 	});
 
+	test.each([
+		["h 二十万", "h200000"],
+		["h 十万", "h100000"],
+		["h 一百万", "h1000000"],
+		["h 十二万", "h120000"],
+		["h 一百二十万", "h1200000"],
+		["h 三千万", "h30000000"],
+		["h 一千二百万", "h12000000"],
+		["h 十二万三千", "h123000"],
+		["h 二十万零五", "h200005"],
+	])("reads a group of four places closed by `万`: %s", (input, expected) => {
+		// `万` starts a new group, so `十 → 万` is not an increasing unit; the four-place group
+		// before it still has to fall, which is what keeps `h 一百二千` refused by the test above.
+		expect(cleanTranscript(input, ON).text).toBe(expected);
+	});
+
 	test("refuses a trailing shorthand rather than reading it positionally", () => {
 		// `一百二` is 120 and `一万五` is 15000; a place-by-place reading would write 102 and 10005.
 		expect(cleanTranscript("h 一百二", ON).text).toBe("h 一百二");
