@@ -110,7 +110,7 @@ not shipped tooling), 4 threads, CPU:
 | Chinese punctuation F1 | 0.000 → 0.811 on 70 uttered samples with punctuated references |
 | English punctuation F1 | 0.000 → 0.175; the output is a Chinese full stop and no commas |
 | Marks-only safety | 70/70 rows unchanged after stripping the mark set |
-| Mixed Chinese + English terms | the model's raw output is **not** marks-only: `base_url` → `base _ url`, CJK-boundary spaces move, `可行，` → `可行，，` — which is why the shipped step splices the model's marks into the recogniser's own string and refuses any output that alters a non-mark character |
+| Mixed Chinese + English terms | the model's raw output is **not** marks-only: `base_url` → `base _ url`, CJK-boundary spaces move, `可行，` → `可行，，` — which is why the shipped step splices the model's marks into the string it is given (the cleaned transcript, not the recogniser's raw output) and refuses any output that alters a non-mark character |
 | Timing | one-time load 544 ms; `addPunct` p50 2.9 ms / p95 3.1 ms / max 3.4 ms on 27–32 character inputs |
 | Reference punctuation density | AISHELL-4 reference transcripts measure 1 mark per 17.3 characters (11,139 marks / 192,491 characters); the step punctuates below 1 mark per 20 characters |
 

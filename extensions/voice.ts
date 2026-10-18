@@ -1696,7 +1696,9 @@ export default function (pi: ExtensionAPI) {
 					const isLocal = config.backend === "local";
 					// Offline punctuation (spec §4.3–§4.6): one synchronous, marks-only step over the
 					// transcript that is about to be written. It decides from the text alone, never waits
-					// for a download or a load, and leaves the text unchanged on any failure. Only the
+					// for a download or a load, and leaves the text unchanged when the punctuation step
+					// fails — the transcript itself was already cleaned before this call, so a failure
+					// here returns the cleaned but unpunctuated text, never the raw one. Only the
 					// transcript is punctuated — the prefix is the user's own editor text.
 					const punctuatedText = punctuateTranscript(fullText);
 					const finalText = prefix + punctuatedText;
@@ -1813,7 +1815,7 @@ export default function (pi: ExtensionAPI) {
 						} // end else (agent not busy)
 					}
 
-					addToHistory(fullText, parseFloat(elapsed), "hold");
+					addToHistory(punctuatedText, parseFloat(elapsed), "hold");
 				}
 				playSound("stop");
 				// Full state reset on successful completion

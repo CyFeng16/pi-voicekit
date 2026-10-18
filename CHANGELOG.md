@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **`/voice history` records the transcript that was written, not the one the recogniser produced.** The cleanup
+  stage lands between the recogniser and the editor, so the two had drifted: the editor showed the cleaned text
+  while the history entry held the raw output, complete with the fillers the step removes and the Chinese numerals
+  it restores. The history entry now stores the cleaned, punctuated transcript.
+
 ## [0.5.0] - 2026-10-18
 
 ### Added

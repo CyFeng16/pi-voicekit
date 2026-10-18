@@ -198,7 +198,7 @@ it did not, and the state of the model.
 | `/voice on` / `off`      | Enable or disable voice                                   |
 | `/voice dictate`         | Continuous dictation (no key hold)                        |
 | `/voice stop`            | Stop active recording or dictation                        |
-| `/voice history`         | Recent transcriptions                                     |
+| `/voice history`         | Recent transcriptions, as written to the editor           |
 | `/voice`                 | Toggle on/off                                             |
 
 ### v7.1 keyboard
