@@ -180,11 +180,11 @@ punctuation fails at any point — the step is fail-open, so "no punctuation" al
 "nothing was inserted", never "text was lost".
 
 The model is downloaded the first time a dictation needs it (~285 MB), and that first
-dictation comes back unchanged while the download starts in the background. Once the
+dictation gets no mark added while the download starts in the background. Once the
 download has completed, verified against its digest and the engine has been constructed —
-any of which can fail — later qualifying dictations are punctuated; until then they come
-back unchanged, and `/voice-punctuation status` reports the state. On a fresh install this
-is the usual explanation.
+any of which can fail — later qualifying dictations are punctuated; until then they get no
+mark added, and `/voice-punctuation status` reports the state. On a fresh install this is
+the usual explanation.
 
 ### Fix
 
@@ -216,7 +216,9 @@ Either:
 2. Inspect both files:
    - `~/.pi/agent/settings.json` (global)
    - `<project>/.pi/settings.json` (project)
-3. Project settings override global settings
+3. Project settings override global settings — with one exception: a machine-wide `false`
+   for `punctuationEnabled`, `fillerRemovalEnabled` or `numeralNormalizationEnabled` is
+   final, so no project block can turn that step back on
 
 ## Debug logging
 

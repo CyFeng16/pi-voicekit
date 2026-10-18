@@ -141,17 +141,17 @@ See your hardware profile (RAM, CPU, GPU), dependency status (sherpa-onnx runtim
 Not a tab: punctuation is an automatic step between the recogniser and the editor,
 on by default. When a transcript contains Chinese and is essentially unpunctuated
 (fewer than one mark per 20 characters), an in-process model inserts full stops,
-commas and question marks. It can only **insert** marks — every other byte of the
-transcript is preserved — and any problem leaves the text with no mark added. English is
+commas and question marks. It can only **insert** marks — every other byte of the text it
+is given is preserved — and any problem leaves the text with no mark added. English is
 not supported (the model measured F1 0.175 on English), and a transcript whose
 punctuation is already dense enough — one mark per 20 characters or more — is left alone;
 a sparser one is punctuated even if it carries a mark or two.
 
 The model is a one-time ~285 MB download, fetched in the background the first time a
-dictation needs it: that first dictation comes back unchanged while the download starts.
+dictation needs it: that first dictation gets no mark added while the download starts.
 Once the download has completed, verified against its digest and the engine has been
 constructed — any of which can fail — later qualifying dictations are punctuated; until
-then they come back unchanged, and `/voice-punctuation status` reports the state. The
+then they get no mark added, and `/voice-punctuation status` reports the state. The
 switch is the `punctuationEnabled` setting (a `settings.json` field, on by default — the
 panel has no row for it), and `/voice-punctuation status` shows whether the step ran, why
 it did not, and the state of the model.
@@ -426,12 +426,13 @@ Hold-to-talk delay defaults to **700 ms** (`/voice-hold-delay` accepts 200–300
 ### Punctuation
 
 Punctuation is automatic and on by default. When a dictation finishes, the transcript
-is punctuated locally if the text contains Chinese and its punctuation density is below
-one mark per 20 characters; the recogniser's output is otherwise untouched. Nothing
-leaves your machine: the model runs in process, and the only network traffic is the
-one-time download of the model itself. English is not supported in this version, and
-English text is skipped by the same rule. A transcript the rule declines gets no mark
-added, and neither does any transcript whose punctuation fails at any point.
+is cleaned first — see the cleanup switches in the table below — then punctuated locally
+if the text contains Chinese and its punctuation density is below one mark per 20
+characters; the step only inserts marks and changes nothing else. Nothing leaves your
+machine: the model runs in process, and the only network traffic is the one-time
+download of the model itself. English is not supported in this version, and English text
+is skipped by the same rule. A transcript the rule declines gets no mark added, and
+neither does any transcript whose punctuation fails at any point.
 
 Both engines stay resident for the session: the recogniser as before, and the punctuation engine
 built when a session starts, so no dictation waits for it (measured 0.2 ms for the call, engine
@@ -440,12 +441,12 @@ first session fetches it: 285 MB on disk, and roughly 300 MB of memory per engin
 machine — 292 MB for punctuation, 316 MB for the `paraformer-zh` recogniser. See
 [Engine residency](docs/BENCHMARKS.md#engine-residency) for the numbers.
 
-| Setting                       | Scope              | Default | Notes                                                                         |
-| ----------------------------- | ------------------ | ------- | ----------------------------------------------------------------------------- |
-| `punctuationEnabled`          | global and project | `true`  | Runs the offline punctuation step on qualifying transcripts.                  |
-| `fillerRemovalEnabled`        | global and project | `true`  | Removes the filler particles `呃` and `嗯` from a finished transcript.        |
-| `numeralNormalizationEnabled` | global and project | `true`  | Restores digits in spoken identifiers (`k 八 s` → `k8s`, `bf 十六` → `bf16`). |
-| `punctuationNoticeShown`      | global only        | `false` | Machine-local bookkeeping for the one-time upgrade notice.                    |
+| Setting                       | Scope              | Default | Notes                                                                                                                              |
+| ----------------------------- | ------------------ | ------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| `punctuationEnabled`          | global and project | `true`  | Runs the offline punctuation step on qualifying transcripts.                                                                       |
+| `fillerRemovalEnabled`        | global and project | `true`  | Removes the filler particles `呃` and `嗯` from a finished transcript.                                                               |
+| `numeralNormalizationEnabled` | global and project | `true`  | Restores digits in spoken identifiers (`k 八 s` → `k8s`, `bf 十六` → `bf16`) and in a bare multi-point version (`零点九九点一` → `0.99.1`). |
+| `punctuationNoticeShown`      | global only        | `false` | Machine-local bookkeeping for the one-time upgrade notice.                                                                         |
 
 All three switches resolve the same way. A machine-wide `false` is final: no project
 block can turn the step back on, even one that saved `true` before the global value was
@@ -459,15 +460,17 @@ The first project-scope save writes the values the config resolved to — includ
 inherited ones — into the repository's `.pi/settings.json`, so all three keys become
 concrete booleans there. That pins the project value; it does not exempt the repository
 from a later machine-wide `false`, which still applies everywhere.
-`/voice-punctuation status` prints the punctuation switch state, whether the model is downloaded and
-digest-verified, and what the step decided on the last dictation of the session. The model
-lives in `~/.pi/models/punct-ct-transformer-zh-en/`, appears in the Downloaded tab like any
-other download, and selecting that row does not make it a recogniser. The step writes
-one metadata-only `voice-punctuation` entry per dictation — no transcript text — so a decision is
-fact; under `PI_VOICE_DEBUG` it also logs one line per dictation with the character count, marks
-before and after, the gate, the reason when it did not run, and the
-elapsed time. The removed `postProcess*` keys from older releases are ignored when
-loading — never migrated, and left in place when the settings file is saved.
+
+`/voice-punctuation status` prints the punctuation switch state, whether the model is
+downloaded and digest-verified, and what the step decided on the last dictation of the
+session. The model lives in `~/.pi/models/punct-ct-transformer-zh-en/`, appears in the
+Downloaded tab like any other download, and selecting that row does not make it a
+recogniser. The step writes one metadata-only `voice-punctuation` entry per dictation — no
+transcript text — so a decision is fact; under `PI_VOICE_DEBUG` it also logs one line per
+dictation with the character count, marks before and after, the gate, the reason when it
+did not run, and the elapsed time. The removed `postProcess*` keys from older releases
+are ignored when loading — never migrated, and left in place when the settings file is
+saved.
 
 ---
 
