@@ -20,6 +20,11 @@ const MANIFEST = {
 		prettier: "3.3.3",
 	},
 	optionalDependencies: { "sherpa-onnx-node": "^1.13.0" },
+	overrides: {
+		protobufjs: "^7.6.6",
+		"@protobufjs/utf8": "^1.1.2",
+		ws: "$ws",
+	},
 };
 
 test("parseArgs defaults to the latest upstream release", () => {
@@ -75,6 +80,7 @@ test("applyTargetVersions keeps peer ranges and unrelated fields untouched", () 
 	expect(patched.devDependencies.prettier).toBe("3.3.3");
 	expect(patched.scripts).toEqual(MANIFEST.scripts);
 	expect(patched.optionalDependencies).toEqual(MANIFEST.optionalDependencies);
+	expect(patched.overrides).toBeUndefined();
 });
 
 test("applyTargetVersions leaves the input manifest alone", () => {

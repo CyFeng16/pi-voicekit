@@ -53,9 +53,13 @@ export function resolveTargetSpec(target) {
 	return match[1];
 }
 
-/** Copy of `manifest` with both host packages pinned to `spec`; peers stay `*`. */
+/**
+ * Copy of `manifest` with both host packages pinned to `spec`; peers stay `*` and the repository's own
+ * `overrides` are dropped, because the probe tree has to model what upstream Pi itself resolves.
+ */
 export function applyTargetVersions(manifest, spec) {
 	const patched = structuredClone(manifest);
+	delete patched.overrides;
 	patched.devDependencies = { ...(patched.devDependencies ?? {}) };
 	for (const name of HOST_PACKAGES) patched.devDependencies[name] = spec;
 	return patched;

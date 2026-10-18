@@ -56,13 +56,18 @@
     "@earendil-works/pi-tui": "*"
   },
   "dependencies": {
-    "ws": "^8"
+    "ws": "^8.22.0"
   },
   "devDependencies": {
     "@earendil-works/pi-coding-agent": "^0.87.1",
     "@earendil-works/pi-tui": "^0.87.1",
     "@types/ws": "^8",
     "prettier": "3.3.3"
+  },
+  "overrides": {
+    "protobufjs": "^7.6.6",
+    "@protobufjs/utf8": "^1.1.2",
+    "ws": "$ws"
   },
   "pi": {
     "extensions": [
