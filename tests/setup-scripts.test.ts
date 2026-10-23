@@ -4,12 +4,13 @@ import { readFileSync } from "node:fs";
 const read = (path: string) => readFileSync(path, "utf8");
 
 describe("documentation", () => {
-	test("README mentions Deepgram setup", () => {
+	test("README sells a local-only product", () => {
 		const readme = read("README.md");
-		expect(readme).toContain("DEEPGRAM_API_KEY");
-		expect(readme).toContain("dpgr.am/pi-voice");
-		expect(readme).toContain("/voice test");
+		expect(readme).not.toMatch(/DEEPGRAM_API_KEY|dpgr\.am|api\.deepgram\.com/);
 		expect(readme).toContain("/voice-settings");
+		expect(readme).toContain("/voice test");
+		expect(readme.toLowerCase()).toContain("never leaves");
+		expect(readme).toContain("active local model");
 	});
 
 	test("README documents audio fallback chain", () => {

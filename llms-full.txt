@@ -3,11 +3,10 @@
 > Entry point for AI assistants working with the pi-voicekit codebase.
 
 This file used to inline architecture notes, a file reference, command tables and key
-constants. That content was **removed** here: it had drifted — it still described the
-v5.x-era design (Deepgram-only STT, four modules, no TTS, no offline models) — and it
-duplicated `README.md`, which is the maintained source. A stale second copy is worse
-than a link to the real one, so this file now carries only what is stable and points at
-the rest.
+constants. That content was **removed** here: it had drifted — it described a superseded
+design (one cloud recogniser, four modules, no TTS, no offline models) — and it duplicated
+`README.md`, which is the maintained source. A stale second copy is worse than a link to the
+real one, so this file carries only what is stable and points at the rest.
 
 ## Package identity
 
@@ -16,16 +15,36 @@ the rest.
 - **GitHub:** https://github.com/CyFeng16/pi-voicekit
 - **License:** MIT
 - **Type:** Pi coding agent extension (`pi-package`), TypeScript, Bun toolchain
-- **STT:** Deepgram (cloud, WebSocket streaming) or local offline models
-- **TTS:** local (Kitten / Piper / Kokoro) or Deepgram Aura (cloud)
-
+- **Positioning:** local-only since 0.6.0 — every cloud backend removed from the code
+- **STT:** 21 offline models, recognised in process by sherpa-onnx (batch, not streaming)
+- **TTS:** 20 offline models (Kitten, Kokoro, Piper), synthesised in process
+- **Punctuation:** in-process `punct-ct-transformer-zh-en`, marks-only, Chinese only
 - **Languages:** Chinese, English and mixed Chinese–English (supported and validated); every other language in the catalogue is unvalidated
+
+## Privacy in one paragraph
+
+No audio is transmitted off the machine. Capture, recognition, punctuation and synthesis run
+inside the Pi process; playback writes a temp WAV (mode `0600`) and hands it to a local
+player, then deletes it — which is why the claim is about transmission, not about the
+process boundary. `tests/no-cloud-egress.test.ts` enforces the part that can be checked: no
+module imports the removed WebSocket transport, names a retired vendor identifier or host,
+or calls `fetch` outside `model-download.ts` and `tts-local-models.ts`. The one outbound step
+is model download, once, from HuggingFace or GitHub releases. Upgrading from 0.5.x erases the
+retired credential fields from `settings.json` on the first start and no longer reads an API
+key from the environment; `SECURITY.md` names those fields exactly.
 
 ## Authoritative sources
 
-- [README](https://github.com/CyFeng16/pi-voicekit/blob/main/README.md): current behaviour, setup, features, full command table
+- [README](https://github.com/CyFeng16/pi-voicekit/blob/main/README.md): current behaviour, setup, features, privacy section, full command table
 - [CHANGELOG](https://github.com/CyFeng16/pi-voicekit/blob/main/CHANGELOG.md): release history
+- [SECURITY.md](https://github.com/CyFeng16/pi-voicekit/blob/main/SECURITY.md): threat model, scope, design principles
 - [AGENTS.md](https://github.com/CyFeng16/pi-voicekit/blob/main/AGENTS.md): repository rules for coding agents — language policy, gates, release policy
 - [llms.txt](https://github.com/CyFeng16/pi-voicekit/blob/main/llms.txt): the short index for this repository
 
 When this file disagrees with any of those, they win.
+
+## Historical notes
+
+- `docs/v6.0.0-tts-plan.md`, `docs/v7.0.0-tts-plan.md` and `docs/v7.1.0-ui-plan.md` are
+  archived design documents. They describe the cloud TTS backend as it existed when they were
+  written; 0.6.0 removed it. Read them for the reasoning, not for current behaviour.
