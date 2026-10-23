@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.1] - 2026-10-24
+
+### Fixed
+
+- **Settings paths now come from Pi instead of being hardcoded.** The extension looked for
+  `settings.json` under `~/.pi/agent` regardless of which agent directory Pi was actually using, and
+  wrote project settings into a literal `.pi` directory. A build run with `PI_CODING_AGENT_DIR` set
+  therefore read and wrote the wrong file. The credential cleanup made that more than cosmetic: it would
+  erase a retired key from a settings file nothing was reading, while leaving the one in use untouched.
+  Both paths now come from Pi itself, so a rebranded build that uses different directory names works
+  without a change here.
+
+  Model files stay under `~/.pi/models`: the override moves Pi's agent directory, not `~/.pi` itself,
+  so that path resolves the same either way, and relocating it would move hundreds of megabytes of
+  downloads.
+
 ## [0.6.0] - 2026-10-23
 
 **This is a breaking release: both cloud backends are gone, and the package is local-only.** Recognition,

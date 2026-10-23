@@ -1,6 +1,6 @@
 {
   "name": "pi-voicekit",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "description": "Voice in + voice out for Pi CLI — local-only hold-to-talk STT for Chinese and English (21 offline models) plus offline TTS (Kitten Nano, Piper, Kokoro); no audio is uploaded to a remote speech service",
   "type": "module",
   "keywords": [
