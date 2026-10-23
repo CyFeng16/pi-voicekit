@@ -4,8 +4,11 @@ import * as os from "node:os";
 import * as path from "node:path";
 import voiceExtension, { safeErrorText } from "../extensions/voice";
 import { resetPunctuationForTest } from "../extensions/voice/punctuation";
+import { CONFIG_DIR_NAME } from "@earendil-works/pi-coding-agent";
 import {
 	DEFAULT_CONFIG,
+	getGlobalSettingsPath,
+	getProjectSettingsPath,
 	loadConfigWithSource,
 	needsOnboarding,
 	saveConfig,
@@ -798,6 +801,56 @@ describe("v5 config migration (the cloud backend fields are gone)", () => {
 	});
 });
 
+describe("agent directory (Pi's config-directory override)", () => {
+	// Pi derives this variable from its product name (PI_CODING_AGENT_DIR for `pi`), so a rebranded
+	// build uses a different one. The extension must ask Pi rather than reimplement the rule.
+	const ENV = "PI_CODING_AGENT_DIR";
+
+	test("follows the override instead of a hardcoded ~/.pi/agent", () => {
+		const previous = process.env[ENV];
+		process.env[ENV] = "/tmp/pi-voicekit-agent-dir-override";
+		try {
+			expect(getGlobalSettingsPath()).toBe("/tmp/pi-voicekit-agent-dir-override/settings.json");
+		} finally {
+			if (previous === undefined) delete process.env[ENV];
+			else process.env[ENV] = previous;
+		}
+	});
+
+	test("defaults to Pi's own agent directory when the override is absent", () => {
+		const previous = process.env[ENV];
+		delete process.env[ENV];
+		try {
+			expect(getGlobalSettingsPath()).toBe(path.join(os.homedir(), CONFIG_DIR_NAME, "agent", "settings.json"));
+		} finally {
+			if (previous !== undefined) process.env[ENV] = previous;
+		}
+	});
+
+	test("the project path uses Pi's config-directory name, not a literal .pi", () => {
+		expect(getProjectSettingsPath("/repo")).toBe(path.join("/repo", CONFIG_DIR_NAME, "settings.json"));
+	});
+
+	test("the startup cleanup scrubs the file Pi is actually using", () => {
+		// End-to-end for the bug this suite exists for: with the override set, the cleanup must land on
+		// that directory's settings.json. If the path were still hardcoded, this would read the real
+		// agent directory, find no retired key there and report nothing removed.
+		const dir = makeTempDir();
+		const settingsPath = path.join(dir, "settings.json");
+		fs.writeFileSync(settingsPath, JSON.stringify({ voice: { deepgramApiKey: "dg_LEGACY" } }, null, 2));
+
+		const previous = process.env[ENV];
+		process.env[ENV] = dir;
+		try {
+			const result = scrubRetiredVoiceKeys(getGlobalSettingsPath());
+			expect(result.removed).toEqual(["deepgramApiKey"]);
+			expect(fs.readFileSync(settingsPath, "utf8")).not.toContain("dg_LEGACY");
+		} finally {
+			if (previous === undefined) delete process.env[ENV];
+			else process.env[ENV] = previous;
+		}
+	});
+});
 describe("scrubRetiredVoiceKeys (the retired credentials are erased on startup)", () => {
 	function writeRaw(dir: string, contents: unknown): string {
 		const settingsPath = path.join(dir, "settings.json");

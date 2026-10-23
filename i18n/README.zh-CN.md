@@ -375,6 +375,10 @@ extensions/voice/sherpa-onnx-node.d.ts      可选原生模块的类型声明
 | 全局   | `~/.pi/agent/settings.json`   |
 | 项目   | `<project>/.pi/settings.json` |
 
+两个路径都跟随 Pi：全局路径位于 Pi 的 agent 目录，因此设置了 `PI_CODING_AGENT_DIR` 的构建会使用
+该目录而不是 `~/.pi/agent`；项目路径使用 Pi 的配置目录名，而不是写死的 `.pi`。模型文件另属一套，
+始终位于 `~/.pi/models` 下。
+
 ```json
 {
 	"voice": {

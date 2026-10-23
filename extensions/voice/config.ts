@@ -1,10 +1,6 @@
 import * as fs from "node:fs";
-import * as os from "node:os";
 import * as path from "node:path";
-
-function getAgentDir(): string {
-	return path.join(os.homedir(), ".pi", "agent");
-}
+import { CONFIG_DIR_NAME, getAgentDir } from "@earendil-works/pi-coding-agent";
 
 export const SETTINGS_KEY = "voice";
 // v4 removed the LLM polish pass and its five `postProcess*` fields; v5 removed the six fields that
@@ -179,7 +175,7 @@ export function getGlobalSettingsPath(options: ConfigPathOptions = {}): string {
 }
 
 export function getProjectSettingsPath(cwd: string): string {
-	return path.join(cwd, ".pi", "settings.json");
+	return path.join(cwd, CONFIG_DIR_NAME, "settings.json");
 }
 
 function normalizeOnboarding(input: any, fallbackCompleted: boolean): VoiceOnboardingState {
