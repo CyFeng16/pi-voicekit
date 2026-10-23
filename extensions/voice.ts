@@ -89,9 +89,7 @@ import {
 	startLocalSession,
 	stopLocalSession,
 	abortLocalSession,
-	checkLocalServer,
 	LOCAL_MODELS,
-	DEFAULT_LOCAL_ENDPOINT,
 	SAMPLE_RATE,
 	CHANNELS,
 	getLanguagesForLocalModel,
@@ -2686,7 +2684,6 @@ export default function (pi: ExtensionAPI) {
 
 				if (isLocal) {
 					lines.push(`    local model:       ${config.localModel || "whisper-small"}`);
-					lines.push(`    local endpoint:    ${config.localEndpoint || DEFAULT_LOCAL_ENDPOINT}`);
 				}
 				lines.push("");
 				lines.push("  Config:");
@@ -2758,15 +2755,7 @@ export default function (pi: ExtensionAPI) {
 					lines.push("    mic capture:       skipped (no audio tool)");
 				}
 
-				if (isLocal && config.localEndpoint) {
-					// External local server connectivity check
-					const serverCheck = await checkLocalServer(config.localEndpoint);
-					if (serverCheck.ok) {
-						lines.push("    local server:      OK (reachable)");
-					} else {
-						lines.push(`    local server:      NOT REACHABLE — ${serverCheck.error || "connection refused"}`);
-					}
-				} else if (isLocal) {
+				if (isLocal) {
 					// In-process sherpa-onnx mode — check module availability
 					try {
 						const { initSherpa, isSherpaAvailable } = await import("./voice/sherpa-engine");
@@ -2785,22 +2774,7 @@ export default function (pi: ExtensionAPI) {
 				// Summary
 				lines.push("");
 				let ready = false;
-				if (isLocal && config.localEndpoint) {
-					const serverOk = (await checkLocalServer(config.localEndpoint)).ok;
-					ready = !!tool && serverOk;
-					if (!tool) {
-						lines.push("  Setup needed — install any one of:");
-						lines.push("    brew install sox       # macOS (recommended)");
-						lines.push("    apt install sox        # Linux");
-					} else if (!serverOk) {
-						lines.push("  Setup needed — start a local transcription server:");
-						lines.push("    whisper.cpp: ./build/bin/whisper-server -m models/ggml-small.bin --port 8080");
-						lines.push("    Or any OpenAI-compatible transcription server");
-					} else {
-						lines.push("  All checks passed — voice is ready!");
-						lines.push(`  Hold SPACE to record, or use ${toggleShortcutLabel} to toggle.`);
-					}
-				} else if (isLocal) {
+				if (isLocal) {
 					// In-process sherpa-onnx mode — no server needed
 					ready = !!tool;
 					if (!tool) {

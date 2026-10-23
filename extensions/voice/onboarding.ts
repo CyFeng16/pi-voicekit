@@ -1,14 +1,6 @@
 import type { ExtensionCommandContext, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { VoiceBackend, VoiceConfig, VoiceSettingsScope } from "./config";
-import {
-	LOCAL_MODELS,
-	DEFAULT_LOCAL_MODEL,
-	DEFAULT_LOCAL_ENDPOINT,
-	checkLocalServer,
-	getLanguagesForLocalModel,
-	type LocalLangEntry,
-	type LocalModelInfo,
-} from "./local";
+import { LOCAL_MODELS, getLanguagesForLocalModel, type LocalLangEntry, type LocalModelInfo } from "./local";
 import {
 	detectDevice,
 	autoRecommendModel,
@@ -486,7 +478,6 @@ export async function runVoiceOnboarding(
 	const selectedBackend: VoiceBackend = backendChoice.includes("Local") ? "local" : "deepgram";
 
 	let localModel = currentConfig.localModel;
-	let localEndpoint: string | undefined = currentConfig.localEndpoint;
 
 	if (selectedBackend === "local") {
 		// ─── Smart local backend setup ───────────────────────
@@ -503,14 +494,12 @@ export async function runVoiceOnboarding(
 			const setupChoice = await ctx.ui.select(`Detected: ${deviceSummary}`, [
 				`Install ${recommended.name} (${recommended.size}) ${fitnessLabel(fitness)} — recommended`,
 				"Choose a different model",
-				"Advanced: use external server",
 			]);
 			if (!setupChoice) return undefined;
 
 			if (setupChoice.startsWith("Install")) {
 				// Accept recommendation — will auto-download on first use
 				localModel = recommended.id;
-				localEndpoint = undefined; // In-process, no server needed
 				ctx.ui.notify(
 					[
 						`Selected: ${recommended.name} (${recommended.size})`,
@@ -526,26 +515,13 @@ export async function runVoiceOnboarding(
 				const picked = await pickLocalModel(ctx, localModel, language);
 				if (!picked) return undefined;
 				localModel = picked.id;
-				localEndpoint = undefined;
 				ctx.ui.notify(`Selected: ${picked.name} (${picked.size})`, "info");
-			} else {
-				// Advanced: external server
-				localEndpoint = await promptServerEndpoint(ctx);
-				if (localEndpoint === undefined) return undefined;
-
-				// Still pick a model for server
-				const modelOptions = LOCAL_MODELS.map((m) => `${m.name} — ${m.size} (${m.notes})`);
-				const modelChoice = await ctx.ui.select("Choose model (for server):", modelOptions);
-				if (!modelChoice) return undefined;
-				const modelIndex = modelOptions.indexOf(modelChoice);
-				localModel = LOCAL_MODELS[modelIndex]?.id || DEFAULT_LOCAL_MODEL;
 			}
 		} else {
 			// No recommendation — show full picker
 			const picked = await pickLocalModel(ctx, localModel, language);
 			if (!picked) return undefined;
 			localModel = picked.id;
-			localEndpoint = undefined;
 		}
 	} else {
 		// ─── Deepgram backend setup (unchanged logic) ────────
@@ -675,7 +651,7 @@ export async function runVoiceOnboarding(
 	const selectedModel = LOCAL_MODELS.find((m) => m.id === localModel);
 	const backendLabel =
 		selectedBackend === "local"
-			? `Local — ${selectedModel?.name || localModel}${localEndpoint ? ` at ${localEndpoint}` : " (in-process)"}`
+			? `Local — ${selectedModel?.name || localModel} (in-process)`
 			: "Deepgram Nova-3 (streaming)";
 
 	const summaryLines = [
@@ -699,7 +675,6 @@ export async function runVoiceOnboarding(
 			scope: selectedScope,
 			backend: selectedBackend,
 			localModel: selectedBackend === "local" ? localModel : currentConfig.localModel,
-			localEndpoint: selectedBackend === "local" ? localEndpoint : currentConfig.localEndpoint,
 			onboarding: {
 				...currentConfig.onboarding,
 				completed: false,
@@ -708,32 +683,4 @@ export async function runVoiceOnboarding(
 			},
 		},
 	};
-}
-
-/** Prompt for external server URL. Returns undefined if cancelled. */
-async function promptServerEndpoint(ctx: VoiceUiContext): Promise<string | undefined> {
-	ctx.ui.notify(
-		[
-			"External server mode — you manage your own transcription server.",
-			"",
-			"Compatible servers: whisper.cpp, faster-whisper-server, transcribe-rs",
-			"Must implement POST /v1/audio/transcriptions (OpenAI-compatible).",
-		].join("\n"),
-		"info"
-	);
-
-	const customEndpoint = await ctx.ui.input(`Server URL (Enter for ${DEFAULT_LOCAL_ENDPOINT})`);
-	const endpoint = customEndpoint?.trim() || DEFAULT_LOCAL_ENDPOINT;
-
-	const serverCheck = await checkLocalServer(endpoint);
-	if (!serverCheck.ok) {
-		ctx.ui.notify(
-			`Server not reachable at ${endpoint}\n${serverCheck.error || ""}\nVoice will work once the server is running.`,
-			"warning"
-		);
-	} else {
-		ctx.ui.notify(`Server detected at ${endpoint}`, "info");
-	}
-
-	return endpoint;
 }

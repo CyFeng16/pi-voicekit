@@ -71,3 +71,22 @@ test("voice.ts no longer holds a streaming session", () => {
 		matching(/WebSocket|StreamingSession|preRecording|startStreamingRecording|voice\/deepgram/, ["extensions/voice.ts"])
 	).toEqual([]);
 });
+
+const DOWNLOAD_MODULES = new Set(["extensions/voice/model-download.ts", "extensions/voice/tts-local-models.ts"]);
+
+test("fetch appears only in the two model-download modules", () => {
+	const offenders = Object.entries(SOURCES)
+		.filter(([file, text]) => /\bfetch\(/.test(text) && !DOWNLOAD_MODULES.has(file))
+		.map(([file]) => file);
+	expect(offenders).toEqual([]);
+});
+
+test("no module references the external-endpoint fallback", () => {
+	expect(
+		matching(/checkLocalServer|transcribeWithServer|promptServerEndpoint|config\.localEndpoint/, [
+			"extensions/voice/local.ts",
+			"extensions/voice/onboarding.ts",
+			"extensions/voice.ts",
+		])
+	).toEqual([]);
+});
