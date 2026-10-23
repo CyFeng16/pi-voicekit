@@ -392,17 +392,24 @@ const LEGACY_POST_PROCESS_KEYS = [
 ] as const;
 
 /**
- * Atomic settings write: temp file + rename prevents corruption from partial
- * writes. Shared by every writer in this module so the path cannot diverge. The text form exists
- * for the scrub, which edits a settings file by deleting a member's bytes instead of reserializing
- * the whole document (`JSON.parse` → `JSON.stringify` silently rounds integers beyond 2^53 and
- * writes `1e400` back as `null`).
+ * Atomic settings write: temp file + rename prevents corruption from partial writes. Shared by every
+ * writer in this module so the path cannot diverge — which is also why the permissions are handled
+ * here and nowhere else. The temp file is created with the target's own mode, and a file that does
+ * not exist yet gets 0600 instead of the umask default (0644 on a common 022 umask). Without this,
+ * renaming the temp file over a 0600 settings file widened it to 0644 — and this file also holds
+ * every other plugin's credentials. The text form exists for the scrub, which edits a settings file
+ * by deleting a member's bytes instead of reserializing the whole document (`JSON.parse` →
+ * `JSON.stringify` silently rounds integers beyond 2^53 and writes `1e400` back as `null`).
  */
 function writeSettingsText(settingsPath: string, text: string): void {
 	fs.mkdirSync(path.dirname(settingsPath), { recursive: true });
 	const tmpPath = `${settingsPath}.${process.pid}.tmp`;
+	const mode = settingsFileMode(settingsPath);
 	try {
-		fs.writeFileSync(tmpPath, text);
+		fs.writeFileSync(tmpPath, text, { mode });
+		// `writeFileSync` masks the mode with the umask and ignores it for an existing file, so the
+		// target mode is applied explicitly rather than assumed.
+		fs.chmodSync(tmpPath, mode);
 		fs.renameSync(tmpPath, settingsPath);
 	} finally {
 		try {
@@ -411,8 +418,38 @@ function writeSettingsText(settingsPath: string, text: string): void {
 	}
 }
 
+/** The mode a settings write must land on: the existing file's own, or 0600 for a new file. */
+function settingsFileMode(settingsPath: string): number {
+	try {
+		return fs.statSync(settingsPath).mode & 0o777;
+	} catch {
+		return 0o600;
+	}
+}
+
 function writeSettingsFile(settingsPath: string, settings: Record<string, unknown>): void {
 	writeSettingsText(settingsPath, JSON.stringify(settings, null, 2) + "\n");
+}
+
+/**
+ * Write the `voice` block into a settings file, leaving every other top-level member exactly as it
+ * was on disk. A missing file is written fresh; a file without a `voice` member gets one added; a
+ * file whose shape the scanner refuses throws before anything is written. Every writer in this module
+ * ends in `writeSettingsText`, which owns the atomic write and the permissions; the two that serialize
+ * a `voice` block end here, so neither can reserialize a member it does not own.
+ */
+function writeVoiceBlock(
+	settingsPath: string,
+	read: { text: string; settings: Record<string, unknown> },
+	voice: Record<string, unknown>
+): void {
+	// A missing file is the only shape `readSettingsForWrite` reports as empty text. A file that exists
+	// but cannot be parsed has already thrown there.
+	if (read.text === "") {
+		writeSettingsFile(settingsPath, { [SETTINGS_KEY]: voice });
+		return;
+	}
+	writeSettingsText(settingsPath, spliceVoiceMember(read.text, read.settings, voice));
 }
 
 /**
@@ -442,7 +479,8 @@ export function saveConfig(
 	options: ConfigPathOptions = {}
 ): string {
 	const settingsPath = scope === "project" ? getProjectSettingsPath(cwd) : getGlobalSettingsPath(options);
-	const { settings } = readSettingsForWrite(settingsPath);
+	const read = readSettingsForWrite(settingsPath);
+	const settings = read.settings;
 	const serialized: Record<string, unknown> = { ...serializeConfig(config, scope) };
 	const existingVoice = settings[SETTINGS_KEY];
 	// A config loaded from nowhere (no settings file carried a `voice` block) holds defaults, so
@@ -461,8 +499,9 @@ export function saveConfig(
 			if (value !== undefined) serialized[key] = value;
 		}
 	}
-	settings[SETTINGS_KEY] = serialized;
-	writeSettingsFile(settingsPath, settings);
+	// Only the `voice` member is rewritten: every other top-level member of the file keeps its raw
+	// bytes, so a value another plugin stored that JavaScript cannot round-trip survives this write.
+	writeVoiceBlock(settingsPath, read, serialized);
 	return settingsPath;
 }
 
@@ -495,16 +534,15 @@ export function saveGlobalVoiceFields(
 ): string {
 	const settingsPath = getGlobalSettingsPath(options);
 	// A file that exists but cannot be parsed is refused, not overwritten — see readSettingsForWrite.
-	const { settings } = readSettingsForWrite(settingsPath);
-	const existing = settings[SETTINGS_KEY];
+	const read = readSettingsForWrite(settingsPath);
+	const existing = read.settings[SETTINGS_KEY];
 	const voice: Record<string, unknown> =
 		existing && typeof existing === "object" ? { ...(existing as Record<string, unknown>) } : {};
 	if (typeof voice.version !== "number") voice.version = VOICE_CONFIG_VERSION;
 	for (const [key, value] of Object.entries(fields)) {
 		if (value !== undefined) voice[key] = value;
 	}
-	settings[SETTINGS_KEY] = voice;
-	writeSettingsFile(settingsPath, settings);
+	writeVoiceBlock(settingsPath, read, voice);
 	return settingsPath;
 }
 
@@ -623,6 +661,30 @@ function scanJsonObjectMembers(text: string, openBrace: number): { closeBrace: n
 }
 
 /**
+ * Locate the top-level object of a settings document. Values are measured, never decoded: that is
+ * what lets a writer replace one member and leave number literals the JavaScript number type cannot
+ * hold (`9007199254740993`, `1e400`) exactly as they were. Throws on text it cannot read, so a caller
+ * refuses to rewrite rather than guess at the shape.
+ */
+function scanTopLevelObject(text: string): { openBrace: number; closeBrace: number; members: RawMember[] } {
+	const openBrace = skipJsonWhitespace(text, 0);
+	return { openBrace, ...scanJsonObjectMembers(text, openBrace) };
+}
+
+/**
+ * The top-level member named `key`. `required` separates the two callers: a delete needs exactly one
+ * member to delete, an update inserts when it is absent. More than one is ambiguous in both cases —
+ * the copies would have to be reconciled — so it throws instead of picking one.
+ */
+function findTopLevelMember(members: RawMember[], key: string, required: boolean): RawMember | undefined {
+	const found = members.filter((member) => member.key === key);
+	if (found.length > 1 || (required && found.length === 0)) {
+		throw new Error(`expected ${required ? "exactly one" : "at most one"} "${key}" member, found ${found.length}`);
+	}
+	return found[0];
+}
+
+/**
  * Delete the named members from the top-level object `key` of `text` and return the rewritten text.
  * Only the deleted members' bytes disappear; every other member keeps its exact spelling (number
  * literals included) and its indentation. The result is re-parsed and compared against the parsed
@@ -635,10 +697,8 @@ function removeObjectMembers(
 	key: string,
 	keysToRemove: readonly string[]
 ): string {
-	const top = scanJsonObjectMembers(text, skipJsonWhitespace(text, 0));
-	const targets = top.members.filter((member) => member.key === key);
-	if (targets.length !== 1) throw new Error(`expected exactly one "${key}" member, found ${targets.length}`);
-	const target = targets[0];
+	const top = scanTopLevelObject(text);
+	const target = findTopLevelMember(top.members, key, true)!;
 
 	const inner = scanJsonObjectMembers(text, target.valueStart);
 	const kept = inner.members.filter((member) => !keysToRemove.includes(member.key));
@@ -652,6 +712,74 @@ function removeObjectMembers(
 	for (const removedKey of keysToRemove) delete remaining[removedKey];
 	if (JSON.stringify(JSON.parse(patched)) !== JSON.stringify({ ...settings, [key]: remaining })) {
 		throw new Error(`refusing to rewrite "${key}": the edited text does not match the parsed settings`);
+	}
+	return patched;
+}
+
+/** `text` with every newline indented by `unit`, so a serialized value sits at its own nesting depth. */
+function indentSerialized(serialized: string, unit: string): string {
+	return serialized.replace(/\n/g, `\n${unit}`);
+}
+
+/** The indentation a member's key sits at: its leading whitespace up to and including the last newline. */
+function memberIndent(text: string, member: RawMember): string {
+	return text.slice(member.leadingStart, member.start);
+}
+
+/** Only the column part of an indent string — what a continuation line inside the member needs. */
+function indentUnit(indent: string): string {
+	return indent.slice(indent.lastIndexOf("\n") + 1);
+}
+
+/**
+ * Replace the top-level `voice` member of `text` with `voice`, or insert it, and return the rewritten
+ * text. Every other top-level member is copied verbatim: its bytes are never decoded, so values a
+ * JavaScript number cannot hold (`9007199254740993`, `1e400`) survive a write that does not own them.
+ *
+ * This is what keeps the scrub from being undone by the next save. The two writers that reserialized
+ * the whole document — `saveGlobalVoiceFields` and `saveConfig`, both of which run on the same startup
+ * as the scrub — corrupted every other plugin's numbers on the way, which is why they now share this
+ * splice instead.
+ *
+ * Refuses (throws) on a shape it cannot read: a document that is not a single JSON object, a
+ * duplicated `voice` member, or an edit whose re-parse disagrees with the value it wrote.
+ */
+function spliceVoiceMember(text: string, settings: Record<string, unknown>, voice: Record<string, unknown>): string {
+	const top = scanTopLevelObject(text);
+	const target = findTopLevelMember(top.members, SETTINGS_KEY, false);
+	const value = JSON.stringify(voice, null, 2);
+	// The whole member as it would be written at column zero; the insert branches re-indent it.
+	const member = `${JSON.stringify(SETTINGS_KEY)}: ${value}`;
+	let patched: string;
+	if (target) {
+		// In place: only the value is replaced — the key and the separator already holding it stay as
+		// they were, and the member's own indentation is where its closing brace belongs.
+		patched =
+			text.slice(0, target.valueStart) +
+			indentSerialized(value, indentUnit(memberIndent(text, target))) +
+			text.slice(target.end);
+	} else if (top.members.length === 0) {
+		// `{}`: give it the layout the other writers produce.
+		patched = `${text.slice(0, top.openBrace + 1)}\n  ${indentSerialized(member, "  ")}\n${text.slice(top.closeBrace)}`;
+	} else {
+		// Absent: add it after the last member, reusing that member's indentation and re-emitting the
+		// whitespace that separated it from the closing brace.
+		const first = top.members[0]!;
+		const last = top.members[top.members.length - 1]!;
+		const indent = memberIndent(text, first);
+		const tail = text.slice(last.end, top.closeBrace);
+		patched =
+			text.slice(0, last.end) +
+			"," +
+			indent +
+			indentSerialized(member, indentUnit(indent)) +
+			tail +
+			text.slice(top.closeBrace);
+	}
+
+	// A disagreement between the scan and the parser is a refusal, not a damaged file.
+	if (JSON.stringify(JSON.parse(patched)) !== JSON.stringify({ ...settings, [SETTINGS_KEY]: voice })) {
+		throw new Error(`refusing to rewrite "${SETTINGS_KEY}": the edited text does not match the intended settings`);
 	}
 	return patched;
 }
@@ -672,10 +800,10 @@ function removeObjectMembers(
  * variable, and never the secret value or an endpoint host.
  *
  * Deliberately not `saveConfig`: that refuses to write when the in-memory config came from defaults,
- * and it rebuilds the whole `voice` block from the parsed config. Here the file is the truth and
- * every other key is left exactly as it was — including values `JSON.parse`/`JSON.stringify` cannot
- * round-trip, which is why the rewrite deletes the two members from the raw text instead of
- * reserializing the document.
+ * and it rebuilds the `voice` block from the parsed config. Here the file is the truth for the
+ * `voice` block too, and the rewrite deletes the two members from the raw text instead of
+ * reserializing the block — the same rule the two serializing writers follow for every top-level
+ * member they do not own (`spliceVoiceMember`).
  */
 export function scrubRetiredVoiceKeys(settingsPath: string): { removed: string[]; message?: string } {
 	if (!fs.existsSync(settingsPath)) return { removed: [] };

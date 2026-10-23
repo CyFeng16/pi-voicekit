@@ -1178,6 +1178,24 @@ export default function (pi: ExtensionAPI) {
 
 	async function startVoiceRecording(): Promise<boolean> {
 		voiceDebug("startVoiceRecording called", { voiceState, hasUI: !!ctx?.hasUI, starting: _startingRecording });
+		// A recording needs an explicit local model: `local.ts` substitutes DEFAULT_LOCAL_MODEL when
+		// `config.localModel` is unset, so any entry that starts without one downloads and runs a model
+		// the user never chose. Enforced HERE, at the shared entry, and not per entry point — the SPACE
+		// hold, the toggle shortcut, dictation mode and the settings panel all arrive through this
+		// function, so a new entry point cannot miss the requirement. `setupHoldToTalk` refuses to arm
+		// for the same reason; that is the arming side of the same rule, not a second copy of it.
+		if (!config.localModel) {
+			voiceDebug("startVoiceRecording refused: no local model configured");
+			try {
+				ctx?.ui.notify(
+					"pi-voicekit needs a local model before it can dictate. Run /voice-setup to choose one.",
+					"warning"
+				);
+			} catch (err) {
+				voiceDebug("no-model notice threw", { error: String(err) });
+			}
+			return false;
+		}
 		if (!ctx?.hasUI) return false;
 		if (_startingRecording) return false; // Prevent overlapping starts during corruption guard sleep
 		_startingRecording = true;
@@ -1615,6 +1633,11 @@ export default function (pi: ExtensionAPI) {
 
 	function setupHoldToTalk() {
 		if (!ctx?.hasUI) return;
+		// Dictation is only ever armed with an explicit local model — `local.ts` falls back to
+		// DEFAULT_LOCAL_MODEL, so arming without one offers a hold that can only download a model the
+		// user was just told to pick. This is the one arming guard, covering every caller (startup, the
+		// /voice toggles and the settings panel); `startVoiceRecording` keeps the recording-side one.
+		if (!config.localModel) return;
 
 		if (terminalInputUnsub) {
 			terminalInputUnsub();
@@ -3036,8 +3059,12 @@ export default function (pi: ExtensionAPI) {
 			}
 		}
 
-		// Sync voice state after panel changes
-		if (config.enabled) {
+		// Sync voice state after panel changes. Dictation is armed only when a model is actually
+		// configured: the user may close the setup panel without choosing one, or delete the active model
+		// from the Downloaded tab. In both cases the SPACE handler must be left unsubscribed —
+		// `voiceCleanup` tears down any handler armed before the panel opened, and the status bar then
+		// reports MIC SETUP instead of a ready microphone.
+		if (config.enabled && config.localModel) {
 			setupHoldToTalk();
 		} else {
 			voiceCleanup();

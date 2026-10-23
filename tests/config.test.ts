@@ -16,6 +16,8 @@ import {
 } from "../extensions/voice/config";
 
 const tempDirs: string[] = [];
+/** `os.homedir` mocks that outlive their test body — see `runSessionStart`; restored in `afterEach`. */
+const activeHomeSpies: Array<{ mockRestore(): void }> = [];
 
 function makeTempDir(): string {
 	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-voice-config-test-"));
@@ -30,6 +32,8 @@ function writeSettings(baseDir: string, relativePath: string, voice: unknown) {
 }
 
 afterEach(() => {
+	// Restore before removing the directories the mocks point at.
+	for (const spy of activeHomeSpies.splice(0)) spy.mockRestore();
 	for (const dir of tempDirs.splice(0)) {
 		fs.rmSync(dir, { recursive: true, force: true });
 	}
@@ -895,6 +899,69 @@ describe("scrubRetiredVoiceKeys (the retired credentials are erased on startup)"
 	});
 });
 
+describe("settings writes keep the file's permissions", () => {
+	// The scrub erases one credential and the writers reserialize the `voice` block next to every
+	// other plugin's secrets. The temp file used to be created with no mode — 0666 & ~umask, i.e. 0644
+	// on the common 022 umask — and the rename then replaced a 0600 settings file with it, handing
+	// those secrets to every local user. Measured before the fix: 0600 became 0644 after a scrub.
+	const PRIVATE = 0o600;
+
+	function writePrivateSettings(dir: string, contents: string): string {
+		const settingsPath = path.join(dir, "settings.json");
+		fs.writeFileSync(settingsPath, contents, { mode: PRIVATE });
+		// `writeFileSync`'s mode is masked by the umask; the assertion is about the mode on disk.
+		fs.chmodSync(settingsPath, PRIVATE);
+		return settingsPath;
+	}
+
+	test("a 0600 file stays 0600 across the scrub and a saveConfig-style write", () => {
+		const agentDir = makeTempDir();
+		const settingsPath = writePrivateSettings(
+			agentDir,
+			JSON.stringify(
+				{
+					voice: {
+						enabled: true,
+						language: "zh",
+						deepgramApiKey: "SECRET-0.5.x-key",
+						localEndpoint: "http://10.0.0.5:8080",
+						onboarding: { completed: true, schemaVersion: 4 },
+					},
+				},
+				null,
+				2
+			)
+		);
+		expect(fs.statSync(settingsPath).mode & 0o777).toBe(PRIVATE);
+
+		expect(scrubRetiredVoiceKeys(settingsPath).removed).toEqual(["deepgramApiKey", "localEndpoint"]);
+		expect(fs.statSync(settingsPath).mode & 0o777).toBe(PRIVATE);
+
+		saveConfig({ ...DEFAULT_CONFIG, scope: "global", localModel: "parakeet-v3" }, "global", agentDir, {
+			agentDir,
+			loadedSource: "global",
+		});
+		expect(fs.statSync(settingsPath).mode & 0o777).toBe(PRIVATE);
+
+		// The field-level writer shares the same path, so it has to land the same mode.
+		saveGlobalVoiceFields({ punctuationNoticeShown: true }, { agentDir });
+		expect(fs.statSync(settingsPath).mode & 0o777).toBe(PRIVATE);
+
+		// No temp file survives at any mode.
+		expect(fs.readdirSync(agentDir)).toEqual(["settings.json"]);
+	});
+
+	test("a settings file created from nothing is private", () => {
+		// No original to copy: the umask default would publish the block the user is about to fill
+		// with settings for every plugin that shares the file.
+		const agentDir = makeTempDir();
+
+		saveGlobalVoiceFields({ punctuationNoticeShown: true }, { agentDir });
+
+		expect(fs.statSync(path.join(agentDir, "settings.json")).mode & 0o777).toBe(PRIVATE);
+	});
+});
+
 describe("/voice-speak-stop registration (regression)", () => {
 	// There is no command harness: `extensions/voice.ts` registers its commands only when its
 	// default export runs. This drives the real registration with a minimal mock, then executes
@@ -1046,50 +1113,82 @@ describe("session_start activation (the local model is the only path)", () => {
 		notices: Array<[string, string]>;
 		statuses: Array<[string, string | undefined]>;
 		readonly holdToTalkSubscribed: boolean;
+		readonly settingsPath: string;
 		joinedNotices(): string;
+		/** The registered toggle shortcut — a recording entry that exists whether or not a hold is armed. */
+		runToggleShortcut(): Promise<void>;
+		/** Open the settings panel and close it; `visit` runs while the panel exists. */
+		closePanel(visit?: (panel: any) => void): Promise<void>;
 	}
 
 	async function runSessionStart(
 		voice: unknown,
-		options: { projectVoice?: unknown; corruptGlobalSettings?: boolean } = {}
+		options: { projectVoice?: unknown; corruptGlobalSettings?: boolean; rawGlobalSettings?: string } = {}
 	): Promise<SessionHarness> {
 		const home = makeTempDir();
 		const cwd = makeTempDir();
+		const settingsPath = path.join(home, ".pi", "agent", "settings.json");
 		if (options.corruptGlobalSettings) {
 			// A file that exists but cannot be parsed — the one shape the scrub refuses to rewrite.
-			const settingsPath = path.join(home, ".pi", "agent", "settings.json");
 			fs.mkdirSync(path.dirname(settingsPath), { recursive: true });
 			fs.writeFileSync(settingsPath, "{ not json");
+		} else if (options.rawGlobalSettings !== undefined) {
+			// Raw text, not an object: these tests pin byte-exact survival of values `JSON.parse`
+			// cannot round-trip, so the fixture has to be able to spell them verbatim.
+			fs.mkdirSync(path.dirname(settingsPath), { recursive: true });
+			fs.writeFileSync(settingsPath, options.rawGlobalSettings);
 		} else {
 			writeSettings(home, ".pi/agent/settings.json", voice);
 		}
 		if (options.projectVoice !== undefined) writeSettings(cwd, ".pi/settings.json", options.projectVoice);
 
-		const homeSpy = spyOn(os, "homedir").mockReturnValue(home);
+		// Kept for the harness's lifetime, not just the session_start call: every post-return helper
+		// can write settings (`activateModel` saves), and an unmocked homedir would write the real
+		// `~/.pi/agent/settings.json`. `afterEach` restores it.
+		activeHomeSpies.push(spyOn(os, "homedir").mockReturnValue(home));
 		resetPunctuationForTest(null, () => {});
 		try {
 			const handlers = new Map<string, (event: any, sessionCtx: any) => Promise<void>>();
+			const shortcuts = new Map<string, { handler: (ctx: any) => Promise<void> }>();
+			const commands = new Map<string, { handler: (args: string, cmdCtx: any) => Promise<void> }>();
 			const pi = {
 				on: (name: string, handler: any) => handlers.set(name, handler),
-				registerShortcut: () => {},
-				registerCommand: () => {},
+				registerShortcut: (key: string, definition: any) => shortcuts.set(key, definition),
+				registerCommand: (name: string, definition: any) => commands.set(name, definition),
 			} as any;
 
 			const notices: Array<[string, string]> = [];
 			const statuses: Array<[string, string | undefined]> = [];
-			let holdToTalkSubscribed = false;
-			const sessionCtx = {
-				hasUI: true,
-				cwd,
-				ui: {
-					notify: (message: string, type: string) => notices.push([message, type]),
-					setStatus: (key: string, value: string | undefined) => statuses.push([key, value]),
-					onTerminalInput: () => {
-						holdToTalkSubscribed = true;
-						return () => {};
-					},
+			// One arming slot, like the real `terminalInputUnsub`: a new subscription replaces the
+			// previous one and the returned unsubscriber clears it, so a test can tell armed from torn down.
+			let armed = false;
+			let panelVisit: ((panel: any) => void) | undefined;
+			const ui = {
+				notify: (message: string, type: string) => notices.push([message, type]),
+				setStatus: (key: string, value: string | undefined) => statuses.push([key, value]),
+				setWidget: () => {},
+				// No test in this file may start a recording: a real start snapshots the editor and then
+				// spawns a capture tool. Throwing here turns that regression into a loud failure instead of
+				// opening the microphone, and it pins the model guard upstream of the snapshot.
+				getEditorText: () => {
+					throw new Error("a recording was started: the editor snapshot ran");
+				},
+				setEditorText: () => {},
+				onTerminalInput: () => {
+					armed = true;
+					return () => {
+						armed = false;
+					};
+				},
+				// The panel is built inside this callback, exactly as in a real session; returning no
+				// action is a plain close.
+				custom: async (factory: (tui: any, theme: any, kb: any, done: (action?: unknown) => void) => any) => {
+					const panel = factory(undefined, undefined, undefined, () => {});
+					panelVisit?.(panel);
+					return undefined;
 				},
 			};
+			const sessionCtx = { hasUI: true, cwd, ui };
 
 			voiceExtension(pi);
 			const sessionStart = handlers.get("session_start");
@@ -1099,14 +1198,29 @@ describe("session_start activation (the local model is the only path)", () => {
 			return {
 				notices,
 				statuses,
+				settingsPath,
 				get holdToTalkSubscribed() {
-					return holdToTalkSubscribed;
+					return armed;
 				},
 				joinedNotices: () => notices.map(([message]) => message).join("\n"),
+				async runToggleShortcut() {
+					const shortcut = [...shortcuts.values()][0];
+					expect(shortcut).toBeDefined();
+					await shortcut!.handler({ hasUI: true, cwd, ui });
+				},
+				async closePanel(visit) {
+					panelVisit = visit;
+					try {
+						const command = commands.get("voice-setup");
+						expect(command).toBeDefined();
+						await command!.handler("", { hasUI: true, cwd, ui });
+					} finally {
+						panelVisit = undefined;
+					}
+				},
 			};
 		} finally {
 			resetPunctuationForTest();
-			homeSpy.mockRestore();
 		}
 	}
 
@@ -1170,5 +1284,121 @@ describe("session_start activation (the local model is the only path)", () => {
 		expect(warnings).toHaveLength(1);
 		expect(warnings[0]![0]).toMatch(/settings file/i);
 		expect(warnings[0]![0]).toMatch(/still on disk/i);
+	});
+
+	// ── The other top-level members of the file survive a full startup write sequence ─────────────
+	//
+	// The scrub deletes the retired members from the raw text, and the SAME session_start then writes
+	// again: the punctuation notice's flag, and — on migration — the whole config. Both used to
+	// reserialize the document, which destroyed every other plugin's `9007199254740993` (rendered as
+	// ...992) and `1e400` (rendered as null) on every start until the notice was answered. These two
+	// tests drive the real session_start sequence rather than the scrub alone, and compare the
+	// neighbour's raw bytes, because the parsed value of those numbers is already wrong.
+	function neighbourBytes(text: string): string {
+		return text.slice(text.indexOf('"otherPlugin"'), text.indexOf('"voice"'));
+	}
+
+	test("a startup scrub plus the punctuation-notice write keeps a neighbour's numbers", async () => {
+		const raw = `{
+	"theme": "x",
+	"otherPlugin": {
+		"id": 9007199254740993,
+		"limit": 1e400
+	},
+	"voice": {
+		"version": 4,
+		"enabled": true,
+		"language": "zh",
+		"localModel": "paraformer-zh",
+		"deepgramApiKey": "SECRET-0.5.x-key",
+		"localEndpoint": "http://10.0.0.5:8080",
+		"onboarding": { "completed": true, "schemaVersion": 4 },
+		"punctuationNoticeShown": false
+	}
+}
+`;
+		const session = await runSessionStart(undefined, { rawGlobalSettings: raw });
+
+		const after = fs.readFileSync(session.settingsPath, "utf8");
+		// Both writes of that startup really ran: the credentials are gone and the flag was persisted.
+		const parsed = JSON.parse(after);
+		expect(parsed.voice.punctuationNoticeShown).toBe(true);
+		expect("deepgramApiKey" in parsed.voice).toBe(false);
+		expect("localEndpoint" in parsed.voice).toBe(false);
+		// ...and the neighbour is byte-for-byte what it was, including values no JS number can hold.
+		expect(after).toContain('"id": 9007199254740993,');
+		expect(after).toContain('"limit": 1e400');
+		expect(after).not.toContain("null");
+		expect(neighbourBytes(after)).toBe(neighbourBytes(raw));
+	});
+
+	test("a startup scrub plus the migration saveConfig keeps a neighbour's numbers", async () => {
+		const raw = `{
+	"theme": "x",
+	"otherPlugin": { "id": 9007199254740993, "limit": 1e400 },
+	"voice": {
+		"version": 4,
+		"language": "zh",
+		"localModel": "paraformer-zh",
+		"deepgramApiKey": "SECRET-0.5.x-key",
+		"onboarding": { "completed": false, "schemaVersion": 4 }
+	}
+}
+`;
+		const session = await runSessionStart(undefined, { rawGlobalSettings: raw });
+
+		const after = fs.readFileSync(session.settingsPath, "utf8");
+		// The migration wrote the config (onboarding completed by it) and the scrub ran first.
+		const parsed = JSON.parse(after);
+		expect(parsed.voice.onboarding.completed).toBe(true);
+		expect(parsed.voice.onboarding.source).toBe("migration");
+		expect("deepgramApiKey" in parsed.voice).toBe(false);
+		expect(after).toContain('"id": 9007199254740993,');
+		expect(after).toContain('"limit": 1e400');
+		expect(neighbourBytes(after)).toBe(neighbourBytes(raw));
+	});
+
+	// ── No entry point may record without an explicit local model ────────────────────────────────
+
+	test("a recording entry with no configured model refuses and never arms", async () => {
+		// `local.ts` substitutes DEFAULT_LOCAL_MODEL when no model was chosen, so an entry that starts
+		// anyway would download and run Parakeet behind a warning that just told the user to pick one.
+		const session = await runSessionStart({ onboarding: { completed: true }, backend: "deepgram" });
+		expect(session.holdToTalkSubscribed).toBe(false);
+
+		// The toggle shortcut is a recording entry that exists whether or not a hold is armed. The
+		// harness's `getEditorText` throws, and it is the first thing a real start does — so resolving
+		// here is the proof that the refusal happened before any capture work began.
+		await expect(session.runToggleShortcut()).resolves.toBeUndefined();
+
+		expect(session.joinedNotices()).toContain("/voice-setup");
+		expect(session.joinedNotices()).toContain("needs a local model");
+		expect(session.statuses.filter(([, value]) => value?.startsWith("REC "))).toEqual([]);
+		expect((globalThis as any).__piListen?.recording).not.toBe(true);
+		expect(session.holdToTalkSubscribed).toBe(false);
+	});
+
+	test("closing the panel without choosing a model leaves dictation unarmed", async () => {
+		// The panel handler used to arm hold-to-talk whenever `config.enabled`, so closing the setup
+		// panel after being told to pick a model armed a SPACE hold that would record on Parakeet.
+		const session = await runSessionStart({ onboarding: { completed: true } });
+
+		await session.closePanel();
+
+		expect(session.holdToTalkSubscribed).toBe(false);
+		// The status bar is left saying setup is still needed — not idle-and-ready.
+		expect(session.statuses).toContainEqual(["voice", "MIC SETUP"]);
+	});
+
+	test("choosing a model in the panel arms dictation without a restart", async () => {
+		const session = await runSessionStart({ onboarding: { completed: true } });
+
+		// `activateModel` is the panel's own path: it mutates the shared config, saves, and the panel's
+		// post-close sync decides whether to wire hold-to-talk.
+		await session.closePanel((panel) => panel.activateModel("parakeet-v3"));
+
+		expect(session.holdToTalkSubscribed).toBe(true);
+		expect(session.statuses).toContainEqual(["voice", "MIC LOCAL"]);
+		expect(JSON.parse(fs.readFileSync(session.settingsPath, "utf8")).voice.localModel).toBe("parakeet-v3");
 	});
 });
