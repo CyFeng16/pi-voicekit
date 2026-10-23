@@ -1,22 +1,16 @@
 /**
- * Local transcription backend — in-process STT via sherpa-onnx + external server fallback.
+ * Local transcription backend — in-process STT via sherpa-onnx.
  *
- * Default: sherpa-onnx in-process inference (zero-config, auto-download models).
- * Fallback: External server via POST /v1/audio/transcriptions (advanced users).
+ * sherpa-onnx runs in-process (zero-config, auto-download models). Transcription is
+ * batch mode: record the complete audio, then transcribe after stop.
  *
  * Model catalog verified against HuggingFace repos:
  *   - csukuangfj/ and csukuangfj2/ repos on huggingface.co
  *   - k2-fsa/sherpa-onnx GitHub releases (asr-models tag)
- *
- * Architecture:
- *   Deepgram  → real-time streaming (WebSocket, interim results while speaking)
- *   Local     → batch mode (record complete audio, transcribe after stop)
  */
 
 import type { ChildProcess } from "node:child_process";
 import type { VoiceConfig } from "./config";
-import { isLoopbackEndpoint } from "./config";
-import { SAMPLE_RATE, CHANNELS } from "./deepgram";
 
 // ─── Model catalog ───────────────────────────────────────────────────────────
 
@@ -611,7 +605,6 @@ export const LOCAL_MODELS: LocalModelInfo[] = [
 	},
 ];
 
-export const DEFAULT_LOCAL_ENDPOINT = "http://localhost:8080";
 export const DEFAULT_LOCAL_MODEL = "parakeet-v3";
 
 // ─── Language support per model family ───────────────────────────────────────
@@ -821,7 +814,6 @@ export function localLanguageDisplayName(code: string): string {
  * not pipeline recogniser segments keep today's transcript-only behaviour.
  */
 export interface LocalSessionCallbacks {
-	onTranscript: (interim: string, finals: string[]) => void;
 	onDone: (fullText: string, meta: { hadAudio: boolean; hadSpeech: boolean }) => void;
 	onError: (err: string) => void;
 	/**
@@ -832,12 +824,10 @@ export interface LocalSessionCallbacks {
 }
 
 export interface LocalSession {
-	backend: "local";
 	recProcess: ChildProcess;
 	audioChunks: Buffer[];
 	closed: boolean;
 	hadAudioData: boolean;
-	onTranscript: (interim: string, finals: string[]) => void;
 	onDone: (fullText: string, meta: { hadAudio: boolean; hadSpeech: boolean }) => void;
 	onError: (err: string) => void;
 	/** Optional per-segment observer; forwarded to the in-process recogniser on stop. */
@@ -846,126 +836,9 @@ export interface LocalSession {
 
 // ─── WAV encoding ────────────────────────────────────────────────────────────
 
-/** Create a WAV file buffer from raw PCM data (16-bit signed LE, 16kHz, mono). */
-function createWavBuffer(pcmData: Buffer): Buffer {
-	const header = Buffer.alloc(44);
-	const dataSize = pcmData.length;
-	const fileSize = 36 + dataSize;
-
-	// RIFF header
-	header.write("RIFF", 0);
-	header.writeUInt32LE(fileSize, 4);
-	header.write("WAVE", 8);
-
-	// fmt chunk
-	header.write("fmt ", 12);
-	header.writeUInt32LE(16, 16); // chunk size
-	header.writeUInt16LE(1, 20); // PCM format
-	header.writeUInt16LE(CHANNELS, 22);
-	header.writeUInt32LE(SAMPLE_RATE, 24);
-	header.writeUInt32LE(SAMPLE_RATE * CHANNELS * 2, 28); // byte rate
-	header.writeUInt16LE(CHANNELS * 2, 32); // block align
-	header.writeUInt16LE(16, 34); // bits per sample
-
-	// data chunk
-	header.write("data", 36);
-	header.writeUInt32LE(dataSize, 40);
-
-	return Buffer.concat([header, pcmData]);
-}
-
-// ─── Transcription via local server ──────────────────────────────────────────
-
-/**
- * POST audio to a local OpenAI-compatible transcription endpoint.
- * Tries /v1/audio/transcriptions first, falls back to /inference (whisper.cpp native).
- */
-export async function transcribeWithServer(wavBuffer: Buffer, config: VoiceConfig): Promise<string> {
-	const endpoint = config.localEndpoint || DEFAULT_LOCAL_ENDPOINT;
-
-	// Security: refuse to send audio to non-loopback endpoints
-	if (!isLoopbackEndpoint(endpoint)) {
-		throw new Error(`Refusing to send audio to non-local endpoint: ${endpoint}. Only localhost/127.0.0.1/::1 allowed.`);
-	}
-
-	const model = config.localModel || DEFAULT_LOCAL_MODEL;
-	const language = config.language || "en";
-
-	// Build multipart/form-data manually (no external deps)
-	const boundary = `----PiVoice${Date.now()}`;
-	const parts: Buffer[] = [];
-
-	// file field
-	parts.push(
-		Buffer.from(
-			`--${boundary}\r\n` +
-				`Content-Disposition: form-data; name="file"; filename="audio.wav"\r\n` +
-				`Content-Type: audio/wav\r\n\r\n`
-		)
-	);
-	parts.push(wavBuffer);
-	parts.push(Buffer.from("\r\n"));
-
-	// model field
-	parts.push(
-		Buffer.from(`--${boundary}\r\n` + `Content-Disposition: form-data; name="model"\r\n\r\n` + `${model}\r\n`)
-	);
-
-	// language field
-	parts.push(
-		Buffer.from(`--${boundary}\r\n` + `Content-Disposition: form-data; name="language"\r\n\r\n` + `${language}\r\n`)
-	);
-
-	// response_format field
-	parts.push(
-		Buffer.from(`--${boundary}\r\n` + `Content-Disposition: form-data; name="response_format"\r\n\r\n` + `json\r\n`)
-	);
-
-	parts.push(Buffer.from(`--${boundary}--\r\n`));
-
-	const body = Buffer.concat(parts);
-
-	// Try OpenAI-compatible endpoint first
-	const urls = [`${endpoint}/v1/audio/transcriptions`, `${endpoint}/inference`];
-
-	let lastError = "";
-	for (const url of urls) {
-		try {
-			const resp = await fetch(url, {
-				method: "POST",
-				headers: {
-					"Content-Type": `multipart/form-data; boundary=${boundary}`,
-					"Content-Length": String(body.length),
-				},
-				body,
-				signal: AbortSignal.timeout(120_000), // 2 min timeout for large models
-			});
-
-			if (!resp.ok) {
-				lastError = `HTTP ${resp.status}: ${await resp.text().catch(() => "unknown")}`;
-				continue;
-			}
-
-			const contentType = resp.headers.get("content-type") || "";
-			if (contentType.includes("application/json")) {
-				const json = (await resp.json()) as { text?: string };
-				return (json.text || "").trim();
-			}
-			// Plain text response
-			return (await resp.text()).trim();
-		} catch (err: any) {
-			if (err?.name === "AbortError" || err?.name === "TimeoutError") {
-				lastError = "Transcription timed out (120s)";
-				break; // Don't retry on timeout
-			}
-			lastError = err?.message || String(err);
-			// Connection refused = server not running, try next URL
-			continue;
-		}
-	}
-
-	throw new Error(lastError || "Could not connect to local transcription server");
-}
+/** Capture format every local model expects: 16 kHz, mono, 16-bit signed LE. */
+export const SAMPLE_RATE = 16000;
+export const CHANNELS = 1;
 
 // ─── Session lifecycle ───────────────────────────────────────────────────────
 
@@ -975,12 +848,10 @@ export async function transcribeWithServer(wavBuffer: Buffer, config: VoiceConfi
  */
 export function startLocalSession(recProcess: ChildProcess, callbacks: LocalSessionCallbacks): LocalSession {
 	const session: LocalSession = {
-		backend: "local",
 		recProcess,
 		audioChunks: [],
 		closed: false,
 		hadAudioData: false,
-		onTranscript: callbacks.onTranscript,
 		onDone: callbacks.onDone,
 		onError: callbacks.onError,
 		onSegment: callbacks.onSegment,
@@ -1008,11 +879,7 @@ export function startLocalSession(recProcess: ChildProcess, callbacks: LocalSess
 }
 
 /**
- * Stop recording and transcribe the buffered audio.
- *
- * Routes transcription based on config:
- *   - If localEndpoint is set → external server (advanced users)
- *   - Otherwise → sherpa-onnx in-process (default, zero-config)
+ * Stop recording and transcribe the buffered audio in-process via sherpa-onnx.
  */
 export async function stopLocalSession(session: LocalSession, config: VoiceConfig): Promise<void> {
 	if (session.closed) return;
@@ -1043,24 +910,16 @@ export async function stopLocalSession(session: LocalSession, config: VoiceConfi
 	}
 
 	try {
-		let text: string;
-
-		if (config.localEndpoint) {
-			// External server mode (advanced override)
-			const wavBuffer = createWavBuffer(pcmData);
-			text = await transcribeWithServer(wavBuffer, config);
-		} else {
-			// In-process via sherpa-onnx (default, 120s timeout)
-			let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
-			text = await Promise.race([
-				transcribeInProcess(pcmData, config, session.onSegment),
-				new Promise<never>((_, reject) => {
-					timeoutHandle = setTimeout(() => reject(new Error("Transcription timed out (120s)")), 120_000);
-				}),
-			]).finally(() => {
-				if (timeoutHandle) clearTimeout(timeoutHandle);
-			});
-		}
+		// In-process via sherpa-onnx (120s timeout)
+		let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
+		const text = await Promise.race([
+			transcribeInProcess(pcmData, config, session.onSegment),
+			new Promise<never>((_, reject) => {
+				timeoutHandle = setTimeout(() => reject(new Error("Transcription timed out (120s)")), 120_000);
+			}),
+		]).finally(() => {
+			if (timeoutHandle) clearTimeout(timeoutHandle);
+		});
 
 		// Recheck after await — abort may have fired during transcription.
 		// Still call onDone so state machine transitions back to idle.
@@ -1111,9 +970,7 @@ async function transcribeInProcess(
 	if (!isSherpaAvailable()) {
 		const ok = await initSherpa();
 		if (!ok) {
-			throw new Error(
-				`sherpa-onnx not available: ${getSherpaError() || "unknown error"}. Set localEndpoint in config to use an external server instead.`
-			);
+			throw new Error(`sherpa-onnx could not be loaded: ${getSherpaError() || "unknown error"}`);
 		}
 	}
 
@@ -1129,23 +986,4 @@ async function transcribeInProcess(
 	// `onSegment` as it decodes, in order; audio at or below the segment threshold takes the same
 	// single-decode fast path as before and the concatenation is unchanged.
 	return transcribeBufferSegmented(pcmData, recognizer, undefined, onSegment);
-}
-
-/** Check if a local transcription server is reachable. */
-export async function checkLocalServer(endpoint?: string): Promise<{ ok: boolean; error?: string }> {
-	const url = endpoint || DEFAULT_LOCAL_ENDPOINT;
-	try {
-		const resp = await fetch(`${url}/v1/models`, {
-			signal: AbortSignal.timeout(5000),
-		}).catch(() =>
-			// whisper.cpp server doesn't have /v1/models, try root
-			fetch(url, { signal: AbortSignal.timeout(5000) })
-		);
-		return { ok: resp.ok || resp.status === 404 }; // 404 = server is up, just no models endpoint
-	} catch (err: any) {
-		if (err?.cause?.code === "ECONNREFUSED") {
-			return { ok: false, error: `Server not running at ${url}` };
-		}
-		return { ok: false, error: err?.message || String(err) };
-	}
 }

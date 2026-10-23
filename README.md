@@ -4,14 +4,18 @@
 
 > **Community continuation of [`codexstar69/pi-listen`](https://github.com/codexstar69/pi-listen)** (upstream, MIT — dormant since v7.2.2 in May 2026).
 > Not affiliated with the original author. Old name: `pi-listen`.
+> **This fork removes every cloud backend** (0.6.0): dictation, punctuation and speech all run
+> on your machine, so upstream's two-backend setup no longer applies — see [Privacy](#privacy).
 
 <p align="center">
   <img src="https://raw.githubusercontent.com/CyFeng16/pi-voicekit/main/assets/brand/banner-en.png" alt="pi-voicekit — Voice input and output for the Pi coding agent" width="100%" />
 </p>
 
 **Voice in and voice out for [Pi](https://github.com/earendil-works/pi-coding-agent).**
-Hold-to-talk STT — Deepgram streaming (cloud) or 21 offline models — plus TTS that
-speaks the agent's replies (Kitten, Kokoro, Piper, or Deepgram Aura).
+Hold-to-talk dictation with 21 offline models, plus speech that reads the agent's replies
+aloud. Recognition, punctuation and synthesis all run in process on
+[sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx): there is no key, no endpoint and no
+account to set up, and no audio is uploaded to a remote speech service.
 
 > **Language scope: Chinese and English.** Recognition and punctuation are validated for Chinese,
 > English and mixed Chinese–English dictation only. Every other language a model happens to cover
@@ -21,11 +25,10 @@ speaks the agent's replies (Kitten, Kokoro, Piper, or Deepgram Aura).
 [![license](https://img.shields.io/npm/l/pi-voicekit.svg)](https://github.com/CyFeng16/pi-voicekit/blob/main/LICENSE)
 [![original author](https://img.shields.io/badge/original_author-@baanditeagle-1DA1F2?logo=x&logoColor=white)](https://x.com/baanditeagle)
 
-> **v0.1.3 — current release** — audio capture prefers `ffmpeg` when
-> `PULSE_SERVER` is set (SSH audio tunnel / remote PulseAudio), so remote
-> microphones record reliably. Voice in **and** voice out: 21 offline STT models,
-> 20 local TTS voices plus Deepgram Aura, driven by one `/voice-settings` panel
-> with 5 tabs. The 0.1.x line is documented in the [changelog](CHANGELOG.md).
+> **0.6.0 — one path, the local one.** Both cloud backends are gone from the code: no
+> streaming transport, no cloud voices, nothing to authenticate. Upgrading from 0.5.x
+> erases the retired fields from `settings.json` on the first start — see
+> [Privacy](#privacy). Earlier releases are documented in the [changelog](CHANGELOG.md).
 
 ---
 
@@ -50,44 +53,19 @@ speaks the agent's replies (Kitten, Kokoro, Piper, or Deepgram Aura).
 pi install npm:pi-voicekit
 ```
 
-### 2. Choose your backend
+### 2. Pick a model
 
-pi-voicekit supports two transcription backends:
+Open the panel with `/voice-settings`, go to the **Models** tab and press `↵` on the model
+you want. It downloads once (43 MB for the smallest, 671 MB for the recommended Parakeet)
+and becomes the active model. The language row then offers exactly the languages that model
+supports.
 
-|                  | Deepgram (cloud)                                         | Local models (offline recognition)                  |
-| ---------------- | -------------------------------------------------------- | --------------------------------------------------- |
-| **How it works** | Live streaming — text appears as you speak               | Batch mode — transcribes after you finish recording |
-| **Setup**        | API key required                                         | No API key, models auto-download on first use       |
-| **Internet**     | Required                                                 | Not required after model download — recognition and punctuation run in process |
-| **Latency**      | Real-time interim results                                | 2–10 seconds after recording stops                  |
-| **Languages**    | Chinese and English locales                             | Chinese, English, mixed Chinese–English             |
-| **Cost**         | $200 free credit (lasts 6–12 months for most developers) | Free — recognition and punctuation are local        |
+`/voice-setup` opens the same panel — it is an alias, not a separate wizard.
 
-Run `/voice-settings` inside Pi to choose your backend and configure everything from one panel.
+Nothing here costs money or needs an account: the models are public downloads and the only
+budget they take is disk space.
 
-#### Option A: Deepgram (recommended for live streaming)
-
-Sign up at [dpgr.am/pi-voice](https://dpgr.am/pi-voice) — $200 free credit, no card needed.
-
-```bash
-export DEEPGRAM_API_KEY="your-key-here"    # add to ~/.zshrc or ~/.bashrc
-```
-
-#### Option B: Local models (offline recognition)
-
-No setup needed — run `/voice-settings`, switch backend to Local, and select a model. It downloads automatically.
-
-> **Note:** Local models use batch mode — they transcribe after you finish recording, not while you speak. For live streaming as you speak, use Deepgram.
-
-### 3. Open Pi
-
-On first launch, pi-voicekit checks your setup and tells you what's ready:
-
-- Backend configured (Deepgram key or local model)
-- Audio capture tool detected (sox, ffmpeg, or arecord)
-- If everything checks out, voice activates immediately
-
-### Audio capture
+### 3. Check audio capture
 
 pi-voicekit auto-detects your audio tool. No manual install needed if you already have sox or ffmpeg.
 
@@ -100,23 +78,37 @@ pi-voicekit auto-detects your audio tool. No manual install needed if you alread
 > When `PULSE_SERVER` is set (SSH audio tunnel or remote PulseAudio) the order
 > becomes **ffmpeg → sox → arecord** — network Pulse sources need ffmpeg.
 
+### 4. What first start looks like
+
+On launch pi-voicekit reports what it found and what is missing:
+
+- **A local model.** With none selected the status line reads `MIC SETUP` and voice stays
+  off — a config that finished setup without a model has no working path, so the extension
+  sends you to `/voice-setup` instead of guessing a default. With a model, it reads `MIC LOCAL`.
+- **An audio tool.** `/voice test` reports which one was detected, whether the microphone
+  actually produced audio, and whether the sherpa-onnx runtime loaded.
+
+When both are in place, hold `SPACE` and dictate.
+
 ---
 
 ## Settings Panel
 
 All configuration lives in one place: `/voice-settings`. Five tabs cover everything you need.
 
-### General — backend, language, scope
+### General — model, language, scope, voice
 
-<img src="https://raw.githubusercontent.com/CyFeng16/pi-voicekit/main/assets/screenshots/settings-general.png" alt="General settings — backend, model, language, scope, voice toggle" width="600" />
-
-Toggle between Deepgram (cloud, live streaming) and Local (offline, batch mode). Change language, scope, and enable/disable voice — all with keyboard shortcuts.
+Set the local model, the dictation language, the scope (global or this project), the voice
+switch and auto-send. Every row is a keyboard shortcut away — `↵` changes, `← →` switches tab.
 
 ### Models — browse, search, install
 
 <img src="https://raw.githubusercontent.com/CyFeng16/pi-voicekit/main/assets/screenshots/settings-models.png" alt="Models tab — browse 21 models with accuracy/speed ratings" width="600" />
 
 Browse 21 models from Parakeet, Whisper, Moonshine, SenseVoice, GigaAM, Paraformer, and Qwen3. Each model shows accuracy and speed ratings (●●●●○/●●●●○), fitness badges, and download status. Fuzzy search to find models fast. Press Enter to activate and download.
+
+> Screenshots were captured on a v7.0 build: the panel now has five tabs (Speak was added)
+> and the catalogue has grown to 21 models.
 
 ### Downloaded — manage installed models
 
@@ -126,9 +118,9 @@ See what's installed, total disk usage, and which model is active. Press Enter t
 
 ### Speak — TTS models and voices
 
-Pick a TTS backend (local sherpa-onnx or Deepgram Aura), browse 20 local voices
-from ~13 MB, download on selection, and choose a voice per backend. Auto-speak of
-agent replies is toggled here.
+Twenty offline TTS models (Kitten, Kokoro, Piper) from ~13 MB, downloaded on selection;
+then pick a voice, set the speed, and toggle auto-speak of the agent's replies. The panel
+has a **Test** row that synthesises a sample sentence through the same pipeline.
 
 ### Device — hardware profile and dependencies
 
@@ -147,8 +139,9 @@ not supported (the model measured F1 0.175 on English), and a transcript whose
 punctuation is already dense enough — one mark per 20 characters or more — is left alone;
 a sparser one is punctuated even if it carries a mark or two.
 
-The model is a one-time ~285 MB download, fetched in the background the first time a
-dictation needs it: that first dictation gets no mark added while the download starts.
+The model is a one-time ~285 MB download, fetched in the background from the moment a session
+starts — or, on a machine where that did not happen, the first time a dictation needs it.
+Either way a dictation that arrives while the download is still running gets no mark added.
 Once the download has completed, verified against its digest and the engine has been
 constructed — any of which can fail — later qualifying dictations are punctuated; until
 then they get no mark added, and `/voice-punctuation status` reports the state. The
@@ -164,42 +157,44 @@ it did not, and the state of the model.
 
 | Action               | Key                  | Notes                                                                   |
 | -------------------- | -------------------- | ----------------------------------------------------------------------- |
-| **Record to editor** | Hold `SPACE` (≥0.7s) | Release to finalize. Pre-records during warmup so you don't miss words. |
+| **Record to editor** | Hold `SPACE` (≥0.7s) | Release to finalize. Capture starts when the hold reaches the threshold. |
 | **Toggle recording** | `Ctrl+Shift+V`       | Works in all terminals — press to start, press again to stop.           |
 | **Clear editor**     | `Escape` × 2         | Double-tap within 500ms to clear all text.                              |
 
 ### How recording works
 
-1. **Hold SPACE** — warmup countdown appears, audio capture starts immediately (pre-recording)
-2. **Keep holding** — live transcription streams into the editor (Deepgram) or audio buffers (local)
+1. **Hold SPACE** — a countdown shows how long is left. Audio capture starts when the threshold is
+   reached, so begin speaking then: anything said during the countdown is not recorded
+2. **Keep holding** — audio streams into a memory buffer
 3. **Release SPACE** — recording continues for 1.5s (tail recording) to catch your last word, then finalizes
-4. Text appears in the editor, ready to send
+4. The active local model transcribes the buffer in process (2–10 seconds), the transcript is
+   cleaned and punctuated, and the text lands in the editor ready to send
 
 ### Commands
 
-| Command                  | Description                                               |
-| ------------------------ | --------------------------------------------------------- |
-| `/voice-settings`        | Settings panel — backend, models, language, scope, device |
-| `/voice-models`          | Settings panel (Models tab)                               |
-| `/voice-setup`           | Run the first-run setup wizard                            |
-| `/voice-language`        | Open the settings panel to change language                |
-| `/voice-speak <text>`    | Speak text out loud (TTS)                                 |
-| `/voice-speak-test`      | Speak a sample sentence                                   |
-| `/voice-speak-toggle`    | Enable / disable TTS                                      |
-| `/voice-stream`          | Toggle Deepgram streaming TTS (cloud)                     |
-| `/voice-speak-stop`      | Stop in-flight TTS playback                               |
-| `/voice-autosubmit`      | Toggle: STT text auto-sent to the agent (`on`/`off`)      |
-| `/voice-punctuation`     | Offline punctuation: status, model state, last decision   |
-| `/voice-hold-delay`      | Set hold-to-talk delay (200-3000 ms, default 700)         |
-| `/voice-speak-models`    | Browse / install TTS voice models                         |
-| `/voice-speak-info`      | Diagnose TTS state                                        |
-| `/voice-help`            | Keyboard + command reference (or press `F1`)              |
-| `/voice test`            | Full diagnostics — audio tool, mic, API key               |
-| `/voice on` / `off`      | Enable or disable voice                                   |
-| `/voice dictate`         | Continuous dictation (no key hold)                        |
-| `/voice stop`            | Stop active recording or dictation                        |
-| `/voice history`         | Recent transcriptions, as written to the editor           |
-| `/voice`                 | Toggle on/off                                             |
+| Command                  | Description                                              |
+| ------------------------ | -------------------------------------------------------- |
+| `/voice-settings`        | Settings panel — model, language, scope, device          |
+| `/voice-models`          | Settings panel (Models tab)                              |
+| `/voice-setup`           | Settings panel — alias of `/voice-settings`              |
+| `/voice-language`        | Settings panel, to change the dictation language         |
+| `/voice-speak <text>`    | Speak text out loud (TTS)                                |
+| `/voice-speak-test`      | Speak a sample sentence                                  |
+| `/voice-speak-toggle`    | Enable / disable TTS                                     |
+| `/voice-speak-stop`      | Stop in-flight TTS playback                              |
+| `/voice-autosubmit`      | Toggle: STT text auto-sent to the agent (`on`/`off`)     |
+| `/voice-punctuation`     | Offline punctuation: status, model state, last decision  |
+| `/voice-hold-delay`      | Set hold-to-talk delay (200-3000 ms, default 700)        |
+| `/voice-speak-models`    | Browse / install TTS voice models                        |
+| `/voice-speak-info`      | Diagnose TTS state                                       |
+| `/voice-help`            | Keyboard + command reference (or press `F1`)             |
+| `/voice test`            | Full diagnostics — audio tool, microphone, sherpa runtime |
+| `/voice on` / `off`      | Enable or disable voice                                  |
+| `/voice dictate`         | Continuous dictation (no key hold)                       |
+| `/voice stop`            | Stop active recording or dictation                       |
+| `/voice history`         | Recent transcriptions, as written to the editor          |
+| `/voice info`            | Settings panel                                           |
+| `/voice`                 | Toggle on/off                                            |
 
 ### v7.1 keyboard
 
@@ -233,11 +228,14 @@ they are general-purpose models, but nothing about them is validated here — no
 no punctuation behaviour, no device recommendation. They are on the roadmap, not in the support
 matrix.
 
-| Area        | In scope                                    | Out of scope — unvalidated                                                                                                       |
-| ----------- | ------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
-| Recognition | Chinese, English, mixed Chinese–English      | every other language in the catalogue (Japanese, Korean, Russian, Arabic, Ukrainian, Vietnamese, Spanish, …)                      |
-| Punctuation | Chinese today; English under evaluation     | other languages                                                                                                                  |
-| Cloud       | Deepgram Chinese and English locales        | Deepgram's other 50+ locales                                                                                                     |
+The language row offers whatever the active local model supports — a single-language model
+auto-sets the language and an English-only model hides the others, so pick the model first if
+the language you want is missing.
+
+| Area        | In scope                                | Out of scope — unvalidated                                                                                  |
+| ----------- | --------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| Recognition | Chinese, English, mixed Chinese–English | every other language in the catalogue (Japanese, Korean, Russian, Arabic, Ukrainian, Vietnamese, Spanish, …) |
+| Punctuation | Chinese today; English under evaluation | other languages                                                                                             |
 
 ---
 
@@ -270,8 +268,9 @@ validated; every other language listed below is out of scope — see [Language s
 | **Whisper Medium**   | ●●●●○    | ●●●○○ | 946 MB | 57        | Good accuracy, medium speed.           |
 | **Whisper Large v3** | ●●●●○    | ●○○○○ | 1.8 GB | 57        | Highest Whisper accuracy. Slow on CPU. |
 
-Plus 8 language-specialized Moonshine v2 variants for Japanese, Korean, Arabic, Chinese, Ukrainian,
-Vietnamese, and Spanish — only the Chinese one is inside the supported scope.
+Plus 8 language-specialised Moonshine v2 variants — two for Japanese, one each for Korean,
+Arabic, Chinese, Ukrainian, Vietnamese and Spanish — and only the Chinese one is inside the
+supported scope.
 
 ### How local models work
 
@@ -285,7 +284,10 @@ Release SPACE → buffer sent to sherpa-onnx (in-process)
          Final transcript inserted into editor
 ```
 
-Models download automatically on first use. Downloads are resumable, verified after completion, and deduplicated (no double-downloads). The settings panel shows real-time download progress with speed and ETA.
+Dictation is batch, not streaming: the transcript appears when you finish speaking, a few
+seconds later. Models download automatically on first use — resumable, verified after
+completion, and deduplicated (no double-downloads). The settings panel shows real-time
+download progress with speed and ETA.
 
 Models from [Handy](https://github.com/cjpais/handy) (`~/Library/Application Support/com.pais.handy/models/`) are auto-detected and can be imported via symlink (zero disk duplication).
 
@@ -319,16 +321,16 @@ this README.
 
 | Feature                          | Description                                                                              |
 | -------------------------------- | ---------------------------------------------------------------------------------------- |
-| **Dual backend**                 | Deepgram (cloud, live streaming) or local models (offline, batch) — switch in settings   |
+| **Local-only**                   | One path: in-process recognition and speech. No endpoint, no key, no account — see [Privacy](#privacy) |
 | **21 local models**             | Parakeet, Whisper, Moonshine, SenseVoice, GigaAM, Paraformer, Qwen3 — with accuracy/speed ratings |
+| **Offline speech**               | 20 local TTS models (Kitten, Kokoro, Piper) read the agent's replies through the system player |
 | **Unified settings panel**       | One overlay panel for all configuration — `/voice-settings`                              |
 | **Device-aware recommendations** | Scores models against your hardware. Only best-in-class models get [recommended].        |
 | **Enterprise download pipeline** | Pre-checks (disk, network, permissions), live progress with speed/ETA, post-verification |
 | **Handy integration**            | Auto-detects models from Handy app, imports via symlink                                  |
 | **Audio fallback chain**         | Tries sox → ffmpeg → arecord in order — ffmpeg first when `PULSE_SERVER` is set          |
-| **Pre-recording**                | Audio capture starts during warmup — you never miss the first word                       |
+| **Hold threshold**               | 200–3000 ms, default 700 ms (`/voice-hold-delay`). Capture starts at the threshold, not on the press |
 | **Tail recording**               | Keeps recording 1.5s after release so your last word isn't clipped                       |
-| **Live streaming**               | Deepgram Nova 3 WebSocket (Nova 2 for Chinese locales) — live interim transcripts        |
 | **Offline punctuation**          | Chinese dictations that come back unpunctuated get full stops, commas and question marks from an in-process model — marks only, no wording changes, fail-open, English not supported. Both engines stay resident (~300 MB each) and the model is fetched once — see [Engine residency](docs/BENCHMARKS.md#engine-residency) |
 | **Chinese + English**            | The supported and validated scope, mixed Chinese–English included. Every other language in the catalogue is unvalidated — see [Language scope](#language-scope). |
 | **Continuous dictation**         | `/voice dictate` for long-form input without holding keys                                |
@@ -344,18 +346,19 @@ this README.
 # core
 extensions/voice.ts                         Main extension — state machine, recording, UI, command surface
 extensions/voice/config.ts                  Config loading, saving, migration
-extensions/voice/onboarding.ts              First-run wizard, language picker
+extensions/voice/onboarding.ts              Model and language pickers, first-run flow
 extensions/voice/audio-tool.ts              Capture tool detection (sox / ffmpeg / arecord)
 extensions/voice/hold-to-talk.ts            Hold detection, Kitty and non-Kitty terminals
 extensions/voice/release-controller.ts      Recording lifecycle, release handling
 
 # speech-to-text
-extensions/voice/deepgram.ts                Deepgram URL builder, API key resolver
 extensions/voice/local.ts                   Model catalog (21 models), in-process transcription
 extensions/voice/sherpa-engine.ts           sherpa-onnx bindings — recognizer lifecycle, inference
 extensions/voice/sherpa-loader.ts           Lazy native module loading
 extensions/voice/model-download.ts          Download manager — resume, progress, verification, Handy import
 extensions/voice/device.ts                  Device profiling — RAM, GPU, CPU, container detection
+extensions/voice/transcript-cleanup.ts      Filler removal and spoken-numeral restoration
+extensions/voice/transcript-join.ts         Segment stitching — CJK-aware, no space inside a sentence
 
 # offline punctuation
 extensions/voice/punctuation.ts             Offline punctuation — marks-only splice, fail-open step
@@ -364,8 +367,7 @@ extensions/voice/punctuation-model.ts       Punctuation model — catalogue, dig
 # text-to-speech
 extensions/voice/speak.ts                   Speak entry point, auto-speak wiring
 extensions/voice/tts-engine.ts              sherpa-onnx TTS synthesis
-extensions/voice/tts-deepgram.ts            Deepgram Aura voices (cloud)
-extensions/voice/tts-local-models.ts        Local TTS catalog — 20 voices (Kitten, Kokoro, Piper)
+extensions/voice/tts-local-models.ts        Local TTS catalog — 20 models (Kitten, Kokoro, Piper)
 extensions/voice/tts-playback.ts            Playback, buffering, player detection
 extensions/voice/tts-text-filter.ts         Code-block stripping, sentence prep
 extensions/voice/tts-onboarding.ts          TTS onboarding flow
@@ -406,20 +408,18 @@ Settings stored in Pi's settings files under the `voice` key:
 ```json
 {
 	"voice": {
-		"version": 4,
+		"version": 5,
 		"enabled": true,
 		"language": "en",
-		"backend": "local",
 		"localModel": "parakeet-v3",
 		"scope": "global",
-		"onboarding": { "completed": true, "schemaVersion": 4 }
+		"onboarding": { "completed": true, "schemaVersion": 5 }
 	}
 }
 ```
 
-`DEEPGRAM_API_KEY` from your shell is used at runtime and is not copied back
-into `~/.pi/agent/settings.json`. If you paste a key during onboarding, that is
-an explicit save and it still goes to `~/.env.secrets` or `~/.zshrc`.
+A file carried over from 0.5.x may still hold the retired speech-backend fields; the first
+start erases them and says so — see [Privacy](#privacy).
 
 Hold-to-talk delay defaults to **700 ms** (`/voice-hold-delay` accepts 200–3000 ms).
 
@@ -428,11 +428,11 @@ Hold-to-talk delay defaults to **700 ms** (`/voice-hold-delay` accepts 200–300
 Punctuation is automatic and on by default. When a dictation finishes, the transcript
 is cleaned first — see the cleanup switches in the table below — then punctuated locally
 if the text contains Chinese and its punctuation density is below one mark per 20
-characters; the step only inserts marks and changes nothing else. Nothing leaves your
-machine: the model runs in process, and the only network traffic is the one-time
-download of the model itself. English is not supported in this version, and English text
-is skipped by the same rule. A transcript the rule declines gets no mark added, and
-neither does any transcript whose punctuation fails at any point.
+characters; the step only inserts marks and changes nothing else. The model runs in
+process, and the one-time download of the model itself is the only traffic it causes.
+English is not supported in this version, and English text is skipped by the same rule. A
+transcript the rule declines gets no mark added, and neither does any transcript whose
+punctuation fails at any point.
 
 Both engines stay resident for the session: the recogniser as before, and the punctuation engine
 built when a session starts, so no dictation waits for it (measured 0.2 ms for the call, engine
@@ -474,30 +474,98 @@ saved.
 
 ---
 
+## Privacy
+
+**No audio is uploaded to a remote speech service.** Recording, recognition, punctuation
+and speech synthesis all run inside the Pi process — sherpa-onnx is loaded natively and
+works on buffers in memory. There is no endpoint to configure, no key to paste, no account
+to create.
+
+That is the guarantee the code keeps, and it is narrower than "nothing ever leaves the
+machine". Two configurations this README supports send data off it. Both are your own
+configuration, and the extension does not do either by itself:
+
+1. **System audio routing.** Playback hands the synthesised WAV to the system player, and
+   that process inherits your environment. Point PulseAudio at another host
+   (`PULSE_SERVER`, an SSH audio tunnel, a remote desktop session) and the player sends the
+   speech there — the [audio tool](#setup-2-minutes) honours the same variable, so a
+   remote microphone means your voice crosses that link before this extension ever sees
+   it.
+2. **Auto-submit.** With `/voice-autosubmit` on, the finished transcript is sent to the
+   agent, which passes it to whatever model Pi is configured with. That is text rather
+   than audio, and it is off unless you turn it on — but it is a dictation leaving the
+   machine, and the claim above says nothing about it.
+
+Neither path is a speech service this extension chose. If you need the stronger statement
+— no audio of any kind crossing any interface — keep playback local and leave auto-submit
+off.
+
+### What the gate checks
+
+`tests/no-cloud-egress.test.ts` is the enforceable half of that claim. It parses every
+module under `extensions/` and fails when one imports the removed WebSocket transport,
+names a retired vendor identifier or host, or calls `fetch` outside the two
+model-download modules (`model-download.ts`, `tts-local-models.ts`).
+
+That is narrower than "this software can never open a socket", and it is worth saying so
+plainly: the gate binds the transport and the vendor this repository deleted, and it keeps
+ordinary code from growing a new call site. A future module could still build its own
+network client — which is why this is a test you can read, not a promise in prose.
+
+### The one outbound step this extension takes
+
+Model files are downloaded once, on first use, from HuggingFace or GitHub releases: the
+speech models you pick, the TTS models you pick, and the ~285 MB punctuation model on a
+machine that needs it. Downloads are resumable and checked when they finish: the speech
+model files must all be present at their expected sizes, and the punctuation model is
+verified file by file against the SHA-256 digests recorded in this repository. After a
+model is on disk, dictation and speech work with the network down.
+
+### What stays on the machine
+
+- A dictation is held in a memory buffer and dropped after the transcript is written; no
+  recording is stored. (`/voice test` does write a one-second sample to the temp directory
+  to prove the microphone works — it is deleted as soon as its size is read.)
+- Speech playback writes the synthesised audio to a temp WAV with mode `0600` and hands it
+  to the local player (`afplay` on macOS, `paplay`/`aplay` on Linux, PowerShell's
+  `SoundPlayer` on Windows), then deletes it. The player is local but it is a separate
+  process that inherits your environment, which is why [system audio
+  routing](#privacy) is one of the two exceptions above instead of something this
+  extension can promise about.
+- `/voice history` keeps this session's transcripts in memory only.
+- `PI_VOICE_DEBUG=1` appends diagnostics — including a 100-character transcript preview —
+  to `$TMPDIR/pi-voice-debug.log`. It is off unless you set it.
+- No telemetry, analytics or crash reporting is transmitted: there is no crash reporter and no
+  remote logging.
+
+### Upgrading from 0.5.x
+
+0.6.0 removed the cloud backends, so the first start erases a stored provider API key and a
+`localEndpoint` from `settings.json` and tells you it did — the field names are listed in
+[SECURITY.md](SECURITY.md). The rest of the file is left exactly as it was, byte for byte,
+including formatting `JSON.parse`/`JSON.stringify` would not preserve. An API key exported from
+a shell profile or `~/.env.secrets` is no longer read at all; the extension does not edit those
+files, so delete the line yourself.
+
+See [SECURITY.md](SECURITY.md) for vulnerability reporting.
+
+---
+
 ## Troubleshooting
 
 Run `/voice test` inside Pi for full diagnostics.
 
 | Problem                                          | Solution                                                                                                        |
 | ------------------------------------------------ | --------------------------------------------------------------------------------------------------------------- |
-| "DEEPGRAM_API_KEY not set"                       | [Get a key](https://dpgr.am/pi-voice) → `export DEEPGRAM_API_KEY="..."` in `~/.zshrc`                           |
-| "No audio capture tool found"                    | `brew install sox` or `brew install ffmpeg`                                                                     |
+| No microphone? "No audio capture tool found"     | `brew install sox` or `brew install ffmpeg`                                                                     |
 | Remote microphone records silence                | Audio over PulseAudio/SSH — install ffmpeg on the Pi side (capture then prefers ffmpeg)                         |
-| Space doesn't activate voice                     | Run `/voice-settings` — voice may be disabled                                                                   |
-| Local model not transcribing                     | Check `/voice-settings` → Device tab for sherpa-onnx status                                                     |
+| Space doesn't activate voice                     | Run `/voice-settings` — voice may be disabled, or no model is selected                                          |
+| Nothing transcribes                              | `/voice-settings` → Device tab for sherpa-onnx status; `/voice test` names the failure                           |
 | Download failed                                  | Partial downloads auto-resume on retry. Check disk space in Device tab.                                         |
+| Unsupported platform (32-bit ARM, Windows on ARM64, musl) | The native runtime has no build for it; the message names the constraint. Use a glibc x64/arm64 system or container, or Windows on x64 |
 | `dyld: Library not loaded: libsimdjson` on macOS | Homebrew Node ABI mismatch — run `brew reinstall node` or switch to version-managed Node (`mise`, `fnm`, `nvm`) |
 
----
-
-## Security
-
-- **Cloud STT** — audio is sent to Deepgram for transcription (Deepgram backend only)
-- **Local STT** — audio never leaves your machine (local backend)
-- **No telemetry** — pi-voicekit does not collect or transmit usage data
-- **API key** — stored in env var or Pi settings, never logged
-
-See [SECURITY.md](SECURITY.md) for vulnerability reporting.
+More in [docs/troubleshooting.md](docs/troubleshooting.md).
 
 ---
 

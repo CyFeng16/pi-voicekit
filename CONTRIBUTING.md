@@ -58,10 +58,9 @@ pi-voicekit/
 ├── extensions/
 │   ├── voice.ts              # Main extension — state machine, recording, UI
 │   └── voice/
-│       ├── config.ts          # Config loading, saving, migration
-│       ├── deepgram.ts        # Deepgram URL builder, API key resolver
-│       ├── onboarding.ts      # First-run setup wizard
-│       └── text-processing.ts # Voice command detection, punctuation shortcuts
+│       ├── config.ts          # Config loading, saving, migration, retired-key scrub
+│       ├── onboarding.ts      # Model and language pickers, first-run flow
+│       └── transcript-cleanup.ts # Filler particles, spoken numerals, cleanup switches
 ├── tests/                     # Test suites (Bun test runner)
 ├── docs/
 │   └── troubleshooting.md     # Troubleshooting guide
@@ -85,10 +84,10 @@ Follow [Conventional Commits](https://www.conventionalcommits.org/):
 
 ```
 feat: add VAD pre-filtering for voice input
-fix: prevent orphan daemon process on startup timeout
-docs: update backend comparison table
+fix: prevent a stale install widget after a cancelled download
+docs: document the model download sources
 test: add config migration edge cases
-refactor: extract socket path generation to config module
+refactor: extract the model directory resolution to config
 ```
 
 ## Testing

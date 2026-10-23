@@ -133,7 +133,6 @@ describe("LocalSessionCallbacks.onSegment", () => {
 	test("startLocalSession carries the optional callback onto the session", () => {
 		const onSegment = () => {};
 		const session = startLocalSession(fakeRecProcess(), {
-			onTranscript() {},
 			onDone() {},
 			onError() {},
 			onSegment,
@@ -143,7 +142,7 @@ describe("LocalSessionCallbacks.onSegment", () => {
 	});
 
 	test("without a callback the session's onSegment stays undefined", () => {
-		const session = startLocalSession(fakeRecProcess(), { onTranscript() {}, onDone() {}, onError() {} });
+		const session = startLocalSession(fakeRecProcess(), { onDone() {}, onError() {} });
 
 		expect(session.onSegment).toBeUndefined();
 	});

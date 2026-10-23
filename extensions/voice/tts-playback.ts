@@ -3,9 +3,8 @@
  * abort cleanly on signal. v6.0 ships file-based playback for simplicity;
  * stdin-streaming for sub-200ms TTFB is a v6.1 optimization.
  *
- * Both backends produce a complete WAV blob:
- *   - Local engine returns Float32Array PCM → encoded to WAV here
- *   - Deepgram REST returns WAV bytes directly (container=wav)
+ * The engine returns Float32Array PCM; it is encoded to a complete WAV
+ * blob here before playback.
  *
  * Concurrency contract: each play() call owns its own temp file. Two
  * concurrent calls write to distinct UUID-named files and spawn distinct
@@ -181,7 +180,7 @@ export async function play(opts: PlayOpts): Promise<void> {
  * Supported writes: `Int16Array` mono samples at the configured
  * `sampleRate`. Float32 inputs must be int16-converted by the caller —
  * keeps this layer narrow and avoids per-write float→int conversions
- * if the source already has int16 (e.g. Deepgram WS TTS).
+ * if the source already has int16.
  *
  * Lifecycle: `end()` flushes any buffered writes, then sends EOF to the
  * player and resolves `done()` when playback finishes. `cancel()`

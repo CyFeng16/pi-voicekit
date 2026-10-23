@@ -1,38 +1,43 @@
 # pi-voicekit
 
-> Voice in + voice out for the Pi coding agent: hold-to-talk STT for **Chinese and English** (Deepgram streaming or 21 offline models) plus TTS (Kitten Nano, Piper, Kokoro, or Deepgram Aura).
+> Voice in and voice out for the Pi coding agent: hold-to-talk dictation for **Chinese and English** with 21 offline models, plus offline text-to-speech that reads the agent's replies aloud. Local-only since 0.6.0 — no key, no endpoint, no account; the extension's own network access is the one-time model download.
 
 ## Overview
 
-pi-voicekit adds voice input and voice output to Pi. Hold SPACE to record, release to transcribe. Two STT backends: Deepgram (cloud, live streaming as you speak) or local models (offline, batch mode after recording). 21 local models from Parakeet, Whisper, Moonshine, SenseVoice, GigaAM, Paraformer and Qwen3 with accuracy/speed ratings and device-aware recommendations. Chinese transcripts that come back unpunctuated are punctuated offline by the in-process `punct-ct-transformer-zh-en` model (~285 MB, downloaded on first need) — marks only, no wording changes, English not supported. TTS covers Kitten Nano, Piper and Kokoro (offline) plus Deepgram Aura (cloud), including auto-speak of agent responses.
+pi-voicekit adds voice input and voice output to Pi. Hold SPACE to record, release to transcribe; the audio is recognised in process by sherpa-onnx, so no audio reaches a remote speech service. 21 local models from Parakeet, Whisper, Moonshine, SenseVoice, GigaAM, Paraformer and Qwen3 come with accuracy/speed ratings and device-aware recommendations. Chinese transcripts that come back unpunctuated are punctuated offline by the in-process `punct-ct-transformer-zh-en` model (~285 MB, fetched in the background from session start, falling back to first need) — marks only, no wording changes, English not supported. TTS covers 20 offline models (Kitten, Kokoro, Piper), including auto-speak of agent responses.
 
 Language scope: **Chinese, English and mixed Chinese–English** are supported and validated. Every other language a model happens to cover is unvalidated and on the roadmap — see the README's Language scope section.
+
+## Privacy
+
+No audio is uploaded to a remote speech service: capture, recognition, punctuation and synthesis all run in the Pi process, and speech playback hands a temp WAV (mode `0600`) to a local player before deleting it. Two configurations of the user's own send data off the machine, and the claim does not cover them — system audio routing (`PULSE_SERVER` / SSH audio sends playback, and capture, to another host the user chose) and `/voice-autosubmit` (the finished transcript, text rather than audio, goes to Pi and whichever model Pi is configured with). The enforceable part lives in `tests/no-cloud-egress.test.ts` — no module imports the removed WebSocket transport, names a retired vendor identifier or host, or calls `fetch` outside the two model-download modules (`model-download.ts`, `tts-local-models.ts`). That is narrower than "cannot open a socket": it binds what this repository deleted, and a future module could still build its own client.
+
+The one outbound step is real: model files are downloaded once, on first use, from HuggingFace and GitHub releases. Upgrading from 0.5.x erases the retired credential fields from `settings.json` on the first start and reads no API key from the environment.
 
 ## Setup
 
 1. `pi install npm:pi-voicekit` (outside Pi)
-2. Open Pi, run `/voice-settings` to choose backend
-3. Deepgram: get key at https://dpgr.am/pi-voice ($200 free credit, lasts 6-12 months)
-4. Local: select a model, it downloads automatically
-5. Audio capture auto-detects: sox, ffmpeg, or arecord
+2. Open Pi, run `/voice-settings` and press ↵ on a model in the Models tab — it downloads once
+3. Audio capture auto-detects: sox, ffmpeg, or arecord
+4. `/voice test` reports the audio tool, the microphone and the sherpa-onnx runtime
 
 ## Commands
 
-- `/voice-settings` — Unified settings panel (backend, models, language, device)
-- `/voice-models` — Settings panel focused on Models tab
+- `/voice-settings` — Unified settings panel (model, language, scope, device)
+- `/voice-models` — Settings panel focused on the Models tab
+- `/voice-setup` — Alias of `/voice-settings`
 - `/voice-speak <text>` — Speak text out loud (TTS)
 - `/voice-speak-models` — Browse / install TTS voice models
 - `/voice-speak-info` — Diagnose TTS state
 - `/voice-punctuation status` — Offline punctuation: switch, model state, last decision
-- `/voice test` — Full diagnostics (audio tool, mic, API key)
+- `/voice test` — Full diagnostics (audio tool, microphone, sherpa runtime)
 - `/voice [on|off|dictate|stop|history]`
 
 ## Components
 
 - `extensions/voice.ts`: Main extension — state machine, recording, settings panel handler
-- `extensions/voice/config.ts`: Config loading, saving, migration
-- `extensions/voice/onboarding.ts`: First-run wizard, language picker
-- `extensions/voice/deepgram.ts`: Deepgram STT URL builder, API key resolver
+- `extensions/voice/config.ts`: Config loading, saving, migration, retired-key scrub
+- `extensions/voice/onboarding.ts`: Model and language pickers, first-run flow
 - `extensions/voice/local.ts`: Model catalog (21 models), in-process transcription
 - `extensions/voice/device.ts`: Device profiling, model fitness scoring
 - `extensions/voice/model-download.ts`: Download manager with resume, verification, Handy import
@@ -41,13 +46,14 @@ Language scope: **Chinese, English and mixed Chinese–English** are supported a
 - `extensions/voice/punctuation-model.ts`: Punctuation model catalogue, digest verification and download
 - `extensions/voice/settings-panel.ts`: Settings panel overlay (5 tabs)
 - `extensions/voice/tts-engine.ts`: TTS engine selection and synthesis
-- `extensions/voice/tts-local-models.ts`: Local TTS voice catalog (Kitten, Piper, Kokoro)
-- `extensions/voice/tts-deepgram.ts`: Deepgram Aura TTS (cloud)
+- `extensions/voice/tts-local-models.ts`: Local TTS catalog (Kitten, Kokoro, Piper)
 - `extensions/voice/tts-playback.ts`: Audio playback, WAV encoding, abort handling
+- `tests/no-cloud-egress.test.ts`: The egress gate that backs the privacy claim
 
 ## Documentation
 
-- [README](https://github.com/CyFeng16/pi-voicekit/blob/main/README.md): Setup, usage, features, screenshots
+- [README](https://github.com/CyFeng16/pi-voicekit/blob/main/README.md): Setup, usage, features, privacy, screenshots
 - [Changelog](https://github.com/CyFeng16/pi-voicekit/blob/main/CHANGELOG.md): Release history
+- [Security policy](https://github.com/CyFeng16/pi-voicekit/blob/main/SECURITY.md): Reporting, threat model, design principles
 - [License](https://github.com/CyFeng16/pi-voicekit/blob/main/LICENSE): MIT
 - [Agent guidelines](https://github.com/CyFeng16/pi-voicekit/blob/main/AGENTS.md): Repository rules for coding agents (language policy, gates, releases)

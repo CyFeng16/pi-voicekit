@@ -54,10 +54,14 @@ export async function loadSherpa(): Promise<boolean> {
 
 async function doLoadSherpa(): Promise<boolean> {
 	try {
-		// Early platform checks — fail fast with clear messages
+		// Early platform checks — fail fast with clear messages. There is no remote fallback any
+		// more: when sherpa-onnx-node ships no binary for the platform, local STT cannot run there.
 		if (process.arch === "arm") {
+			throw new Error("ARM32 (armv7l) is not supported by sherpa-onnx-node. Use a 64-bit OS.");
+		}
+		if (process.platform === "win32" && process.arch === "arm64") {
 			throw new Error(
-				"ARM32 (armv7l) is not supported by sherpa-onnx-node. Use 64-bit OS or the Deepgram cloud backend."
+				"Windows on ARM64 (win32/arm64) is not supported by sherpa-onnx-node 1.13.0, which ships no win-arm64 binary. Use Windows on x64, or macOS/Linux on 64-bit ARM."
 			);
 		}
 		if (process.platform === "linux") {
@@ -65,7 +69,7 @@ async function doLoadSherpa(): Promise<boolean> {
 				const ldd = fs.readFileSync("/usr/bin/ldd", "utf-8");
 				if (ldd.includes("musl")) {
 					throw new Error(
-						"Alpine Linux (musl libc) is not supported by sherpa-onnx-node. Use a glibc-based distribution or the Deepgram cloud backend."
+						"Alpine Linux (musl libc) is not supported by sherpa-onnx-node. Use a glibc-based distribution."
 					);
 				}
 			} catch (e: any) {
@@ -96,7 +100,18 @@ async function doLoadSherpa(): Promise<boolean> {
 		// it, the namespace is fully-populated (Bun); otherwise prefer
 		// `.default` when it carries createAsync; final fallback is the
 		// namespace as-is so future runtime variants degrade gracefully.
-		const ns = await import("sherpa-onnx-node");
+		// A load failure on any other platform is a broken install, not a platform constraint. Keep
+		// the two distinguishable: the guards above name a platform, this one names the module and
+		// tells the user to reinstall it.
+		let ns: any;
+		try {
+			ns = await import("sherpa-onnx-node");
+		} catch (err: any) {
+			const detail = err?.message || String(err);
+			throw new Error(
+				`sherpa-onnx-node could not be loaded on ${process.platform}/${process.arch}: ${detail}. Reinstall it (bun add sherpa-onnx-node).`
+			);
+		}
 		const top = ns as any;
 		const def = (ns as any).default;
 		const topHasCreateAsync = typeof top?.OfflineTts?.createAsync === "function";

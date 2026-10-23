@@ -7,7 +7,7 @@
  *   - synthesizeById(opts)       — synthesize using a model id from the catalog
  *   - clearTtsCache()            — drop cached instance (called on model switch)
  *   - resolveLanguageForLocal    — validate language ↔ local model match
- *   - validateTtsLanguageInput    — non-empty/string language guard (both backends)
+ *   - validateTtsLanguageInput    — non-empty/string language guard
  *
  * Internal helpers:
  *   - getOrCreateTts(model, dir) — module-private cached OfflineTts instance
@@ -452,9 +452,9 @@ function extendChain(cached: CachedTts): { previousTail: Promise<void>; release:
 // ─── Validation ──────────────────────────────────────────────────────────────
 
 /**
- * Validate that `language` is non-empty and a string. Both backends call
- * this; the deepgram path additionally relies on the voice id encoding the
- * language (see `tts-deepgram.ts`), so this is the only check it needs.
+ * Validate that `language` is non-empty and a string. The engine runs this
+ * before it hands the value to sherpa, so a malformed language fails with a
+ * message that names the actual problem rather than an engine-side error.
  */
 export function validateTtsLanguageInput(language: unknown): asserts language is string {
 	if (!language || typeof language !== "string") {
@@ -466,10 +466,9 @@ export function validateTtsLanguageInput(language: unknown): asserts language is
  * Validate that `language` is supported by the local `model`. Throws a
  * user-facing error describing how to fix the mismatch.
  *
- * Local-only by signature — deepgram callers don't have a TtsLocalModelInfo
- * and use the (separate) deepgram voice catalog instead. Splitting the
- * validation by backend keeps the cloud TTS module independent of the
- * local catalog so the two engines can evolve independently.
+ * Takes the resolved `TtsLocalModelInfo` rather than a model id: the
+ * supported-language list lives on the catalog entry, so callers that have
+ * already looked the model up can pass it straight through.
  */
 export function resolveLanguageForLocal(model: TtsLocalModelInfo, language: string): void {
 	validateTtsLanguageInput(language);

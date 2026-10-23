@@ -2,8 +2,10 @@
 //
 // A package an extension imports at runtime must be declared in package.json. Pi installs
 // managed packages with `npm install --omit=dev`, so anything reachable only through a
-// hoisted neighbour disappears the day that neighbour stops shipping it. This guard exists
-// because `ws` shipped in exactly that state: reachable by accident, declared nowhere.
+// hoisted neighbour disappears the day that neighbour stops shipping it. The declaration
+// must be checked, not assumed: `sherpa-onnx-node` is loaded by `import()` and declared in
+// optionalDependencies, and a dropped declaration would still typecheck against the ambient
+// `declare module` shim.
 import { expect, test } from "bun:test";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
@@ -61,7 +63,7 @@ test("importedSpecifiers reads every runtime import form the extensions use", ()
 		'import { Key } from "@earendil-works/pi-tui";',
 		'import "./relative-side-effect";',
 		'export { helper } from "./re-exported";',
-		'const { WebSocket } = await import("ws");',
+		'const sherpa = await import("sherpa-onnx-node");',
 		'const fs = require("node:fs");',
 		'import {\n\tone,\n\ttwo,\n} from "multi-line-package";',
 	].join("\n");
@@ -69,7 +71,7 @@ test("importedSpecifiers reads every runtime import form the extensions use", ()
 		"@earendil-works/pi-tui",
 		"./relative-side-effect",
 		"./re-exported",
-		"ws",
+		"sherpa-onnx-node",
 		"node:fs",
 		"multi-line-package",
 	]);

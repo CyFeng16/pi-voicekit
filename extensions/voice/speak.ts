@@ -2,17 +2,16 @@
  * High-level TTS orchestrator.
  *
  * Public API:
- *   - speak(text, opts)     — synthesize and play with backend dispatch
+ *   - speak(text, opts)     — synthesize and play
  *   - chunkText(text, lang) — split into playback-friendly sentences
  *
  * Pipeline:
- *   1. Validate inputs (non-empty text, valid backend choice)
+ *   1. Validate inputs (non-empty text)
  *   2. Resolve language from opts → config → fallback
- *   3. Backend dispatch: local (sherpa) or cloud (Deepgram)
- *   4. Sentence-aware chunking via Intl.Segmenter (with word-window
+ *   3. Sentence-aware chunking via Intl.Segmenter (with word-window
  *      fallback for locales/runtimes without segmenter support)
- *   5. Sequentially synthesize + play each chunk
- *   6. Cooperative abort via AbortSignal at every async boundary
+ *   4. Sequentially synthesize + play each chunk
+ *   5. Cooperative abort via AbortSignal at every async boundary
  *
  * Sentence chunking uses Intl.Segmenter rather than naive `.`/`!`/`?`
  * splitting. The naive split misfires on common patterns (`Dr. Smith`,
@@ -25,13 +24,6 @@ import type { VoiceConfig } from "./config";
 import { synthesize, type TtsAudio } from "./tts-engine";
 import { openPlaybackStream, float32ToInt16, type PlaybackStream } from "./tts-playback";
 import { getTtsModel, type TtsLocalModelInfo } from "./tts-local-models";
-import {
-	deepgramSpeak,
-	deepgramSpeakStreaming,
-	DEFAULT_DEEPGRAM_TTS_VOICE,
-	DEEPGRAM_TTS_SAMPLE_RATE,
-	assertLanguageForDeepgram,
-} from "./tts-deepgram";
 import { play } from "./tts-playback";
 
 // ─── Public API ───────────────────────────────────────────────────────────────
@@ -39,7 +31,7 @@ import { play } from "./tts-playback";
 export interface SpeakOpts {
 	/** The full text to speak. Will be sentence-chunked before synthesis. */
 	text: string;
-	/** Active VoiceConfig — read for backend choice, voice, language, speed. */
+	/** Active VoiceConfig — read for voice, language, speed. */
 	config: VoiceConfig;
 	/**
 	 * Override config.ttsLanguage. BCP-47 tag (e.g. "en", "es-ES").
@@ -49,10 +41,10 @@ export interface SpeakOpts {
 	/** Cooperative cancellation. Aborts mid-chunk if user hits Escape. */
 	signal?: AbortSignal;
 	/**
-	 * Resolver for installed local model directories. Required for the
-	 * local backend; the orchestrator doesn't know where models live —
-	 * that's a property of the download/install layer in voice.ts /
-	 * model-download.ts. Throws if the model id isn't installed.
+	 * Resolver for installed local model directories. Required; the
+	 * orchestrator doesn't know where models live — that's a property of
+	 * the download/install layer in voice.ts / model-download.ts. Throws
+	 * if the model id isn't installed.
 	 */
 	resolveModelDir?: (modelId: string) => string;
 	/** Override the play() function — used by tests to capture audio. */
@@ -78,7 +70,6 @@ export async function speak(opts: SpeakOpts): Promise<void> {
 	}
 
 	const language = resolveLanguage(opts);
-	const backend: "local" | "deepgram" = config.ttsBackend === "deepgram" ? "deepgram" : "local";
 
 	// Chunk the text once up front. Each chunk is small enough to fit a
 	// single synthesize call without the engine refusing it; sequential
@@ -116,7 +107,6 @@ export async function speak(opts: SpeakOpts): Promise<void> {
 	const synthOne = (chunk: string) => {
 		const p = synthesizeChunk({
 			chunk,
-			backend,
 			config,
 			language,
 			signal,
@@ -131,9 +121,8 @@ export async function speak(opts: SpeakOpts): Promise<void> {
 		return p;
 	};
 
-	// Discover the audio sample rate for the streaming player. Local
-	// engine returns it on the first synth result; for Deepgram we
-	// know it's the buildDeepgramSpeakUrl rate. We open the stream
+	// Discover the audio sample rate for the streaming player. The
+	// engine returns it on the first synth result, so we open the stream
 	// AFTER the first synth so we have a definitive rate to pass.
 	let stream: PlaybackStream | null = null;
 
@@ -148,42 +137,6 @@ export async function speak(opts: SpeakOpts): Promise<void> {
 		}
 	};
 
-	// v7.1.3 — Deepgram WebSocket streaming TTS. When the user enables
-	// `ttsDeepgramStreaming` AND we have a local stream sink, bypass the
-	// REST/file-based chunk loop entirely: open the sink once, send each
-	// chunk's text directly to Deepgram's WS, and let the binary frames
-	// flow into the sink as they arrive. Sub-200ms TTFA in good network
-	// conditions vs ~1-2s for REST/file path.
-	if (backend === "deepgram" && config.ttsDeepgramStreaming === true) {
-		const dgSampleRate = 24000;
-		const sink = openPlaybackStream({ sampleRate: dgSampleRate, signal });
-		if (sink) {
-			try {
-				const voiceId = config.ttsDeepgramVoiceId || "aura-asteria-en";
-				for (const chunk of chunks) {
-					if (signal?.aborted) throw makeAbortError();
-					await deepgramSpeakStreaming({
-						text: chunk,
-						voiceId,
-						config,
-						sampleRate: dgSampleRate,
-						signal,
-						sink,
-					});
-				}
-				await sink.end();
-				await sink.done();
-				return;
-			} catch (err) {
-				try {
-					sink.cancel();
-				} catch {}
-				throw err;
-			}
-		}
-		// No streaming player available — fall through to REST/file path.
-	}
-
 	try {
 		let nextSynth: ReturnType<typeof synthOne> | null = null;
 		for (let i = 0; i < chunks.length; i++) {
@@ -195,9 +148,9 @@ export async function speak(opts: SpeakOpts): Promise<void> {
 			if (signal?.aborted) throw makeAbortError();
 
 			// Streaming path: open the sink lazily on first chunk so we
-			// have the actual sample rate. PCM-yielding chunks (local
-			// `{ samples, sampleRate }`) are write-and-go; pre-encoded
-			// WAV chunks (Deepgram REST) cannot stream and fall through.
+			// have the actual sample rate. PCM chunks (`{ samples,
+			// sampleRate }`) are write-and-go; a chunk without a rate
+			// cannot stream and falls through to file-based playback.
 			if ("samples" in audio && audio.sampleRate) {
 				if (stream === null && i === 0) {
 					stream = openPlaybackStream({ sampleRate: audio.sampleRate, signal });
@@ -214,7 +167,7 @@ export async function speak(opts: SpeakOpts): Promise<void> {
 				}
 			}
 
-			// Non-streaming fallback (Windows, missing sox, or WAV chunks):
+			// Non-streaming fallback (Windows, or systems without sox):
 			// file-per-chunk playback. Pipeline next synth while playing.
 			if (i + 1 < chunks.length) {
 				nextSynth = synthOne(chunks[i + 1]!);
@@ -238,11 +191,10 @@ export async function speak(opts: SpeakOpts): Promise<void> {
 	}
 }
 
-// ─── Backend dispatch ─────────────────────────────────────────────────────────
+// ─── Synthesis ────────────────────────────────────────────────────────────────
 
 interface SynthesizeChunkOpts {
 	chunk: string;
-	backend: "local" | "deepgram";
 	config: VoiceConfig;
 	language: string;
 	signal?: AbortSignal;
@@ -250,28 +202,12 @@ interface SynthesizeChunkOpts {
 }
 
 /**
- * Single chunk → audio. Returns either a Float32 PCM frame (local) or a
- * pre-encoded WAV blob (Deepgram). The playback layer accepts both.
+ * Single chunk → audio: a Float32 PCM frame plus the rate it was
+ * synthesized at. The playback layer consumes both directly.
  */
-async function synthesizeChunk(
-	opts: SynthesizeChunkOpts
-): Promise<{ samples: Float32Array; sampleRate: number } | { wav: Uint8Array }> {
-	const { chunk, backend, config, language, signal } = opts;
-	if (backend === "deepgram") {
-		const voiceId =
-			typeof config.ttsDeepgramVoiceId === "string" && config.ttsDeepgramVoiceId
-				? config.ttsDeepgramVoiceId
-				: DEFAULT_DEEPGRAM_TTS_VOICE;
-		assertLanguageForDeepgram(voiceId, language);
-		const result = await deepgramSpeak({ text: chunk, voiceId, config, signal });
-		// The Deepgram REST endpoint we use returns a complete WAV blob;
-		// the playback layer reads the sample rate from the WAV header so
-		// `result.sampleRate` is informational only at this layer (v6.1
-		// streaming will wire it into the playback layer directly).
-		return { wav: result.wav };
-	}
+async function synthesizeChunk(opts: SynthesizeChunkOpts): Promise<{ samples: Float32Array; sampleRate: number }> {
+	const { chunk, config, language, signal } = opts;
 
-	// Local backend
 	const modelId = config.ttsLocalModel || "kitten-nano-en-v0_2";
 	const model: TtsLocalModelInfo = getTtsModel(modelId);
 	if (!opts.resolveModelDir) {

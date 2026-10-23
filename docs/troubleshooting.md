@@ -4,48 +4,18 @@
 
 Run these built-in commands inside Pi:
 
-- `/voice test` — checks SoX, mic capture, and validates your Deepgram API key against the live API
-- `/voice info` — shows current config, state, and whether Kitty protocol is detected
+- `/voice test` — reports the audio tool it detected, whether the microphone actually produced audio, whether the sherpa-onnx runtime loaded, and the config in effect
+- `/voice-settings` — the settings panel, where the model, language and scope live
 
 If you only do one thing, start with `/voice test`.
 
-## Symptom: "DEEPGRAM_API_KEY not set"
+## Symptom: "No audio capture tool found"
 
 ### What it means
-No Deepgram API key was found in environment variables or saved Pi settings.
+None of `rec` (SoX), `ffmpeg` or `arecord` is on `PATH`, so there is nothing to record with.
 
 ### Fix
-1. Get a free key at [dpgr.am/pi-voice](https://dpgr.am/pi-voice) ($200 free credit, no card needed)
-2. Set it in your shell:
-   ```sh
-   export DEEPGRAM_API_KEY="your-key-here"
-   ```
-3. Add to `~/.zshrc` or `~/.bashrc` for persistence
-4. Or run `/voice-setup` inside Pi to paste it interactively
-
-### Important behavior
-- If the key comes from your shell environment, pi-voicekit uses it at runtime
-  only and does not copy it into `~/.pi/agent/settings.json`
-- If you paste a key during onboarding, that is an explicit save and it goes to
-  `~/.env.secrets` or `~/.zshrc`
-
-## Symptom: "INVALID KEY" from `/voice test`
-
-### What it means
-The API key is set but Deepgram rejected it.
-
-### Fix
-- Check your key at [console.deepgram.com](https://console.deepgram.com)
-- Make sure you're using an API key, not a project ID
-- Verify your Deepgram account has available credits
-
-## Symptom: "Voice requires SoX. Install: brew install sox"
-
-### What it means
-pi-voicekit could not find the `rec` command used for audio recording.
-
-### Fix
-Install SoX:
+Install any one of them:
 
 ```sh
 brew install sox          # macOS
@@ -53,7 +23,30 @@ sudo apt install sox      # Ubuntu/Debian
 choco install sox         # Windows
 ```
 
-Then restart Pi or run `/voice test` again.
+`ffmpeg` and, on Linux, ALSA's `arecord` work just as well. Then restart Pi or run `/voice test`
+again.
+
+> When `PULSE_SERVER` is set (SSH audio tunnel / remote PulseAudio) capture prefers `ffmpeg`, because
+> network Pulse sources do not work through SoX.
+
+## Symptom: pi-voicekit says the platform is not supported
+
+### What it means
+
+The recogniser is a native addon (`sherpa-onnx-node`). It ships binaries for macOS and Linux on x64
+and 64-bit ARM, and for Windows on x64 — but not for 32-bit ARM (`armv7l`), Windows on ARM64, or
+Alpine's musl libc. On those targets recognition cannot run, and the message names the constraint:
+`ARM32 (armv7l) is not supported by sherpa-onnx-node`, `Windows on ARM64 (win32/arm64) is not
+supported …`, `Alpine Linux (musl libc) is not supported …`.
+
+A missing module on a *supported* platform is a different failure — that message says the engine
+could not be loaded and how to reinstall, because it is a broken install rather than a platform
+limit.
+
+### Fix
+
+Move to a supported target: a glibc-based 64-bit distribution (or container), macOS on 64-bit ARM, or
+Windows on x64. There is no cloud backend to switch to — 0.6.0 removed it — and none is planned.
 
 ## Symptom: pi exits with `symbol lookup error: … sherpa-onnx.node: undefined symbol: SherpaOnnxGetOnnxruntimeVersionStr`
 
@@ -80,7 +73,7 @@ Switching or upgrading the install source (`pi install` / `pi remove`) needs a r
 already mapped into the process.
 
 With several Pi sessions open, the ones started before the change are the ones at risk —
-restart them as well, or keep the local backend off in those sessions.
+restart them as well, or run `/voice off` in those sessions.
 
 If the crash persists on a fresh start, report the two versions involved:
 
@@ -121,13 +114,13 @@ SoX's `rec` command ran but produced zero audio data. This usually means a permi
 
 ### Common causes
 - Voice is disabled — run `/voice on`
-- Onboarding not completed — run `/voice-setup`
+- No local model selected — run `/voice-setup` and pick one in the Models tab
 - Typing cooldown active — if you were just typing, wait 400ms before holding SPACE
 - You're in a picker, search, or other non-editor context — use `Ctrl+Shift+V` instead
 
 ### What to check
-- `/voice info` — confirm `enabled: true` and `setup: complete`
-- The status bar should show `MIC STREAM` when voice is ready
+- `/voice test` — the `local model` line should name a model, and `state` should be `idle`
+- The status bar reads `MIC LOCAL` when voice is ready; `MIC SETUP` means no model is selected
 
 ## Symptom: voice triggers accidentally while typing
 
@@ -136,27 +129,55 @@ Your terminal may be sending key-repeat events faster than expected. The typing 
 
 ### Workarounds
 - Use `Ctrl+Shift+V` exclusively (toggle mode, no hold detection involved)
-- The hold threshold is 1200ms — a normal space press is well under this
+- The hold threshold is 700ms — `/voice-hold-delay` accepts 200–3000 ms, so raise it if a
+  normal space press still trips the detector
 
-## Symptom: "Connection lost" or "Deepgram connection timed out"
-
-### What it means
-The WebSocket connection to Deepgram failed or dropped.
-
-### Fix
-- Check your internet connection
-- Verify your API key is valid: `/voice test`
-- If behind a corporate firewall or VPN, ensure `wss://api.deepgram.com` is accessible
-- Try again — transient network issues resolve on retry
-
-## Symptom: "No response from Deepgram (15s)"
+## Symptom: transcription times out
 
 ### What it means
-Audio was streaming but Deepgram sent no response for 15 seconds. This usually indicates a network issue or invalid API key.
+Recognition runs in process, so this is not a network call. `Transcription timed out (120s)` comes
+from the engine itself: either the recording is longer than the engine can finish inside that window
+on this CPU, or the native runtime is in a bad state after an install change.
 
 ### Fix
-- Run `/voice test` to validate your API key
-- Check network connectivity to `api.deepgram.com`
+- Run `/voice test` — it reports whether the sherpa-onnx runtime loads at all
+- Restart Pi if you switched or upgraded pi-voicekit since it started
+- Dictate in shorter bursts (`/voice dictate` accepts `/voice stop` at any time), or pick a faster
+  model in the Device tab
+
+## Symptom: the model download fails, or the model never reaches ready
+
+### What it means
+
+Model files are the only thing pi-voicekit fetches from the network: the speech model, the TTS
+model and the ~285 MB punctuation model, downloaded once on first use from `huggingface.co` or
+`github.com`. A download that fails, or a model that stays unusable, means that single outbound
+step is blocked — a proxy, a firewall, DNS, an offline machine — or the disk is full.
+
+### Fix
+
+- Retry. A partial download is kept next to the target file and resumed with a `Range` request,
+  so the next attempt starts where the last one stopped.
+- Check free space in the settings panel's **Device** tab (`/voice-settings`). Only the
+  speech-model install from `/voice-models` runs a precheck: it refuses to start when the volume
+  cannot hold 1.2× the model size, and reports the free and required megabytes in the error. The
+  TTS install, the punctuation transfer and a first-use auto-download have no such precheck, so
+  on a full disk they fail mid-write instead.
+- If retries keep failing on a partial file, delete the model in the **Downloaded** tab (select
+  it, press `x` twice) or remove its directory and fetch it again. Speech models live at
+  `~/.pi/models/<model-id>/`; TTS models live one level deeper, at `~/.pi/models/tts/<model-id>/`,
+  so the shorter path is a no-op for a voice. The Downloaded tab lists every directory under
+  `~/.pi/models`, so the TTS collection appears as one aggregate `tts` row — deleting that row
+  removes every installed TTS model.
+- Confirm the machine can reach both download hosts. Every speech model and the punctuation model
+  come from `huggingface.co`; TTS archives come from `github.com`. Those two are the initial
+  download sources, not the whole allowlist: the requests follow redirects, and a GitHub release
+  download is answered from a separate asset host (`*.githubusercontent.com`), so that host must be
+  reachable too. Blocking `github.com` breaks only the TTS install — speech recognition still
+  installs; blocking `huggingface.co` stops both speech recognition and punctuation.
+
+Once the files are on disk, dictation, punctuation and speech all work with the network down —
+the download is the only outbound step this extension takes.
 
 ## Symptom: last word gets cut off
 
@@ -179,12 +200,13 @@ A transcript that fails the rule gets no mark added, and neither does one whose
 punctuation fails at any point — the step is fail-open, so "no punctuation" always means
 "nothing was inserted", never "text was lost".
 
-The model is downloaded the first time a dictation needs it (~285 MB), and that first
-dictation gets no mark added while the download starts in the background. Once the
-download has completed, verified against its digest and the engine has been constructed —
-any of which can fail — later qualifying dictations are punctuated; until then they get no
-mark added, and `/voice-punctuation status` reports the state. On a fresh install this is
-the usual explanation.
+The model is a one-time ~285 MB download, fetched in the background from the moment a session
+starts — or, on a machine where that did not happen, the first time a dictation needs it.
+Either way a dictation that arrives while the download is still running gets no mark added.
+Once the download has completed, verified against its digest and the engine has been
+constructed — any of which can fail — later qualifying dictations are punctuated; until
+then they get no mark added, and `/voice-punctuation status` reports the state. On a fresh
+install this is the usual explanation.
 
 ### Fix
 
@@ -212,7 +234,8 @@ Either:
 - The project does not have `.pi/settings.json`
 
 ### Fix
-1. Re-run `/voice-setup` and select **Project only** when prompted
+1. Open `/voice-settings`, go to the **General** tab and set **Scope** to `Project (this repo)`;
+   the next save writes the repository's `.pi/settings.json`
 2. Inspect both files:
    - `~/.pi/agent/settings.json` (global)
    - `<project>/.pi/settings.json` (project)
@@ -228,13 +251,16 @@ Set `PI_VOICE_DEBUG=1` to enable verbose debug logging:
 PI_VOICE_DEBUG=1 pi
 ```
 
-Logs go to stderr and to a file at `$TMPDIR/pi-voice-debug.log`. This shows the full state machine transitions, key events, and Deepgram connection lifecycle.
+Logs go to stderr and to a file at `$TMPDIR/pi-voice-debug.log`. This shows the full state machine
+transitions, key events, model and download decisions, and — for the punctuation step — the gate,
+the reason it did not run and the marks before and after. It also includes a 100-character preview of
+each transcript, so treat the file as sensitive.
 
 ## If you are still stuck
 
 Capture these pieces of information before asking for help:
 
 1. `/voice test` output
-2. `/voice info` output
-3. Your OS, terminal app, and Pi version
+2. Your OS, terminal app, and Pi version
+3. The selected local model and whether `/voice test` reports the sherpa-onnx runtime as loaded
 4. Debug log (run with `PI_VOICE_DEBUG=1`)
