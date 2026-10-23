@@ -1,5 +1,5 @@
 /**
- * Voice Settings Panel — interactive overlay for backend / model / language
+ * Voice Settings Panel — interactive overlay for model / language
  * configuration. Tab navigation across General / Models / Downloaded / Device.
  *
  * Architecture:
@@ -84,8 +84,6 @@ export interface PanelDeps {
 	formatDeviceSummary: (d: DeviceProfile) => string;
 	saveConfig: (config: VoiceConfig, scope: VoiceSettingsScope, cwd: string) => void;
 	clearRecognizerCache: () => void;
-	resolveApiKey: () => string | undefined;
-	deepgramLanguages: { name: string; code: string; popular?: boolean }[];
 	/**
 	 * Optional. If provided, panel renders use the host theme so colors track
 	 * user theme choices (Catppuccin, Solarized, etc.). Without it, raw ANSI
@@ -366,34 +364,24 @@ export class VoiceSettingsPanel {
 	/**
 	 * Render the at-a-glance second header row showing current system
 	 * state. Format depends on width tier:
-	 *   wide (≥80): STT <on/off> · <stt-backend>/<stt-model> · TTS <on/off> · <tts-backend>/<tts-model>/<voice> · Lang <lang>
-	 *   mid (60-79): STT <on/off> · <stt-backend> · TTS <on/off> · <tts-backend> · <lang>
+	 *   wide (≥80): STT <on/off> · <stt-model> · TTS <on/off> · <tts-model> · Lang <lang>
+	 *   mid (60-79): STT <on/off> · TTS <on/off> · <lang>
 	 * Each segment is dim-by-default, on/off badge tinted by state.
 	 */
 	private renderStatusRow(compact: boolean): string {
 		const { config } = this.p;
 		const sttOn = config.enabled === true;
 		const ttsOn = config.ttsEnabled === true;
-		const sttBackend = sttOn ? (config.backend === "deepgram" ? "Deepgram" : "Local") : "off";
-		const ttsBackend = ttsOn ? ((config.ttsBackend ?? "local") === "deepgram" ? "Deepgram" : "Local") : "off";
 		const lang = config.ttsLanguage || config.language || "en";
 		const sttBadge = sttOn ? this.success(`${ICON.bulletActive} STT`) : this.dim(`${ICON.bulletInactive} STT`);
 		const ttsBadge = ttsOn ? this.success(`${ICON.bulletActive} TTS`) : this.dim(`${ICON.bulletInactive} TTS`);
 		const sep = this.dim(`  ${ICON.middot}  `);
 		if (compact) {
-			return `${sttBadge} ${this.dim(sttBackend)}${sep}${ttsBadge} ${this.dim(ttsBackend)}${sep}${this.dim(`Lang ${lang}`)}`;
+			return `${sttBadge}${sep}${ttsBadge}${sep}${this.dim(`Lang ${lang}`)}`;
 		}
 		// wide tier — include model/voice details
-		const sttDetail = sttOn
-			? `${sttBackend}${config.backend === "local" && config.localModel ? `/${this.shortenId(config.localModel)}` : ""}`
-			: "off";
-		const ttsModelId =
-			ttsOn && (config.ttsBackend ?? "local") === "local"
-				? this.shortenId(config.ttsLocalModel ?? "")
-				: ttsOn && (config.ttsBackend ?? "local") === "deepgram"
-					? this.shortenId(String(config.ttsDeepgramVoiceId ?? ""))
-					: "";
-		const ttsDetail = ttsOn ? `${ttsBackend}${ttsModelId ? `/${ttsModelId}` : ""}` : "off";
+		const sttDetail = sttOn ? this.shortenId(config.localModel ?? "—") : "off";
+		const ttsDetail = ttsOn ? this.shortenId(config.ttsLocalModel ?? "kitten-nano-en-v0_2") : "off";
 		return `${sttBadge} ${this.dim(sttDetail)}${sep}${ttsBadge} ${this.dim(ttsDetail)}${sep}${this.dim(`Lang ${lang}`)}`;
 	}
 
@@ -422,24 +410,13 @@ export class VoiceSettingsPanel {
 	private renderGeneral(_w: number, iw: number): string[] {
 		const lines: string[] = [];
 		const { config } = this.p;
-		const isLocal = config.backend === "local";
 		const useShort = iw < 42;
 
 		const rows: { label: string; value: string; hint?: string }[] = [
 			{
-				label: "Backend",
-				value: isLocal ? this.success("Local (offline, batch)") : this.accent("Deepgram (cloud, live streaming)"),
-				hint: "toggle",
-			},
-			{
-				label: isLocal ? "Model" : "API Key",
-				value: isLocal
-					? LOCAL_MODELS.find((m) => m.id === config.localModel)?.name || config.localModel || "—"
-					: (() => {
-							const key = this.p.resolveApiKey();
-							return key ? this.success(`set (${key.slice(0, 8)}…)`) : this.error("NOT SET");
-						})(),
-				hint: isLocal ? "choose ›" : undefined,
+				label: "Model",
+				value: LOCAL_MODELS.find((m) => m.id === config.localModel)?.name || config.localModel || "—",
+				hint: "choose ›",
 			},
 			{
 				label: "Language",
@@ -662,13 +639,11 @@ export class VoiceSettingsPanel {
 	private renderSpeak(_w: number, _iw: number): string[] {
 		const lines: string[] = [];
 		const { config } = this.p;
-		const isLocal = (config.ttsBackend ?? "local") === "local";
 
 		// Always-visible status line — single source of truth for the
 		// current TTS configuration so the user can scan it without
 		// reading every row.
 		const statusParts: string[] = [];
-		statusParts.push(isLocal ? "Local" : "Deepgram");
 		statusParts.push(this.formatActiveModelOrVoice(config));
 		statusParts.push(`${(config.ttsSpeed ?? 1.0).toFixed(2)}×`);
 		const lang = config.ttsLanguage || config.language || "en";
@@ -679,13 +654,12 @@ export class VoiceSettingsPanel {
 		lines.push(`  ${statusBar}`);
 		lines.push("");
 
-		// Six rows:
+		// Five rows:
 		//   0: Enabled toggle
-		//   1: Backend toggle
-		//   2: Model picker (local) or read-only label (deepgram)
-		//   3: Voice picker (numeric sid)
-		//   4: Speed (cycles 0.5 / 0.75 / 1.0 / 1.25 / 1.5 / 2.0)
-		//   5: Test (synthesizes "The quick brown fox …")
+		//   1: Model picker
+		//   2: Voice picker (numeric sid)
+		//   3: Speed (cycles 0.5 / 0.75 / 1.0 / 1.25 / 1.5 / 2.0)
+		//   4: Test (synthesizes "The quick brown fox …")
 		const rows: { label: string; value: string; hint?: string }[] = [
 			{
 				label: "TTS",
@@ -693,16 +667,9 @@ export class VoiceSettingsPanel {
 				hint: "toggle",
 			},
 			{
-				label: "Backend",
-				value: isLocal ? this.success("Local (offline, sherpa-onnx)") : this.accent("Deepgram (cloud REST)"),
-				hint: "toggle",
-			},
-			{
 				label: "Model",
-				value: isLocal
-					? this.formatLocalModelLabel(config.ttsLocalModel)
-					: this.dim("(deepgram backend — pick a voice instead)"),
-				hint: isLocal ? "pick model ›" : undefined,
+				value: this.formatLocalModelLabel(config.ttsLocalModel),
+				hint: "pick model ›",
 			},
 			{
 				label: "Voice",
@@ -886,11 +853,9 @@ export class VoiceSettingsPanel {
 			if (lang) {
 				this.p.config.language = lang.code;
 				this.p.saveConfig(this.p.config, this.p.config.scope === "project" ? "project" : "global", this.p.cwd);
-				if (this.p.config.backend === "local") {
-					try {
-						this.p.clearRecognizerCache();
-					} catch {}
-				}
+				try {
+					this.p.clearRecognizerCache();
+				} catch {}
 			}
 			this.sub = "main";
 			return;
@@ -914,30 +879,24 @@ export class VoiceSettingsPanel {
 		if (tabId === "general") {
 			const { config } = this.p;
 			switch (this.row) {
-				case 0: // Backend toggle
-					config.backend = config.backend === "local" ? "deepgram" : "local";
-					this.save();
+				case 0: // Model picker
+					this.tab = 1;
+					this.row = 0;
+					this.modelSearch = "";
+					this.refreshModelView();
 					break;
-				case 1: // Model (local) or API Key (deepgram)
-					if (config.backend === "local") {
-						this.tab = 1;
-						this.row = 0;
-						this.modelSearch = "";
-						this.refreshModelView();
-					}
-					break;
-				case 2: // Language picker
+				case 1: // Language picker
 					this.openLangPicker();
 					break;
-				case 3: // Scope toggle
+				case 2: // Scope toggle
 					config.scope = config.scope === "project" ? "global" : "project";
 					this.save();
 					break;
-				case 4: // Voice toggle
+				case 3: // Voice toggle
 					config.enabled = !config.enabled;
 					this.save();
 					break;
-				case 5: // v7.1.3: Auto-send STT toggle
+				case 4: // v7.1.3: Auto-send STT toggle
 					config.autoSubmitOnSpeak = !(config.autoSubmitOnSpeak === true);
 					this.save();
 					break;
@@ -973,19 +932,13 @@ export class VoiceSettingsPanel {
 					config.ttsEnabled = !config.ttsEnabled;
 					this.save();
 					break;
-				case 1: // Backend toggle
-					config.ttsBackend = (config.ttsBackend ?? "local") === "local" ? "deepgram" : "local";
-					this.save();
+				case 1: // Model picker
+					this.openTtsModelPicker();
 					break;
-				case 2: // Model picker (local only — Deepgram has no model concept)
-					if ((config.ttsBackend ?? "local") === "local") {
-						this.openTtsModelPicker();
-					}
-					break;
-				case 3: // Voice picker
+				case 2: // Voice picker
 					this.openTtsVoicePicker();
 					break;
-				case 4: {
+				case 3: {
 					// Speed cycle
 					const ladder = [0.75, 1.0, 1.25, 1.5, 2.0, 0.5];
 					const current = config.ttsSpeed ?? 1.0;
@@ -994,7 +947,7 @@ export class VoiceSettingsPanel {
 					this.save();
 					break;
 				}
-				case 5: {
+				case 4: {
 					// Test — emit a special panel-close action so the
 					// caller (voice.ts:openSettingsPanel) can route it to
 					// /voice-speak-test without us depending on the
@@ -1054,21 +1007,15 @@ export class VoiceSettingsPanel {
 			} catch {}
 		}
 		config.localModel = modelId;
-		config.backend = "local";
-		config.localEndpoint = undefined;
 		this.save();
 		this.rebuildModels();
 	}
 
 	private openLangPicker(): void {
 		const { config } = this.p;
-		if (config.backend === "local" && config.localModel) {
-			const { languages, englishOnly } = getLanguagesForLocalModel(config.localModel);
-			if (englishOnly) return; // Single language — nothing to pick
-			this.langList = languages;
-		} else {
-			this.langList = this.p.deepgramLanguages;
-		}
+		const { languages, englishOnly } = getLanguagesForLocalModel(config.localModel || "parakeet-v3");
+		if (englishOnly) return; // Single language — nothing to pick
+		this.langList = languages;
 		this.langSearch = "";
 		this.langFiltered = this.langList;
 		this.langRow = 0;
@@ -1377,7 +1324,7 @@ export class VoiceSettingsPanel {
 	private getRowCount(tabId: TabId): number {
 		switch (tabId) {
 			case "general":
-				return 6;
+				return 5;
 			case "models":
 				return this.modelSelectableIdx.length;
 			case "downloaded": {
@@ -1386,7 +1333,7 @@ export class VoiceSettingsPanel {
 				return dl + handy;
 			}
 			case "speak":
-				return 6;
+				return 5;
 			case "device":
 				return 0;
 		}
@@ -1457,7 +1404,7 @@ export class VoiceSettingsPanel {
 
 	private getLangDisplay(): string {
 		const code = this.p.config.language || "en";
-		const allLangs = [...this.p.deepgramLanguages];
+		const allLangs: { name: string; code: string }[] = [];
 		for (const m of LOCAL_MODELS) {
 			const { languages } = getLanguagesForLocalModel(m.id);
 			allLangs.push(...languages);

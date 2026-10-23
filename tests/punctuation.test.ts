@@ -605,8 +605,6 @@ describe("settings panel — the punctuation model cannot be activated", () => {
 				formatDeviceSummary: () => "test device",
 				saveConfig: () => {},
 				clearRecognizerCache: () => {},
-				resolveApiKey: () => undefined,
-				deepgramLanguages: [],
 			},
 			2 // the Downloaded tab
 		);
@@ -619,7 +617,6 @@ describe("settings panel — the punctuation model cannot be activated", () => {
 			{ id: "parakeet-v3", sizeMB: 671 },
 		];
 		const { panel, config } = makePanel(downloaded);
-		config.backend = "deepgram";
 
 		const punctRow = panel.render(100).find((line) => line.includes(PUNCTUATION_MODEL.id));
 		expect(punctRow).toBeDefined();
@@ -627,12 +624,10 @@ describe("settings panel — the punctuation model cannot be activated", () => {
 
 		panel.handleInput("\r"); // row 0 — the punctuation model
 		expect(config.localModel).toBeUndefined();
-		expect(config.backend).toBe("deepgram");
 
 		panel.handleInput("\x1b[B"); // row 1 — a real recogniser
 		panel.handleInput("\r");
 		expect(config.localModel).toBe("parakeet-v3");
-		expect(config.backend).toBe("local");
 	});
 
 	test("the post-delete replacement skips it in favour of a recogniser", () => {

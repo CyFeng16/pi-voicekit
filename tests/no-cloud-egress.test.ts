@@ -90,3 +90,11 @@ test("no module references the external-endpoint fallback", () => {
 		])
 	).toEqual([]);
 });
+
+test("the settings panel exposes no backend choice", () => {
+	expect(
+		matching(/config\.backend|ttsBackend|deepgramLanguages|resolveApiKey|localEndpoint/, [
+			"extensions/voice/settings-panel.ts",
+		])
+	).toEqual([]);
+});

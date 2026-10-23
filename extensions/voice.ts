@@ -2879,9 +2879,6 @@ export default function (pi: ExtensionAPI) {
 					clearRecognizerCache();
 				} catch {}
 			},
-			// The panel's API Key row still consumes this until the row goes with the cloud backend.
-			resolveApiKey: () => undefined, // removed in Task 4
-			deepgramLanguages: LANGUAGES.map((l) => ({ name: l.name, code: l.code, popular: l.popular })),
 		};
 
 		let panel!: InstanceType<typeof VoiceSettingsPanel>;
@@ -3216,25 +3213,22 @@ export default function (pi: ExtensionAPI) {
 				"./voice/tts-local-models"
 			);
 
-			// On the local backend, fetch the model on-demand if missing.
-			// Deepgram backend skips this branch entirely. v7.1: surface
+			// Fetch the model on demand if it is missing. v7.1: surface
 			// progress through the sticky install widget instead of the
 			// v7.0.x notify-spam loop.
-			if ((config.ttsBackend ?? "local") === "local") {
-				const modelId = config.ttsLocalModel || "kitten-nano-en-v0_2";
-				try {
-					getInstalledTtsModelDir(modelId);
-				} catch {
-					const model = getTtsModel(modelId);
-					await runInstallWithWidget(
-						cmdCtx,
-						modelId,
-						model.name,
-						model.sizeBytes ?? 0,
-						ensureTtsModelInstalled,
-						controller.signal
-					);
-				}
+			const modelId = config.ttsLocalModel || "kitten-nano-en-v0_2";
+			try {
+				getInstalledTtsModelDir(modelId);
+			} catch {
+				const model = getTtsModel(modelId);
+				await runInstallWithWidget(
+					cmdCtx,
+					modelId,
+					model.name,
+					model.sizeBytes ?? 0,
+					ensureTtsModelInstalled,
+					controller.signal
+				);
 			}
 
 			// v7.1: mount the honest playback indicator (§6 of plan).
@@ -3443,7 +3437,6 @@ export default function (pi: ExtensionAPI) {
 			ctx = cmdCtx;
 			const { getTtsModel, isTtsModelInstalled, TTS_LOCAL_MODELS } = await import("./voice/tts-local-models");
 
-			const isLocal = (config.ttsBackend ?? "local") === "local";
 			const lines: string[] = ["TTS configuration:", ""];
 			lines.push(`  Enabled:      ${config.ttsEnabled ? "yes" : "no"}`);
 			lines.push(`  Language:     ${config.ttsLanguage ?? config.language ?? "en"}`);
@@ -3451,28 +3444,26 @@ export default function (pi: ExtensionAPI) {
 			lines.push(`  Auto-speak:   ${config.ttsAutoSpeak ? "yes" : "no"}`);
 			lines.push("");
 
-			if (isLocal) {
-				const modelId = config.ttsLocalModel ?? "kitten-nano-en-v0_2";
-				let model;
-				try {
-					model = getTtsModel(modelId);
-				} catch {
-					model = undefined;
-				}
-				const installed = isTtsModelInstalled(modelId);
-				lines.push("  Local backend:");
-				lines.push(`    Model:      ${modelId}${model ? ` (${model.name}, ${model.size})` : " — unknown id"}`);
-				lines.push(`    Installed:  ${installed ? "yes" : "NO — first speak will download"}`);
-				if (model) {
-					const sid = typeof config.ttsLocalVoiceId === "number" ? config.ttsLocalVoiceId : model.defaultSid;
-					const voice = model.voices.find((v) => v.sid === sid);
-					lines.push(`    Voice sid:  ${sid}${voice ? ` (${voice.name})` : ""}`);
-					lines.push(`    Languages:  ${model.languages.join(", ")}`);
-					lines.push(`    Sample rate: ${model.sampleRate} Hz`);
-				}
-				lines.push("");
-				lines.push(`  Catalog:      ${TTS_LOCAL_MODELS.length} models available — /voice-speak-models to browse`);
+			const modelId = config.ttsLocalModel ?? "kitten-nano-en-v0_2";
+			let model;
+			try {
+				model = getTtsModel(modelId);
+			} catch {
+				model = undefined;
 			}
+			const installed = isTtsModelInstalled(modelId);
+			lines.push("  Local backend:");
+			lines.push(`    Model:      ${modelId}${model ? ` (${model.name}, ${model.size})` : " — unknown id"}`);
+			lines.push(`    Installed:  ${installed ? "yes" : "NO — first speak will download"}`);
+			if (model) {
+				const sid = typeof config.ttsLocalVoiceId === "number" ? config.ttsLocalVoiceId : model.defaultSid;
+				const voice = model.voices.find((v) => v.sid === sid);
+				lines.push(`    Voice sid:  ${sid}${voice ? ` (${voice.name})` : ""}`);
+				lines.push(`    Languages:  ${model.languages.join(", ")}`);
+				lines.push(`    Sample rate: ${model.sampleRate} Hz`);
+			}
+			lines.push("");
+			lines.push(`  Catalog:      ${TTS_LOCAL_MODELS.length} models available — /voice-speak-models to browse`);
 
 			lines.push("");
 			lines.push("  Commands: /voice-speak <text>  ·  /voice-speak-stop  ·  /voice-speak-toggle");
