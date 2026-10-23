@@ -158,13 +158,21 @@ step is blocked — a proxy, a firewall, DNS, an offline machine — or the disk
 
 - Retry. A partial download is kept next to the target file and resumed with a `Range` request,
   so the next attempt starts where the last one stopped.
-- Check free space in the settings panel's **Device** tab (`/voice-settings`). A download refuses
-  to start when the volume cannot hold 1.2× the model size, and reports the free and required
-  megabytes in the error.
+- Check free space in the settings panel's **Device** tab (`/voice-settings`). Only the
+  speech-model install from `/voice-models` runs a precheck: it refuses to start when the volume
+  cannot hold 1.2× the model size, and reports the free and required megabytes in the error. The
+  TTS install, the punctuation transfer and a first-use auto-download have no such precheck, so
+  on a full disk they fail mid-write instead.
 - If retries keep failing on a partial file, delete the model in the **Downloaded** tab (select
-  it, press `x` twice) or remove `~/.pi/models/<model-id>/` and fetch it again.
-- Confirm the machine can reach `huggingface.co` and `github.com`. Those two hosts are the whole
-  allowlist, and if either is blocked no model can be installed.
+  it, press `x` twice) or remove its directory and fetch it again. Speech models live at
+  `~/.pi/models/<model-id>/`; TTS models live one level deeper, at `~/.pi/models/tts/<model-id>/`,
+  so the shorter path is a no-op for a voice. The Downloaded tab lists every directory under
+  `~/.pi/models`, so the TTS collection appears as one aggregate `tts` row — deleting that row
+  removes every installed TTS model.
+- Confirm the machine can reach both download hosts. Every speech model and the punctuation model
+  come from `huggingface.co`; TTS archives come from `github.com`. Those two hosts are the whole
+  allowlist. Blocking `github.com` breaks only the TTS install — speech recognition still
+  installs; blocking `huggingface.co` stops both speech recognition and punctuation.
 
 Once the files are on disk, dictation, punctuation and speech all work with the network down —
 the download is the only outbound step in the extension.

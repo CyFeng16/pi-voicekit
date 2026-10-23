@@ -18,6 +18,7 @@ describe("documentation", () => {
 	test("zh-CN README mirrors the local-only claim", () => {
 		const readme = read("i18n/README.zh-CN.md");
 		expect(readme).toContain("没有任何音频被传输到本机之外");
+		expect(readme).toContain("不传输遥测、分析或崩溃上报数据：没有任何崩溃上报器，也没有远程日志。");
 		expect(readme).not.toMatch(retiredIdentifiers);
 	});
 
