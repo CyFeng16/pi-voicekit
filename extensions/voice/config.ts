@@ -392,28 +392,46 @@ const LEGACY_POST_PROCESS_KEYS = [
 ] as const;
 
 /**
- * Atomic settings write: temp file + rename prevents corruption from partial writes. Shared by every
- * writer in this module so the path cannot diverge — which is also why the permissions are handled
- * here and nowhere else. The temp file is created with the target's own mode, and a file that does
- * not exist yet gets 0600 instead of the umask default (0644 on a common 022 umask). Without this,
- * renaming the temp file over a 0600 settings file widened it to 0644 — and this file also holds
- * every other plugin's credentials. The text form exists for the scrub, which edits a settings file
- * by deleting a member's bytes instead of reserializing the whole document (`JSON.parse` →
- * `JSON.stringify` silently rounds integers beyond 2^53 and writes `1e400` back as `null`).
+ * Atomic settings write: a private staging directory, a file created exclusively inside it, and a
+ * rename over the settings file so a partial write can never be observed. Shared by every writer in
+ * this module so the path cannot diverge — which is also why the permissions are handled here and
+ * nowhere else.
+ *
+ * The staging path is `mkdtempSync`'s, never a predictable `${pid}.tmp` name: that name is guessed
+ * (and left behind by a crash) and a plain write reuses whatever is already there, keeping ITS mode —
+ * so a planted or leftover world-readable file would receive this document, which holds every other
+ * plugin's credentials, before anything tightened it. A fresh 0700 directory is not reachable by other
+ * users at all, the `wx` open never reuses a path, and the mode the file must keep is applied through
+ * the open handle while the text is still unreachable. A missing settings file gets 0600 rather than
+ * the umask default (0644 on a common 022 umask).
+ *
+ * The text form exists for the scrub, which edits a settings file by deleting a member's bytes instead
+ * of reserializing the whole document (`JSON.parse` → `JSON.stringify` silently rounds integers beyond
+ * 2^53 and writes `1e400` back as `null`).
  */
 function writeSettingsText(settingsPath: string, text: string): void {
 	fs.mkdirSync(path.dirname(settingsPath), { recursive: true });
-	const tmpPath = `${settingsPath}.${process.pid}.tmp`;
 	const mode = settingsFileMode(settingsPath);
+	const stagingDir = fs.mkdtempSync(`${settingsPath}.tmp-`);
+	const stagingPath = path.join(stagingDir, path.basename(settingsPath));
+	let fd: number | null = null;
 	try {
-		fs.writeFileSync(tmpPath, text, { mode });
-		// `writeFileSync` masks the mode with the umask and ignores it for an existing file, so the
-		// target mode is applied explicitly rather than assumed.
-		fs.chmodSync(tmpPath, mode);
-		fs.renameSync(tmpPath, settingsPath);
+		// 0600 for the first byte (the umask can only narrow it), then `fchmod` to the exact mode the
+		// settings file keeps — widening is only safe once the file is out of reach of other users.
+		fd = fs.openSync(stagingPath, "wx", 0o600);
+		fs.writeFileSync(fd, text);
+		fs.fchmodSync(fd, mode);
+		fs.closeSync(fd);
+		fd = null;
+		fs.renameSync(stagingPath, settingsPath);
 	} finally {
+		if (fd !== null) {
+			try {
+				fs.closeSync(fd);
+			} catch {}
+		}
 		try {
-			if (fs.existsSync(tmpPath)) fs.unlinkSync(tmpPath);
+			fs.rmSync(stagingDir, { recursive: true, force: true });
 		} catch {}
 	}
 }

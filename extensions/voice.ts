@@ -931,6 +931,32 @@ export default function (pi: ExtensionAPI) {
 		setVoiceState("idle");
 	}
 
+	/**
+	 * Disarm dictation only: a warm-up or recording in progress is cancelled and the hold state is
+	 * reset, while everything unrelated keeps running — in-flight installs, speech playback and other
+	 * widgets. `voiceCleanup` is the full teardown (session end, disabled voice); nothing that just lost
+	 * its model may use it, because cancelling a download or a speech the user started for another
+	 * reason is not "dictation is no longer armed".
+	 */
+	function disarmDictation() {
+		if (activeSession) {
+			abortSession(activeSession);
+			activeSession = null;
+		}
+		cancelDelayedStop();
+		clearWarmupWidget();
+		clearRecordingAnimTimer();
+		hideWidget();
+		resetHoldState();
+		_startingRecording = false;
+		audioLevel = 0;
+		audioLevelSmoothed = 0;
+		recordingStart = 0;
+		recordingStartedAt = 0;
+		editorTextBeforeVoice = "";
+		setVoiceState("idle");
+	}
+
 	async function finalizeAndSaveSetup(
 		uiCtx: ExtensionContext | ExtensionCommandContext,
 		nextConfig: VoiceConfig,
@@ -1633,11 +1659,10 @@ export default function (pi: ExtensionAPI) {
 
 	function setupHoldToTalk() {
 		if (!ctx?.hasUI) return;
-		// Dictation is only ever armed with an explicit local model — `local.ts` falls back to
-		// DEFAULT_LOCAL_MODEL, so arming without one offers a hold that can only download a model the
-		// user was just told to pick. This is the one arming guard, covering every caller (startup, the
-		// /voice toggles and the settings panel); `startVoiceRecording` keeps the recording-side one.
-		if (!config.localModel) return;
+		// Registered in EVERY configuration — this handler is not only dictation. F1 opens help and
+		// Escape cancels an in-flight install or stops speech playback, and both must work for a user who
+		// has not chosen a model yet. Only the SPACE branch is model-gated (see "SPACE handling" below),
+		// and `startVoiceRecording` keeps the recording-side guard for the same rule.
 
 		if (terminalInputUnsub) {
 			terminalInputUnsub();
@@ -1690,6 +1715,11 @@ export default function (pi: ExtensionAPI) {
 
 			// ── SPACE handling ──
 			if (matchesKey(data, "space")) {
+				// Dictation needs an explicit local model: `local.ts` substitutes DEFAULT_LOCAL_MODEL when
+				// one is missing, so a hold here would download and run a model the user was just told to
+				// choose. The event is NOT consumed — the space stays an ordinary character — and the
+				// auxiliary keys above are unaffected because they are handled before this branch.
+				if (!config.localModel) return undefined;
 				// ── ERROR COOLDOWN: block all voice activation for 5s after an error ──
 				if (errorCooldownUntil > Date.now()) {
 					// During cooldown, let space through as a normal character
@@ -2246,6 +2276,12 @@ export default function (pi: ExtensionAPI) {
 			// "MIC STREAM" text from a prior session. Hold-to-talk wiring
 			// only runs when enabled.
 			updateVoiceStatus();
+			// The terminal input handler is registered whenever voice is enabled — its SPACE branch refuses
+			// without a model, but F1 help and Escape (install cancel, playback stop) must keep working in
+			// this state, which is exactly the one where the user is told to go and pick a model.
+			if (config.enabled) {
+				setupHoldToTalk();
+			}
 			// "Completed" is not "configured": the API-key backend is gone, so a config that finished
 			// onboarding without a local model has no working path. Send its owner to the settings
 			// panel instead of wiring hold-to-talk onto an implicit default model.
@@ -2263,10 +2299,6 @@ export default function (pi: ExtensionAPI) {
 						"warning"
 					);
 				}
-				return;
-			}
-			if (config.enabled) {
-				setupHoldToTalk();
 			}
 			return;
 		}
@@ -2308,7 +2340,12 @@ export default function (pi: ExtensionAPI) {
 			return;
 		}
 
-		// No local model yet — show the single-path install hint only on actual startup.
+		// No local model yet — dictation refuses on its own, but the terminal input handler is still
+		// registered so F1 help and Escape work before a model is chosen. Show the single-path install
+		// hint only on actual startup.
+		if (config.enabled) {
+			setupHoldToTalk();
+		}
 		if (!isStartup) return;
 		const lines = [
 			"pi-voicekit installed — voice input for Pi",
@@ -3059,13 +3096,14 @@ export default function (pi: ExtensionAPI) {
 			}
 		}
 
-		// Sync voice state after panel changes. Dictation is armed only when a model is actually
-		// configured: the user may close the setup panel without choosing one, or delete the active model
-		// from the Downloaded tab. In both cases the SPACE handler must be left unsubscribed —
-		// `voiceCleanup` tears down any handler armed before the panel opened, and the status bar then
-		// reports MIC SETUP instead of a ready microphone.
-		if (config.enabled && config.localModel) {
+		// Sync voice state after panel changes. The terminal input handler is registered in every
+		// configuration — F1 help and Escape (install cancel, playback stop) must work with no model chosen
+		// — so a missing model only disarms dictation. `voiceCleanup` here would cancel in-flight installs,
+		// stop speech playback and drop every widget: work the user started for another reason, torn down
+		// because dictation has nothing to record with. Full teardown belongs to a disabled voice.
+		if (config.enabled) {
 			setupHoldToTalk();
+			if (!config.localModel) disarmDictation();
 		} else {
 			voiceCleanup();
 		}

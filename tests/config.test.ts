@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, spyOn, test } from "bun:test";
+import { afterEach, describe, expect, mock, spyOn, test } from "bun:test";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -31,7 +31,68 @@ function writeSettings(baseDir: string, relativePath: string, voice: unknown) {
 	fs.writeFileSync(fullPath, JSON.stringify({ voice }, null, 2));
 }
 
+/**
+ * A controllable `/voice-speak` for the Escape and panel-close tests.
+ *
+ * Escape's playback-stop branch is only reachable while a playback indicator is mounted, and the real
+ * indicator is mounted around a sherpa synthesis — which needs a downloaded TTS model and an audio
+ * player. The mock returns a promise the test releases, so "playback in flight" is a state the test
+ * owns. `runSpeak` is its only caller in this file.
+ *
+ * Two constraints shape the rest of it. Bun keeps ONE module registry for the whole `bun test` run, so a
+ * bare `mock.module` here would also strip `chunkText` from `tests/speak.test.ts`; loading the real
+ * module first and spreading it keeps every other export intact. And `mock.restore()` is deliberately
+ * never called: it would also restore the `os.homedir` spy that keeps every settings write in this file
+ * inside a temp directory, and a real `$HOME` write is the one thing these tests must never risk.
+ */
+interface ControlledPlayback {
+	readonly signal: AbortSignal | undefined;
+	settled: boolean;
+	release(): void;
+}
+
+let pendingPlayback: ControlledPlayback | undefined;
+
+const realSpeakModule = await import("../extensions/voice/speak");
+
+mock.module("../extensions/voice/speak", () => ({
+	...realSpeakModule,
+	speak: (opts: { signal?: AbortSignal }) =>
+		new Promise<void>((resolve) => {
+			const playback: ControlledPlayback = {
+				signal: opts.signal,
+				settled: false,
+				release: () => {
+					playback.settled = true;
+					pendingPlayback = undefined;
+					resolve();
+				},
+			};
+			pendingPlayback = playback;
+		}),
+}));
+
+/** The playback `/voice-speak` just started; throws when the synthesis was never reached. */
+function takePlayback(): ControlledPlayback {
+	const playback = pendingPlayback;
+	if (!playback) throw new Error("/voice-speak did not reach the synthesis stage");
+	pendingPlayback = undefined;
+	return playback;
+}
+
+/** Poll until `check()` holds — F1 opens help from a promise the input handler does not await. */
+async function waitUntil(check: () => boolean, timeoutMs = 2000): Promise<void> {
+	const deadline = Date.now() + timeoutMs;
+	while (!check()) {
+		if (Date.now() > deadline) throw new Error("timed out waiting for the expected state");
+		await new Promise((resolve) => setTimeout(resolve, 5));
+	}
+}
+
 afterEach(() => {
+	// A test that failed before releasing its `/voice-speak` promise must not leave the render ticker
+	// armed for the rest of the file.
+	pendingPlayback?.release();
 	// Restore before removing the directories the mocks point at.
 	for (const spy of activeHomeSpies.splice(0)) spy.mockRestore();
 	for (const dir of tempDirs.splice(0)) {
@@ -951,6 +1012,49 @@ describe("settings writes keep the file's permissions", () => {
 		expect(fs.readdirSync(agentDir)).toEqual(["settings.json"]);
 	});
 
+	test("a wide-mode file planted at the historical temp path is never reused", () => {
+		// The writer used to stage at `${settingsPath}.${pid}.tmp` with a plain `writeFileSync`, which
+		// overwrites whatever already sits there — a crashed run's leftover, or a file another local
+		// user planted — and `mode` is ignored for an existing file. Its permissions were therefore
+		// kept, and the whole document (this file holds every other plugin's credentials) was written
+		// into a wide-mode file before `chmodSync` tightened it. Every write opens a NEW path now, so a
+		// plant must be neither read nor consumed.
+		const agentDir = makeTempDir();
+		const neighbourToken = "SECRET-NEIGHBOUR-TOKEN";
+		const settingsPath = writePrivateSettings(
+			agentDir,
+			JSON.stringify(
+				{
+					otherPlugin: { token: neighbourToken },
+					voice: { language: "zh", onboarding: { completed: true, schemaVersion: 4 } },
+				},
+				null,
+				2
+			)
+		);
+		const plantedPath = `${settingsPath}.${process.pid}.tmp`;
+		const planted = "planted: never to be written into, or renamed away";
+		fs.writeFileSync(plantedPath, planted, { mode: 0o666 });
+		fs.chmodSync(plantedPath, 0o666);
+
+		saveGlobalVoiceFields({ punctuationNoticeShown: true }, { agentDir });
+
+		// The plant is untouched — same bytes, same mode — so the write cannot have reused the path.
+		expect(fs.readFileSync(plantedPath, "utf8")).toBe(planted);
+		expect(fs.statSync(plantedPath).mode & 0o777).toBe(0o666);
+
+		// The write landed on the original path, private, carrying the neighbour's secret and none of
+		// the plant: the text really did travel through the new private staging path.
+		const after = fs.readFileSync(settingsPath, "utf8");
+		expect(fs.statSync(settingsPath).mode & 0o777).toBe(PRIVATE);
+		expect(after).toContain(neighbourToken);
+		expect(after).not.toContain(planted);
+		expect(JSON.parse(after).voice.punctuationNoticeShown).toBe(true);
+
+		// No staging directory or file survives the write.
+		expect(fs.readdirSync(agentDir).sort()).toEqual(["settings.json", `settings.json.${process.pid}.tmp`]);
+	});
+
 	test("a settings file created from nothing is private", () => {
 		// No original to copy: the umask default would publish the block the user is about to fill
 		// with settings for every plugin that shares the file.
@@ -1112,18 +1216,33 @@ describe("session_start activation (the local model is the only path)", () => {
 	interface SessionHarness {
 		notices: Array<[string, string]>;
 		statuses: Array<[string, string | undefined]>;
-		readonly holdToTalkSubscribed: boolean;
+		/** Every `ui.setWidget` call — a warm-up or recording widget is how a dictation shows itself. */
+		readonly widgetCalls: Array<{ key: string; shown: boolean }>;
+		/** Every `ui.custom` call: F1 help and the settings panel both open through it. */
+		readonly customCalls: Array<{ overlay: boolean }>;
+		/** The registered terminal input handler — see `sendInput`. */
+		readonly terminalInputSubscribed: boolean;
 		readonly settingsPath: string;
 		joinedNotices(): string;
+		/** Drive the real terminal input handler with raw bytes: press, repeat, release. */
+		sendInput(data: string): unknown;
 		/** The registered toggle shortcut — a recording entry that exists whether or not a hold is armed. */
 		runToggleShortcut(): Promise<void>;
+		/** Invoke `/voice-speak`; resolves when the mocked synthesis finishes — see `takePlayback`. */
+		runSpeak(text: string): Promise<void>;
 		/** Open the settings panel and close it; `visit` runs while the panel exists. */
 		closePanel(visit?: (panel: any) => void): Promise<void>;
 	}
 
 	async function runSessionStart(
 		voice: unknown,
-		options: { projectVoice?: unknown; corruptGlobalSettings?: boolean; rawGlobalSettings?: string } = {}
+		options: {
+			projectVoice?: unknown;
+			corruptGlobalSettings?: boolean;
+			rawGlobalSettings?: string;
+			/** Stub the TTS install marker under the mocked home so `/voice-speak` skips the install path. */
+			ttsModelInstalled?: boolean;
+		} = {}
 	): Promise<SessionHarness> {
 		const home = makeTempDir();
 		const cwd = makeTempDir();
@@ -1146,6 +1265,13 @@ describe("session_start activation (the local model is the only path)", () => {
 		// can write settings (`activateModel` saves), and an unmocked homedir would write the real
 		// `~/.pi/agent/settings.json`. `afterEach` restores it.
 		activeHomeSpies.push(spyOn(os, "homedir").mockReturnValue(home));
+		if (options.ttsModelInstalled) {
+			// The TTS model lookup resolves under the mocked home, so an install marker is enough to keep
+			// `/voice-speak` off the (network) install path and inside the mocked synthesis.
+			const ttsModelDir = path.join(home, ".pi", "models", "tts", DEFAULT_CONFIG.ttsLocalModel!);
+			fs.mkdirSync(ttsModelDir, { recursive: true });
+			fs.writeFileSync(path.join(ttsModelDir, "tokens.txt"), "");
+		}
 		resetPunctuationForTest(null, () => {});
 		try {
 			const handlers = new Map<string, (event: any, sessionCtx: any) => Promise<void>>();
@@ -1159,14 +1285,19 @@ describe("session_start activation (the local model is the only path)", () => {
 
 			const notices: Array<[string, string]> = [];
 			const statuses: Array<[string, string | undefined]> = [];
+			const widgetCalls: Array<{ key: string; shown: boolean }> = [];
+			const customCalls: Array<{ overlay: boolean }> = [];
 			// One arming slot, like the real `terminalInputUnsub`: a new subscription replaces the
 			// previous one and the returned unsubscriber clears it, so a test can tell armed from torn down.
 			let armed = false;
+			let inputHandler: ((data: string) => unknown) | undefined;
 			let panelVisit: ((panel: any) => void) | undefined;
 			const ui = {
 				notify: (message: string, type: string) => notices.push([message, type]),
 				setStatus: (key: string, value: string | undefined) => statuses.push([key, value]),
-				setWidget: () => {},
+				setWidget: (key: string, content: unknown) => {
+					widgetCalls.push({ key, shown: content !== undefined });
+				},
 				// No test in this file may start a recording: a real start snapshots the editor and then
 				// spawns a capture tool. Throwing here turns that regression into a loud failure instead of
 				// opening the microphone, and it pins the model guard upstream of the snapshot.
@@ -1174,15 +1305,21 @@ describe("session_start activation (the local model is the only path)", () => {
 					throw new Error("a recording was started: the editor snapshot ran");
 				},
 				setEditorText: () => {},
-				onTerminalInput: () => {
+				onTerminalInput: (handler: (data: string) => unknown) => {
 					armed = true;
+					inputHandler = handler;
 					return () => {
 						armed = false;
+						inputHandler = undefined;
 					};
 				},
 				// The panel is built inside this callback, exactly as in a real session; returning no
 				// action is a plain close.
-				custom: async (factory: (tui: any, theme: any, kb: any, done: (action?: unknown) => void) => any) => {
+				custom: async (
+					factory: (tui: any, theme: any, kb: any, done: (action?: unknown) => void) => any,
+					customOptions?: { overlay?: boolean }
+				) => {
+					customCalls.push({ overlay: !!customOptions?.overlay });
 					const panel = factory(undefined, undefined, undefined, () => {});
 					panelVisit?.(panel);
 					return undefined;
@@ -1198,15 +1335,26 @@ describe("session_start activation (the local model is the only path)", () => {
 			return {
 				notices,
 				statuses,
+				widgetCalls,
+				customCalls,
 				settingsPath,
-				get holdToTalkSubscribed() {
+				get terminalInputSubscribed() {
 					return armed;
 				},
 				joinedNotices: () => notices.map(([message]) => message).join("\n"),
+				sendInput(data: string) {
+					if (!inputHandler) throw new Error("no terminal input handler is registered");
+					return inputHandler(data);
+				},
 				async runToggleShortcut() {
 					const shortcut = [...shortcuts.values()][0];
 					expect(shortcut).toBeDefined();
 					await shortcut!.handler({ hasUI: true, cwd, ui });
+				},
+				async runSpeak(text: string) {
+					const command = commands.get("voice-speak");
+					expect(command).toBeDefined();
+					await command!.handler(text, { hasUI: true, cwd, ui });
 				},
 				async closePanel(visit) {
 					panelVisit = visit;
@@ -1232,9 +1380,10 @@ describe("session_start activation (the local model is the only path)", () => {
 		});
 
 		// The completed branch keeps its historical silence (brief step 3: "behave as today"), so the
-		// observable activation is the hold-to-talk subscription plus the LOCAL status entry. What
-		// must not appear anywhere is a cloud backend name.
-		expect(session.holdToTalkSubscribed).toBe(true);
+		// observable activation is the LOCAL status entry; the terminal input handler is registered in
+		// every configuration and is asserted by the model-less tests below. What must not appear
+		// anywhere is a cloud backend name.
+		expect(session.terminalInputSubscribed).toBe(true);
 		expect(session.statuses).toContainEqual(["voice", "MIC LOCAL"]);
 		expect(session.joinedNotices()).not.toMatch(/deepgram|cloud|nova-3/i);
 	});
@@ -1244,17 +1393,18 @@ describe("session_start activation (the local model is the only path)", () => {
 		// must key on the model alone or the settings write succeeds and nothing ever activates.
 		const session = await runSessionStart({ localModel: "paraformer-zh", language: "zh" });
 
-		expect(session.holdToTalkSubscribed).toBe(true);
+		expect(session.terminalInputSubscribed).toBe(true);
 		expect(session.joinedNotices()).toContain("Paraformer zh (bilingual)");
 	});
 
 	test("a completed config with no local model is sent to setup, not silently defaulted", async () => {
 		// The shape every Deepgram user has after the upgrade: onboarding completed, no localModel.
-		// "Completed" is not "configured" — the branch must not wire hold-to-talk onto a default.
+		// "Completed" is not "configured" — the SPACE branch must not dictate on a default model, while
+		// the terminal handler itself stays registered so F1 help and Escape keep working.
 		const session = await runSessionStart({ onboarding: { completed: true }, backend: "deepgram" });
 
 		expect(session.joinedNotices()).toContain("/voice-setup");
-		expect(session.holdToTalkSubscribed).toBe(false);
+		expect(session.terminalInputSubscribed).toBe(true);
 		expect(session.joinedNotices()).not.toMatch(/deepgram|cloud|nova-3/i);
 	});
 
@@ -1266,7 +1416,7 @@ describe("session_start activation (the local model is the only path)", () => {
 		expect(session.joinedNotices()).toContain("pi-voicekit installed");
 		expect(session.joinedNotices()).toContain("/voice-setup");
 		expect(session.joinedNotices()).not.toMatch(/deepgram|cloud|nova-3|two backends/i);
-		expect(session.holdToTalkSubscribed).toBe(false);
+		expect(session.terminalInputSubscribed).toBe(true);
 	});
 
 	test("a scrub failure does not stop the session from wiring voice", async () => {
@@ -1279,7 +1429,7 @@ describe("session_start activation (the local model is the only path)", () => {
 			projectVoice: { onboarding: { completed: true }, localModel: "paraformer-zh", language: "zh" },
 		});
 
-		expect(session.holdToTalkSubscribed).toBe(true);
+		expect(session.terminalInputSubscribed).toBe(true);
 		const warnings = session.notices.filter(([, type]) => type === "warning");
 		expect(warnings).toHaveLength(1);
 		expect(warnings[0]![0]).toMatch(/settings file/i);
@@ -1360,11 +1510,20 @@ describe("session_start activation (the local model is the only path)", () => {
 
 	// ── No entry point may record without an explicit local model ────────────────────────────────
 
-	test("a recording entry with no configured model refuses and never arms", async () => {
+	// The terminal input handler is registered in EVERY configuration, because only its SPACE branch needs
+	// a model: F1 opens help and Escape cancels an install or stops speech, and both must keep working
+	// while the user is still being told to pick one. These tests drive the real callback with the bytes
+	// a terminal sends for a held key (Kitty CSI-u: press, repeat = 2, release = 3).
+	const SPACE_PRESS = " ";
+	const SPACE_REPEAT = "\x1b[32;1:2u";
+	const SPACE_RELEASE = "\x1b[32;1:3u";
+	const ESCAPE = "\x1b";
+	const F1 = "\x1bOP";
+
+	test("a recording entry with no configured model refuses to record", async () => {
 		// `local.ts` substitutes DEFAULT_LOCAL_MODEL when no model was chosen, so an entry that starts
 		// anyway would download and run Parakeet behind a warning that just told the user to pick one.
 		const session = await runSessionStart({ onboarding: { completed: true }, backend: "deepgram" });
-		expect(session.holdToTalkSubscribed).toBe(false);
 
 		// The toggle shortcut is a recording entry that exists whether or not a hold is armed. The
 		// harness's `getEditorText` throws, and it is the first thing a real start does — so resolving
@@ -1375,19 +1534,104 @@ describe("session_start activation (the local model is the only path)", () => {
 		expect(session.joinedNotices()).toContain("needs a local model");
 		expect(session.statuses.filter(([, value]) => value?.startsWith("REC "))).toEqual([]);
 		expect((globalThis as any).__piListen?.recording).not.toBe(true);
-		expect(session.holdToTalkSubscribed).toBe(false);
 	});
 
-	test("closing the panel without choosing a model leaves dictation unarmed", async () => {
+	test("holding SPACE with no configured model warms up nothing and swallows nothing", async () => {
+		// The timing path — press, repeats, the hold threshold, the release — driven through the real
+		// callback. Before the model check moved inside the handler the whole callback was missing in
+		// this state, so the previous round's "long press" test could not reach it at all.
+		const session = await runSessionStart({ onboarding: { completed: true } });
+		expect(session.terminalInputSubscribed).toBe(true);
+
+		// A genuine hold: down, the repeats a held key produces, past the hold threshold, release.
+		// `getEditorText` is still a tripwire, so any path into `startVoiceRecording` throws instead of
+		// opening the microphone.
+		expect(session.sendInput(SPACE_PRESS)).toBeUndefined();
+		for (let repeat = 0; repeat < 8; repeat++) expect(session.sendInput(SPACE_REPEAT)).toBeUndefined();
+		// Longer than HOLD_THRESHOLD_DEFAULT_MS (700 ms): a warmed-up hold would have started recording.
+		await new Promise((resolve) => setTimeout(resolve, 800));
+		expect(session.sendInput(SPACE_RELEASE)).toBeUndefined();
+
+		// No warm-up widget, no recording state, nothing consumed: an ordinary press is still a space.
+		expect(session.widgetCalls).toEqual([]);
+		expect(session.statuses.filter(([, value]) => value === "MIC HOLD..." || value?.startsWith("REC "))).toEqual([]);
+		expect((globalThis as any).__piListen?.recording).not.toBe(true);
+	});
+
+	test("F1 opens help with no configured model", async () => {
+		// Help is advertised by the extension and has nothing to do with a model; the callback used to be
+		// missing entirely, so the key fell through to the editor.
+		const session = await runSessionStart({ onboarding: { completed: true } });
+
+		expect(session.sendInput(F1)).toEqual({ consume: true });
+		await waitUntil(() => session.customCalls.length === 1);
+		expect(session.customCalls).toEqual([{ overlay: true }]);
+	});
+
+	test("Escape stops in-flight speech with no configured model", async () => {
+		// `/voice-speak` is local and available before a model is chosen, and the indicator advertises
+		// [esc]. Escape is handled before the SPACE branch, so the model gate must not reach it.
+		const session = await runSessionStart(
+			{ onboarding: { completed: true }, ttsEnabled: true },
+			{
+				ttsModelInstalled: true,
+			}
+		);
+		const speaking = session.runSpeak("hello");
+		await waitUntil(() => pendingPlayback !== undefined);
+		const playback = takePlayback();
+		expect(playback.signal?.aborted).toBe(false);
+
+		expect(session.sendInput(ESCAPE)).toEqual({ consume: true });
+
+		// `activePlaybackIndicator.stop()` routes to `abortActiveSpeak`: the synthesis is cancelled.
+		expect(playback.signal?.aborted).toBe(true);
+		playback.release();
+		await speaking;
+	});
+
+	test("closing the panel without choosing a model leaves dictation refused", async () => {
 		// The panel handler used to arm hold-to-talk whenever `config.enabled`, so closing the setup
-		// panel after being told to pick a model armed a SPACE hold that would record on Parakeet.
+		// panel after being told to pick a model armed a SPACE hold that would record on Parakeet. Now
+		// the handler stays registered (F1/Escape need it) and only the SPACE branch refuses.
 		const session = await runSessionStart({ onboarding: { completed: true } });
 
 		await session.closePanel();
 
-		expect(session.holdToTalkSubscribed).toBe(false);
+		expect(session.terminalInputSubscribed).toBe(true);
+		expect(session.sendInput(SPACE_PRESS)).toBeUndefined();
+		expect(session.widgetCalls.filter((call) => call.key === "voice-recording" && call.shown)).toEqual([]);
 		// The status bar is left saying setup is still needed — not idle-and-ready.
 		expect(session.statuses).toContainEqual(["voice", "MIC SETUP"]);
+	});
+
+	test("closing the panel without choosing a model leaves in-flight speech running", async () => {
+		// The panel handler called `voiceCleanup()` when no model was configured: that cancels installs,
+		// stops playback and drops every widget — far more than disarming dictation. Only dictation may
+		// stop here; work the user started for another reason keeps its floor.
+		const session = await runSessionStart(
+			{ onboarding: { completed: true }, ttsEnabled: true },
+			{
+				ttsModelInstalled: true,
+			}
+		);
+		const speaking = session.runSpeak("hello");
+		await waitUntil(() => pendingPlayback !== undefined);
+		const playback = takePlayback();
+
+		await session.closePanel();
+
+		expect(playback.signal?.aborted).toBe(false);
+		expect(playback.settled).toBe(false);
+		// ...and dictation really is the part that was disarmed: a hold is refused, nothing is shown.
+		expect(session.sendInput(SPACE_PRESS)).toBeUndefined();
+		// (The panel-close disarm hides the dictation widget; showing it would be the warm-up.)
+		expect(session.widgetCalls.filter((call) => call.key === "voice-recording" && call.shown)).toEqual([]);
+		// The status bar is left saying setup is still needed — not idle-and-ready.
+		expect(session.statuses).toContainEqual(["voice", "MIC SETUP"]);
+
+		playback.release();
+		await speaking;
 	});
 
 	test("choosing a model in the panel arms dictation without a restart", async () => {
@@ -1397,7 +1641,7 @@ describe("session_start activation (the local model is the only path)", () => {
 		// post-close sync decides whether to wire hold-to-talk.
 		await session.closePanel((panel) => panel.activateModel("parakeet-v3"));
 
-		expect(session.holdToTalkSubscribed).toBe(true);
+		expect(session.terminalInputSubscribed).toBe(true);
 		expect(session.statuses).toContainEqual(["voice", "MIC LOCAL"]);
 		expect(JSON.parse(fs.readFileSync(session.settingsPath, "utf8")).voice.localModel).toBe("parakeet-v3");
 	});
