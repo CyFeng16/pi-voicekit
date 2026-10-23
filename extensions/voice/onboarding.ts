@@ -12,13 +12,6 @@ import {
 
 type VoiceUiContext = ExtensionContext | ExtensionCommandContext;
 
-/** Escape a value for safe use inside single-quoted shell strings. */
-export function shellEscapeSingleQuoted(value: string): string {
-	// In single-quoted strings, the only special char is the single quote itself.
-	// Replace ' with '"'"' (end single-quote, double-quote a single-quote, restart single-quote).
-	return value.replace(/'/g, `'"'"'`);
-}
-
 export interface OnboardingResult {
 	config: VoiceConfig;
 	selectedScope: VoiceSettingsScope;

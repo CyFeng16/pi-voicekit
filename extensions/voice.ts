@@ -75,7 +75,7 @@ import {
 	type VoiceConfig,
 	type VoiceSettingsScope,
 } from "./voice/config";
-import { finalizeOnboardingConfig, runVoiceOnboarding, pickLanguage, languageDisplayName } from "./voice/onboarding";
+import { finalizeOnboardingConfig } from "./voice/onboarding";
 import { makeWidgetRegistry, type WidgetRegistry } from "./voice/ui-widget-base";
 import { makeRenderTicker, type RenderTicker } from "./voice/ui-render-ticker";
 import { TtsInstallProgressWidget } from "./voice/tts-install-progress";
@@ -104,7 +104,6 @@ import {
 	type PunctuationGate,
 } from "./voice/punctuation";
 import { cleanTranscript, type CleanupStatus } from "./voice/transcript-cleanup";
-import { joinTranscriptParts } from "./voice/transcript-join";
 
 /** Adapter for the real event loop — lets GapTimer run under the real setTimeout. */
 const realTimerPort: TimerPort = {
@@ -370,7 +369,6 @@ function abortSession(session: LocalSession | null): void {
 	// recording state machine — including across session replacement, where the surviving
 	// callbacks would otherwise write into the new session's editor / fire notifications
 	// on the new ctx.
-	session.onTranscript = () => {};
 	session.onDone = () => {};
 	session.onError = () => {};
 	abortLocalSession(session);
@@ -1181,27 +1179,6 @@ export default function (pi: ExtensionAPI) {
 		);
 	}
 
-	// ─── Live Transcript ────────────────────────────────────────────────────
-	// Instead of showing transcript in a widget, put it directly in the editor
-	// input area so users see it where they type.
-
-	function updateLiveTranscriptWidget(interim: string, finals: string[]) {
-		if (!ctx?.hasUI) return;
-
-		// DON'T stop the waveform animation — keep it running!
-		// We still want the ● REC waveform + timer to show.
-		// Just update the editor text with the live transcript.
-
-		const finalized = joinTranscriptParts(finals);
-		const displayText = joinTranscriptParts([finalized, interim]);
-
-		// Show live text directly in the editor input (prepend any existing text)
-		if (displayText.trim()) {
-			const prefix = editorTextBeforeVoice ? editorTextBeforeVoice + " " : "";
-			ctx.ui.setEditorText(prefix + displayText);
-		}
-	}
-
 	// ─── Voice: Start / Stop ─────────────────────────────────────────────────
 
 	let _startingRecording = false; // Re-entrancy guard for startVoiceRecording
@@ -1269,11 +1246,6 @@ export default function (pi: ExtensionAPI) {
 
 		// ── Callbacks for the active recording session ──
 		const recordingCallbacks = {
-			onTranscript: (interim: string, finals: string[]) => {
-				// Live transcript update — this is the key UX feature
-				updateLiveTranscriptWidget(interim, finals);
-				updateVoiceStatus();
-			},
 			onDone: async (fullText: string, meta: { hadAudio: boolean; hadSpeech: boolean }) => {
 				voiceDebug("onDone callback", { fullText: fullText.slice(0, 100), meta, voiceState, spaceConsumed });
 				activeSession = null;

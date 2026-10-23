@@ -41,12 +41,21 @@ describe("documentation", () => {
 	];
 
 	/**
-	 * The absolute the claim was narrowed away from. It may appear nowhere on a shipped surface. The
-	 * README quotes it once on purpose ("narrower than 'nothing ever leaves the machine'") and
-	 * `i18n/README.zh-CN.md` mirrors that quote; the pattern needs `audio` immediately before the verb,
-	 * so the deliberate quote — whose subject is "nothing" — cannot fire it.
+	 * The absolutes the claim was narrowed away from. They may appear nowhere on a shipped surface.
+	 *
+	 * Two families had to be retired, so the pattern covers both: the "never leaves" verb
+	 * ("…and your audio never leaves the machine") and the passive form that named the destination
+	 * ("**No audio is transmitted off the machine.**"). Guarding only the first family left the second
+	 * free to return: the positive assertions require the narrowed claim somewhere in the file, so a
+	 * reverted sentence elsewhere on the same surface stays green.
+	 *
+	 * The README quotes one of them once on purpose ("narrower than 'nothing ever leaves the machine'")
+	 * and `i18n/README.zh-CN.md` mirrors that quote. The exemption is structural rather than a list of
+	 * allowed strings: the pattern needs `audio` as the subject, so the deliberate quote — whose subject
+	 * is "nothing" — cannot fire it. The self-check below pins that.
 	 */
-	const OLD_ABSOLUTE = /\baudio\s+(?:never|ever|does\s?n[o']t)\s+leave?s?\b/i;
+	const OLD_ABSOLUTE =
+		/\baudio\s+(?:never|ever|does\s?n[o']t)\s+leave?s?\b|\b(?:no\s+)?audio\s+(?:(?:is|was|gets)\s+|is\s?n[o']t\s+)?(?:(?:never|ever|not)\s+)?(?:transmitted|sent|uploaded|transferred)\s+(?:off|out\s+of)\s+(?:the|this|your)\s+(?:machine|host|computer)\b/i;
 
 	test("README sells a local-only product", () => {
 		const readme = read("README.md");
@@ -90,6 +99,17 @@ describe("documentation", () => {
 	test("no shipped surface carries the absolute the claim was narrowed away from", () => {
 		const offenders = SHIPPED_SURFACES.filter((file) => OLD_ABSOLUTE.test(read(file)));
 		expect(offenders).toEqual([]);
+	});
+
+	/**
+	 * Guard-of-the-guard: a pattern that only caught one of the two retired families would look green
+	 * over every shipped surface while leaving the other free to return. Check the pattern itself
+	 * against both retired sentences, and against the one deliberate quote it has to spare.
+	 */
+	test("the retired-absolute pattern catches both retired families and spares the quote", () => {
+		expect(OLD_ABSOLUTE.test("No key, no endpoint, no account — and your audio never leaves the machine.")).toBe(true);
+		expect(OLD_ABSOLUTE.test("**No audio is transmitted off the machine.** Recording runs in-process.")).toBe(true);
+		expect(OLD_ABSOLUTE.test(`it is narrower than "nothing ever leaves the machine".`)).toBe(false);
 	});
 
 	test("README documents audio fallback chain", () => {

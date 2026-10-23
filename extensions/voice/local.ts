@@ -814,7 +814,6 @@ export function localLanguageDisplayName(code: string): string {
  * not pipeline recogniser segments keep today's transcript-only behaviour.
  */
 export interface LocalSessionCallbacks {
-	onTranscript: (interim: string, finals: string[]) => void;
 	onDone: (fullText: string, meta: { hadAudio: boolean; hadSpeech: boolean }) => void;
 	onError: (err: string) => void;
 	/**
@@ -829,7 +828,6 @@ export interface LocalSession {
 	audioChunks: Buffer[];
 	closed: boolean;
 	hadAudioData: boolean;
-	onTranscript: (interim: string, finals: string[]) => void;
 	onDone: (fullText: string, meta: { hadAudio: boolean; hadSpeech: boolean }) => void;
 	onError: (err: string) => void;
 	/** Optional per-segment observer; forwarded to the in-process recogniser on stop. */
@@ -854,7 +852,6 @@ export function startLocalSession(recProcess: ChildProcess, callbacks: LocalSess
 		audioChunks: [],
 		closed: false,
 		hadAudioData: false,
-		onTranscript: callbacks.onTranscript,
 		onDone: callbacks.onDone,
 		onError: callbacks.onError,
 		onSegment: callbacks.onSegment,

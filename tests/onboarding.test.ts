@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { finalizeOnboardingConfig, shellEscapeSingleQuoted } from "../extensions/voice/onboarding";
+import { finalizeOnboardingConfig } from "../extensions/voice/onboarding";
 import { DEFAULT_CONFIG } from "../extensions/voice/config";
 
 describe("finalizeOnboardingConfig", () => {
@@ -18,31 +18,5 @@ describe("finalizeOnboardingConfig", () => {
 		expect(updated.onboarding.completed).toBe(false);
 		expect(updated.onboarding.source).toBe("repair");
 		expect(updated.onboarding.completedAt).toBeUndefined();
-	});
-});
-
-describe("shellEscapeSingleQuoted", () => {
-	test("leaves plain alphanumeric strings unchanged", () => {
-		expect(shellEscapeSingleQuoted("abc123def456")).toBe("abc123def456");
-	});
-
-	test("escapes single quotes", () => {
-		expect(shellEscapeSingleQuoted("it's")).toBe(`it'"'"'s`);
-	});
-
-	test("handles strings with dollar signs (no change needed in single quotes)", () => {
-		expect(shellEscapeSingleQuoted("key$var")).toBe("key$var");
-	});
-
-	test("handles strings with backticks (no change needed in single quotes)", () => {
-		expect(shellEscapeSingleQuoted("key`cmd`")).toBe("key`cmd`");
-	});
-
-	test("handles strings with double quotes (no change needed in single quotes)", () => {
-		expect(shellEscapeSingleQuoted('key"value')).toBe('key"value');
-	});
-
-	test("handles empty string", () => {
-		expect(shellEscapeSingleQuoted("")).toBe("");
 	});
 });
