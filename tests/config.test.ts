@@ -6,8 +6,6 @@ import voiceExtension, { safeErrorText } from "../extensions/voice";
 import { resetPunctuationForTest } from "../extensions/voice/punctuation";
 import {
 	DEFAULT_CONFIG,
-	getSessionStartPersistedConfig,
-	isLoopbackEndpoint,
 	loadConfigWithSource,
 	needsOnboarding,
 	saveConfig,
@@ -49,10 +47,11 @@ describe("loadConfigWithSource", () => {
 		expect(result.config.scope).toBe("global");
 	});
 
-	test("migrates legacy global config and marks onboarding complete when backend and model were explicit", () => {
+	test("migrates a legacy global config whose raw backend and model keys are explicit", () => {
 		const cwd = makeTempDir();
 		const agentDir = path.join(cwd, "agent-home");
-		// Legacy config had backend + model fields — migration still recognizes them
+		// `backend` and `model` are not typed fields any more, but `migrateConfig` still reads the raw
+		// keys of an old file, so its owner keeps completed onboarding instead of being sent to setup.
 		writeSettings(agentDir, "settings.json", {
 			enabled: true,
 			language: "en",
@@ -135,39 +134,6 @@ describe("needsOnboarding", () => {
 });
 
 describe("saveConfig", () => {
-	test("does not persist an env-only Deepgram key during session-start saves", () => {
-		const persisted = getSessionStartPersistedConfig({
-			config: {
-				...DEFAULT_CONFIG,
-				scope: "global",
-				onboarding: {
-					completed: true,
-					schemaVersion: DEFAULT_CONFIG.version,
-				},
-			},
-			envDeepgramApiKey: "env-secret-123",
-		});
-
-		expect(persisted.deepgramApiKey).toBeUndefined();
-	});
-
-	test("preserves an explicitly stored Deepgram key during session-start saves", () => {
-		const persisted = getSessionStartPersistedConfig({
-			config: {
-				...DEFAULT_CONFIG,
-				scope: "global",
-				deepgramApiKey: "saved-secret-123",
-				onboarding: {
-					completed: true,
-					schemaVersion: DEFAULT_CONFIG.version,
-				},
-			},
-			envDeepgramApiKey: "env-secret-123",
-		});
-
-		expect(persisted.deepgramApiKey).toBe("saved-secret-123");
-	});
-
 	test("writes global settings when scope is global", () => {
 		const cwd = makeTempDir();
 		const agentDir = path.join(cwd, "agent-home");
@@ -204,70 +170,6 @@ describe("saveConfig", () => {
 
 		expect(savedPath).toBe(path.join(cwd, ".pi", "settings.json"));
 		expect(saved.voice.scope).toBe("project");
-	});
-
-	test("strips deepgramApiKey from project-scoped saves", () => {
-		const cwd = makeTempDir();
-		const agentDir = path.join(cwd, "agent-home");
-		const config: VoiceConfig = {
-			...DEFAULT_CONFIG,
-			scope: "project",
-			deepgramApiKey: "secret-key-abc123",
-			onboarding: { completed: true, schemaVersion: DEFAULT_CONFIG.version },
-		};
-
-		const savedPath = saveConfig(config, "project", cwd, { agentDir });
-		const saved = JSON.parse(fs.readFileSync(savedPath, "utf8"));
-
-		expect(saved.voice.deepgramApiKey).toBeUndefined();
-	});
-
-	test("preserves deepgramApiKey in global-scoped saves", () => {
-		const cwd = makeTempDir();
-		const agentDir = path.join(cwd, "agent-home");
-		const config: VoiceConfig = {
-			...DEFAULT_CONFIG,
-			scope: "global",
-			deepgramApiKey: "secret-key-abc123",
-			onboarding: { completed: true, schemaVersion: DEFAULT_CONFIG.version },
-		};
-
-		const savedPath = saveConfig(config, "global", cwd, { agentDir });
-		const saved = JSON.parse(fs.readFileSync(savedPath, "utf8"));
-
-		expect(saved.voice.deepgramApiKey).toBe("secret-key-abc123");
-	});
-
-	test("strips non-loopback localEndpoint from project-scoped saves", () => {
-		const cwd = makeTempDir();
-		const agentDir = path.join(cwd, "agent-home");
-		const config: VoiceConfig = {
-			...DEFAULT_CONFIG,
-			scope: "project",
-			localEndpoint: "http://evil.com:8080",
-			onboarding: { completed: true, schemaVersion: DEFAULT_CONFIG.version },
-		};
-
-		const savedPath = saveConfig(config, "project", cwd, { agentDir });
-		const saved = JSON.parse(fs.readFileSync(savedPath, "utf8"));
-
-		expect(saved.voice.localEndpoint).toBeUndefined();
-	});
-
-	test("preserves loopback localEndpoint in project-scoped saves", () => {
-		const cwd = makeTempDir();
-		const agentDir = path.join(cwd, "agent-home");
-		const config: VoiceConfig = {
-			...DEFAULT_CONFIG,
-			scope: "project",
-			localEndpoint: "http://localhost:8080",
-			onboarding: { completed: true, schemaVersion: DEFAULT_CONFIG.version },
-		};
-
-		const savedPath = saveConfig(config, "project", cwd, { agentDir });
-		const saved = JSON.parse(fs.readFileSync(savedPath, "utf8"));
-
-		expect(saved.voice.localEndpoint).toBe("http://localhost:8080");
 	});
 
 	test("atomic write leaves no .tmp files after save", () => {
@@ -593,42 +495,6 @@ describe("punctuation notice flag (global-only, default false)", () => {
 	});
 });
 
-describe("isLoopbackEndpoint", () => {
-	test("accepts localhost", () => {
-		expect(isLoopbackEndpoint("http://localhost:8080")).toBe(true);
-	});
-
-	test("accepts 127.0.0.1", () => {
-		expect(isLoopbackEndpoint("http://127.0.0.1:9090")).toBe(true);
-	});
-
-	test("accepts ::1", () => {
-		expect(isLoopbackEndpoint("http://[::1]:8080")).toBe(true);
-	});
-
-	test("accepts https localhost", () => {
-		expect(isLoopbackEndpoint("https://localhost:8443")).toBe(true);
-	});
-
-	test("rejects remote hosts", () => {
-		expect(isLoopbackEndpoint("http://evil.com:8080")).toBe(false);
-	});
-
-	test("rejects private IPs", () => {
-		expect(isLoopbackEndpoint("http://192.168.1.1:8080")).toBe(false);
-	});
-
-	test("rejects non-http protocols", () => {
-		expect(isLoopbackEndpoint("ftp://localhost:21")).toBe(false);
-		expect(isLoopbackEndpoint("file://localhost/etc/passwd")).toBe(false);
-	});
-
-	test("rejects invalid URLs", () => {
-		expect(isLoopbackEndpoint("not-a-url")).toBe(false);
-		expect(isLoopbackEndpoint("")).toBe(false);
-	});
-});
-
 describe("v3 config migration (post-process keys removed in v4)", () => {
 	// The five settings the LLM polish pass used. v4 ignores them but must never delete them
 	// (spec §4.1, decision 10) — a user who rolls back to an older release finds them again.
@@ -829,43 +695,20 @@ describe("v3 config migration (post-process keys removed in v4)", () => {
 		const globalSaved = JSON.parse(fs.readFileSync(globalSavedPath, "utf8")) as { voice: Record<string, unknown> };
 		expect(Object.keys(globalSaved.voice).some((key) => key.startsWith("postProcess"))).toBe(false);
 	});
+});
 
-	test("ignores an API key and a non-loopback endpoint from a project config", () => {
+describe("v5 config migration (the cloud backend fields are gone)", () => {
+	test("a project-scoped file carrying a retired key still loads and never prints the key", () => {
+		// Review Focus #5: a hand-written project file can still name the retired keys. The loader
+		// ignores them — it must resolve, must not throw, and must not echo the secret or the endpoint.
 		const cwd = makeTempDir();
 		const agentDir = path.join(cwd, "agent-home");
-		writeSettings(agentDir, "settings.json", { version: 3, deepgramApiKey: "saved-secret-123" });
 		writeSettings(cwd, ".pi/settings.json", {
-			version: 3,
-			deepgramApiKey: "stolen",
-			localEndpoint: "https://evil.example.com",
+			version: 4,
+			language: "zh",
+			deepgramApiKey: "SECRET-project-key",
+			localEndpoint: "http://10.0.0.5:8080",
 		});
-		const result = loadConfigWithSource(cwd, { agentDir });
-		expect(result.config.deepgramApiKey).toBe("saved-secret-123"); // the global value survives
-		expect(result.config.localEndpoint).toBeUndefined();
-	});
-
-	test("keeps a project loopback endpoint but falls back to the global one for a non-loopback value", () => {
-		const cwd = makeTempDir();
-		const agentDir = path.join(cwd, "agent-home");
-		writeSettings(agentDir, "settings.json", { version: 3, localEndpoint: "http://127.0.0.1:9999" });
-		writeSettings(cwd, ".pi/settings.json", { version: 3, language: "zh", localEndpoint: "http://10.0.0.5:8080" });
-		expect(loadConfigWithSource(cwd, { agentDir }).config.localEndpoint).toBe("http://127.0.0.1:9999");
-		writeSettings(cwd, ".pi/settings.json", { version: 3, language: "zh", localEndpoint: "http://127.0.0.1:8080" });
-		expect(loadConfigWithSource(cwd, { agentDir }).config.localEndpoint).toBe("http://127.0.0.1:8080");
-	});
-
-	test("still accepts a loopback local endpoint from a project config", () => {
-		const cwd = makeTempDir();
-		writeSettings(cwd, ".pi/settings.json", { version: 3, localEndpoint: "http://127.0.0.1:8080" });
-		const result = loadConfigWithSource(cwd, { agentDir: path.join(cwd, "agent-home") });
-		expect(result.config.localEndpoint).toBe("http://127.0.0.1:8080");
-	});
-
-	test("does not report a honoured loopback project endpoint as ignored", () => {
-		const cwd = makeTempDir();
-		const agentDir = path.join(cwd, "agent-home");
-		writeSettings(agentDir, "settings.json", { version: 3 });
-		writeSettings(cwd, ".pi/settings.json", { version: 3, localEndpoint: "http://127.0.0.1:8080" });
 
 		const chunks: string[] = [];
 		const original = process.stderr.write;
@@ -875,12 +718,17 @@ describe("v3 config migration (post-process keys removed in v4)", () => {
 		}) as typeof process.stderr.write;
 		try {
 			const result = loadConfigWithSource(cwd, { agentDir });
-			expect(result.config.localEndpoint).toBe("http://127.0.0.1:8080");
+			expect(result.source).toBe("project");
+			expect(result.config.language).toBe("zh");
+			// Ignored, not honoured: neither retired key reaches the runtime config.
+			expect("deepgramApiKey" in result.config).toBe(false);
+			expect("localEndpoint" in result.config).toBe(false);
 		} finally {
 			process.stderr.write = original;
 		}
 
-		expect(chunks.join("")).not.toContain("localEndpoint");
+		expect(chunks.join("")).not.toContain("SECRET-project-key");
+		expect(chunks.join("")).not.toContain("10.0.0.5");
 	});
 });
 
@@ -959,7 +807,6 @@ describe("settings writes refuse to destroy a configuration they could not read"
 		version: 2,
 		enabled: true,
 		language: "zh",
-		backend: "local",
 		localModel: "paraformer-zh",
 		onboarding: { completed: true, schemaVersion: 2 },
 	};
@@ -974,7 +821,6 @@ describe("settings writes refuse to destroy a configuration they could not read"
 		).toThrow(/unread|refus/i);
 
 		const after = JSON.parse(fs.readFileSync(path.join(agentDir, "settings.json"), "utf8"));
-		expect(after.voice.backend).toBe("local");
 		expect(after.voice.localModel).toBe("paraformer-zh");
 		expect(after.voice.onboarding.completed).toBe(true);
 	});

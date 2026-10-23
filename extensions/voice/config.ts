@@ -7,11 +7,11 @@ function getAgentDir(): string {
 }
 
 export const SETTINGS_KEY = "voice";
-// v4 removed the LLM polish pass and its five `postProcess*` fields. Their values are
-// ignored and never migrated, but an ordinary save keeps a file's own keys in place
-// (spec §4.1); the version is bumped so the schema change is visible, and onboarding
-// stays complete across the bump.
-export const VOICE_CONFIG_VERSION = 4;
+// v4 removed the LLM polish pass and its five `postProcess*` fields; v5 removed the six fields that
+// only the retired cloud backends used. Their values are ignored and never migrated, but an ordinary
+// save keeps a file's own keys in place (spec §4.1); the version is bumped so the schema change is
+// visible, and onboarding stays complete across the bump.
+export const VOICE_CONFIG_VERSION = 5;
 
 export type VoiceSettingsScope = "global" | "project";
 export type VoiceConfigSource = VoiceSettingsScope | "default";
@@ -25,22 +25,14 @@ export interface VoiceOnboardingState {
 	skippedAt?: string;
 }
 
-export type VoiceBackend = "deepgram" | "local";
-
 export interface VoiceConfig {
 	version: number;
 	enabled: boolean;
 	language: string;
 	scope: VoiceSettingsScope;
 	onboarding: VoiceOnboardingState;
-	/** Deepgram API key — stored in config so it's available even when env var isn't set */
-	deepgramApiKey?: string;
-	/** Transcription backend — "deepgram" (cloud streaming) or "local" (batch via local server) */
-	backend?: VoiceBackend;
 	/** Local model ID (e.g. "whisper-small", "whisper-turbo", "parakeet-v3") */
 	localModel?: string;
-	/** Local transcription server URL (default: http://localhost:8080) */
-	localEndpoint?: string;
 	/**
 	 * Master switch for the offline punctuation step (spec §4.3). Scope-agnostic:
 	 * a project file may set it, and `resolveSwitch` makes a machine-wide `false`
@@ -74,8 +66,6 @@ export interface VoiceConfig {
 
 	/** Master TTS toggle. When false, /voice-speak is a no-op. */
 	ttsEnabled?: boolean;
-	/** "local" (sherpa-onnx, offline) or "deepgram" (cloud REST). */
-	ttsBackend?: "local" | "deepgram";
 	/** Active local TTS model id (e.g. "kitten-nano-en-v0_2"). */
 	ttsLocalModel?: string;
 	/**
@@ -84,12 +74,6 @@ export interface VoiceConfig {
 	 * fall back to the model's defaultSid.
 	 */
 	ttsLocalVoiceId?: number;
-	/**
-	 * Deepgram backend voice id (e.g. "aura-asteria-en"). Type-validated
-	 * at config load — numbers get rejected and fall back to
-	 * "aura-asteria-en".
-	 */
-	ttsDeepgramVoiceId?: string;
 	/** Speech rate multiplier; range 0.5–2.0. Default 1.0. */
 	ttsSpeed?: number;
 	/**
@@ -119,12 +103,6 @@ export interface VoiceConfig {
 	 * English but wants Spanish read-back.
 	 */
 	ttsLanguage?: string;
-	/**
-	 * v6.1 feature flag — opt-in WebSocket streaming for sub-200ms TTFB
-	 * on the Deepgram backend. v6.0 ships REST only; this is documented
-	 * but ignored.
-	 */
-	ttsDeepgramStreaming?: boolean;
 	/**
 	 * Set to true after `tts-onboarding.maybeShowTtsOnboarding()` has
 	 * shown its first-run hint, so subsequent /voice-speak-toggle calls
@@ -162,10 +140,7 @@ export const DEFAULT_CONFIG: VoiceConfig = {
 	enabled: true,
 	language: "en",
 	scope: "global",
-	deepgramApiKey: undefined,
-	backend: undefined, // undefined = "deepgram" (default)
 	localModel: undefined,
-	localEndpoint: undefined,
 	punctuationEnabled: PUNCTUATION_ENABLED_DEFAULT,
 	fillerRemovalEnabled: CLEANUP_ENABLED_DEFAULT,
 	numeralNormalizationEnabled: CLEANUP_ENABLED_DEFAULT,
@@ -173,16 +148,13 @@ export const DEFAULT_CONFIG: VoiceConfig = {
 	toggleShortcut: "ctrl+shift+v",
 	// TTS defaults — all opt-in
 	ttsEnabled: false,
-	ttsBackend: "local",
 	ttsLocalModel: "kitten-nano-en-v0_2",
 	ttsLocalVoiceId: 0,
-	ttsDeepgramVoiceId: "aura-asteria-en",
 	ttsSpeed: 1.0,
 	ttsAutoSpeak: true,
 	autoSubmitOnSpeak: false,
 	holdThresholdMs: 700,
 	ttsLanguage: undefined,
-	ttsDeepgramStreaming: false,
 	ttsOnboardingShown: false,
 	onboarding: {
 		completed: false,
@@ -241,34 +213,16 @@ function migrateConfig(rawVoice: any, source: VoiceConfigSource, globalVoice?: u
 		return structuredClone(DEFAULT_CONFIG);
 	}
 
-	// D7: a project file must not be able to inject an API key or point audio at a
-	// non-loopback host. These fields resolve from the global block in BOTH scopes, so a
-	// cloned repository cannot redirect audio the maintainer pointed elsewhere (spec §4.2).
-	const projectScoped = source === "project";
+	// Global-only fields resolve from the global block in BOTH scopes (spec §4.2), so a cloned
+	// project file cannot set them.
 	const globalRaw: Record<string, unknown> =
 		globalVoice && typeof globalVoice === "object" ? (globalVoice as Record<string, unknown>) : {};
-	const globalOnly = (key: string): unknown => (projectScoped ? globalRaw[key] : rawVoice[key]);
-	const asString = (value: unknown): string | undefined => (typeof value === "string" && value ? value : undefined);
+	const globalOnly = (key: string): unknown => (source === "project" ? globalRaw[key] : rawVoice[key]);
 	const asBoolean = (value: unknown, fallbackValue: boolean): boolean =>
 		typeof value === "boolean" ? value : fallbackValue;
 
-	for (const key of ["deepgramApiKey", "localEndpoint"]) {
-		if (!projectScoped || rawVoice[key] === undefined) continue;
-		// A loopback project endpoint is honoured, not ignored — reporting it would
-		// cry wolf on the safe case and weaken the signal for the discarded ones.
-		if (
-			key === "localEndpoint" &&
-			typeof rawVoice.localEndpoint === "string" &&
-			isLoopbackEndpoint(rawVoice.localEndpoint)
-		) {
-			continue;
-		}
-		// Never print a key, even one that is being ignored.
-		const shown = key === "deepgramApiKey" ? "<redacted>" : JSON.stringify(rawVoice[key]);
-		process.stderr.write(`[pi-voicekit] Ignoring project-scoped voice.${key} (${shown}); using the global value\n`);
-	}
-
-	// Legacy configs may have backend+model — treat that as completed onboarding
+	// Legacy files may carry the raw `backend`+`model` keys — they are not typed fields any more,
+	// but treating the pair as a completed setup keeps their owners out of the setup wizard.
 	const hasMeaningfulLegacySetup =
 		(typeof rawVoice.backend === "string" && typeof rawVoice.model === "string") ||
 		rawVoice.onboarding?.completed === true;
@@ -279,8 +233,6 @@ function migrateConfig(rawVoice: any, source: VoiceConfigSource, globalVoice?: u
 		enabled: typeof rawVoice.enabled === "boolean" ? rawVoice.enabled : DEFAULT_CONFIG.enabled,
 		language: typeof rawVoice.language === "string" ? rawVoice.language : DEFAULT_CONFIG.language,
 		scope: (rawVoice.scope as VoiceSettingsScope | undefined) ?? (source === "project" ? "project" : "global"),
-		deepgramApiKey: asString(globalOnly("deepgramApiKey")),
-		backend: rawVoice.backend === "local" ? "local" : undefined,
 		// The three switch fields share one resolution (spec §4.4): a global false is
 		// final, so it survives (and beats) a project block; otherwise the project value
 		// wins, then the global one, then the default.
@@ -303,22 +255,15 @@ function migrateConfig(rawVoice: any, source: VoiceConfigSource, globalVoice?: u
 		// project file cannot silence the one-time upgrade notice.
 		punctuationNoticeShown: asBoolean(globalOnly("punctuationNoticeShown"), false),
 		localModel: typeof rawVoice.localModel === "string" ? rawVoice.localModel : undefined,
-		localEndpoint: projectScoped
-			? typeof rawVoice.localEndpoint === "string" && isLoopbackEndpoint(rawVoice.localEndpoint)
-				? rawVoice.localEndpoint
-				: asString(globalRaw.localEndpoint)
-			: asString(rawVoice.localEndpoint),
 		toggleShortcut:
 			source !== "project" && typeof rawVoice.toggleShortcut === "string"
 				? rawVoice.toggleShortcut
 				: DEFAULT_CONFIG.toggleShortcut,
 		// TTS fields — type-validated; mismatched persisted values fall
 		// back to safe defaults so a hand-edited config can't poison the
-		// engine. Notably: ttsLocalVoiceId rejects strings (would crash
-		// sherpa's numeric sid arg) and ttsDeepgramVoiceId rejects numbers
-		// (would 4xx at the Deepgram REST layer).
+		// engine. Notably: ttsLocalVoiceId rejects strings, which would
+		// crash sherpa's numeric sid argument.
 		ttsEnabled: typeof rawVoice.ttsEnabled === "boolean" ? rawVoice.ttsEnabled : DEFAULT_CONFIG.ttsEnabled,
-		ttsBackend: rawVoice.ttsBackend === "deepgram" ? "deepgram" : DEFAULT_CONFIG.ttsBackend,
 		ttsLocalModel:
 			typeof rawVoice.ttsLocalModel === "string" && rawVoice.ttsLocalModel
 				? rawVoice.ttsLocalModel
@@ -327,10 +272,6 @@ function migrateConfig(rawVoice: any, source: VoiceConfigSource, globalVoice?: u
 			typeof rawVoice.ttsLocalVoiceId === "number" && Number.isFinite(rawVoice.ttsLocalVoiceId)
 				? rawVoice.ttsLocalVoiceId
 				: DEFAULT_CONFIG.ttsLocalVoiceId,
-		ttsDeepgramVoiceId:
-			typeof rawVoice.ttsDeepgramVoiceId === "string" && rawVoice.ttsDeepgramVoiceId
-				? rawVoice.ttsDeepgramVoiceId
-				: DEFAULT_CONFIG.ttsDeepgramVoiceId,
 		ttsSpeed:
 			typeof rawVoice.ttsSpeed === "number" && Number.isFinite(rawVoice.ttsSpeed)
 				? Math.max(0.5, Math.min(2.0, rawVoice.ttsSpeed))
@@ -346,10 +287,6 @@ function migrateConfig(rawVoice: any, source: VoiceConfigSource, globalVoice?: u
 				? rawVoice.holdThresholdMs
 				: DEFAULT_CONFIG.holdThresholdMs,
 		ttsLanguage: typeof rawVoice.ttsLanguage === "string" && rawVoice.ttsLanguage ? rawVoice.ttsLanguage : undefined,
-		ttsDeepgramStreaming:
-			typeof rawVoice.ttsDeepgramStreaming === "boolean"
-				? rawVoice.ttsDeepgramStreaming
-				: DEFAULT_CONFIG.ttsDeepgramStreaming,
 		ttsOnboardingShown: typeof rawVoice.ttsOnboardingShown === "boolean" ? rawVoice.ttsOnboardingShown : false,
 		onboarding: normalizeOnboarding(rawVoice.onboarding, fallbackCompleted),
 	};
@@ -424,49 +361,16 @@ export function loadGlobalToggleShortcut(options: ConfigPathOptions = {}): strin
 	return fallback;
 }
 
-/** Check if a URL points to a loopback address (localhost/127.0.0.1/::1). */
-export function isLoopbackEndpoint(endpoint: string): boolean {
-	try {
-		const url = new URL(endpoint);
-		const proto = url.protocol;
-		if (proto !== "http:" && proto !== "https:") return false;
-		const host = url.hostname;
-		return host === "localhost" || host === "127.0.0.1" || host === "::1" || host === "[::1]";
-	} catch {
-		return false;
-	}
-}
-
-export function getSessionStartPersistedConfig({
-	config,
-	envDeepgramApiKey,
-}: {
-	config: VoiceConfig;
-	envDeepgramApiKey?: string;
-}): VoiceConfig {
-	if (!envDeepgramApiKey || config.deepgramApiKey) {
-		return config;
-	}
-
-	return {
-		...config,
-		deepgramApiKey: undefined,
-	};
+/** The config `session_start` persists once a migration marks onboarding complete; nothing is stripped. */
+export function getSessionStartPersistedConfig({ config }: { config: VoiceConfig }): VoiceConfig {
+	return config;
 }
 
 function serializeConfig(config: VoiceConfig, scope: VoiceSettingsScope): VoiceConfig {
 	return {
 		...config,
 		scope,
-		// Never persist API keys into project-scoped config — prevents accidental repo commits
-		deepgramApiKey: scope === "project" ? undefined : config.deepgramApiKey,
-		// Only allow loopback endpoints in project config — prevents mic audio exfiltration
-		localEndpoint:
-			scope === "project" && config.localEndpoint && !isLoopbackEndpoint(config.localEndpoint)
-				? undefined
-				: config.localEndpoint,
-		// D7: API key and endpoint are global-only, and the punctuation notice flag
-		// describes this machine, not this repository.
+		// The punctuation notice flag describes this machine, not this repository.
 		punctuationNoticeShown: scope === "project" ? undefined : config.punctuationNoticeShown,
 		// Shortcut registration is static at extension load time — project-scoped overrides cannot apply
 		toggleShortcut: scope === "project" ? undefined : config.toggleShortcut,

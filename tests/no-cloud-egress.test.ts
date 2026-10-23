@@ -1,8 +1,8 @@
 // tests/no-cloud-egress.test.ts
 //
-// Enforces the local-only product claim (spec §8.3). Each rule group is scoped to the files the
-// task that added it owns, so the file is green after every task; the cross-cutting sweep from
-// spec §8.3 lands in Task 7, once no file can name a retired identifier.
+// Enforces the local-only product claim (spec §8.3). The rules a task added are scoped to the files
+// that task owns; the final group is the cross-cutting sweep, which lands once no file can name a
+// retired identifier.
 import { expect, test } from "bun:test";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
@@ -65,8 +65,8 @@ test("the cloud STT module is gone", () => {
 });
 
 test("voice.ts no longer holds a streaming session", () => {
-	// Scanning the identifier, not the constructor literal: the removed TTS module built its socket
-	// as `new (globalThis as any).WebSocket(...)`, which a literal scan would have missed.
+	// Scanning the identifier, not the constructor literal: a socket can be built as
+	// `new (globalThis as any).WebSocket(...)`, which a literal scan would have missed.
 	expect(
 		matching(/WebSocket|StreamingSession|preRecording|startStreamingRecording|voice\/deepgram/, ["extensions/voice.ts"])
 	).toEqual([]);
@@ -122,4 +122,54 @@ test("the sherpa messages name a platform, never a cloud fallback", () => {
 		matching(/deepgram|cloud backend/i, ["extensions/voice/sherpa-loader.ts", "extensions/voice/local.ts"])
 	).toEqual([]);
 	expect(SOURCES["extensions/voice/sherpa-loader.ts"]).toMatch(/win32[\s\S]{0,80}arm64/);
+});
+
+// ─── Task 7: cross-cutting sweep (spec §8.3) ─────────────────────────────────
+
+/**
+ * The retired names that may appear in exactly one file, and why: Task 8's startup scrub spells
+ * `deepgramApiKey`, `localEndpoint` and `DEEPGRAM_API_KEY` to erase them from settings.json, so it
+ * cannot exist without naming them. `config.backend`, `ttsBackend` and every other retired
+ * identifier get no exemption — a survivor here is a field that was never actually deleted.
+ */
+const EXEMPT_FILE = "extensions/voice/config.ts";
+const EXEMPT_IDENTIFIERS: Record<string, readonly string[]> = {
+	[EXEMPT_FILE]: ["deepgramApiKey", "localEndpoint", "DEEPGRAM_API_KEY"],
+};
+
+const RETIRED_IDENTIFIERS = [
+	"DEEPGRAM_API_KEY",
+	"deepgramApiKey",
+	"ttsDeepgram",
+	"ttsDeepgramVoiceId",
+	"VoiceBackend",
+	"localEndpoint",
+	"DEFAULT_LOCAL_ENDPOINT",
+	"StreamingSession",
+	"transcribeWithServer",
+	"checkLocalServer",
+	"config.backend",
+	"ttsBackend",
+];
+
+test("no module names a retired identifier outside the exempt file", () => {
+	const offenders = Object.entries(SOURCES)
+		.filter(([file, text]) =>
+			RETIRED_IDENTIFIERS.some((needle) => text.includes(needle) && !(EXEMPT_IDENTIFIERS[file] ?? []).includes(needle))
+		)
+		.map(([file]) => file);
+	expect(offenders).toEqual([]);
+});
+
+test("no module names the WebSocket API or a retired vendor host", () => {
+	expect(matching(/WebSocket|api\.deepgram\.com|developers\.deepgram\.com|dpgr\.am/)).toEqual([]);
+});
+
+test("no module mentions the retired vendor by name, in any casing", () => {
+	// The scoped rules kept going blind to prose ("Deepgram — cloud, live streaming"), so this one
+	// covers the whole tree. `config.ts` is exempt because Task 8's scrub message names the vendor.
+	const offenders = Object.entries(SOURCES)
+		.filter(([file, text]) => /deepgram/i.test(text) && file !== EXEMPT_FILE)
+		.map(([file]) => file);
+	expect(offenders).toEqual([]);
 });
