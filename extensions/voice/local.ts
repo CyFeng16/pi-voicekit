@@ -16,7 +16,6 @@
 import type { ChildProcess } from "node:child_process";
 import type { VoiceConfig } from "./config";
 import { isLoopbackEndpoint } from "./config";
-import { SAMPLE_RATE, CHANNELS } from "./deepgram";
 
 // ─── Model catalog ───────────────────────────────────────────────────────────
 
@@ -832,7 +831,6 @@ export interface LocalSessionCallbacks {
 }
 
 export interface LocalSession {
-	backend: "local";
 	recProcess: ChildProcess;
 	audioChunks: Buffer[];
 	closed: boolean;
@@ -845,6 +843,10 @@ export interface LocalSession {
 }
 
 // ─── WAV encoding ────────────────────────────────────────────────────────────
+
+/** Capture format every local model expects: 16 kHz, mono, 16-bit signed LE. */
+export const SAMPLE_RATE = 16000;
+export const CHANNELS = 1;
 
 /** Create a WAV file buffer from raw PCM data (16-bit signed LE, 16kHz, mono). */
 function createWavBuffer(pcmData: Buffer): Buffer {
@@ -975,7 +977,6 @@ export async function transcribeWithServer(wavBuffer: Buffer, config: VoiceConfi
  */
 export function startLocalSession(recProcess: ChildProcess, callbacks: LocalSessionCallbacks): LocalSession {
 	const session: LocalSession = {
-		backend: "local",
 		recProcess,
 		audioChunks: [],
 		closed: false,

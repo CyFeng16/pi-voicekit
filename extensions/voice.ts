@@ -13,12 +13,11 @@
  *               A "keep holding…" hint with countdown is shown. If released before
  *               the threshold, a normal space character is typed (or "hold longer" hint shown).
  *
- *   recording:  SoX captures PCM → Deepgram WebSocket streaming.
- *               Live interim + final transcripts update the widget.
+ *   recording:  SoX captures PCM and buffers it locally.
  *               Release SPACE (or press again in toggle mode) → stop.
  *
- *   finalizing: CloseStream sent to Deepgram. Waiting for final
- *               transcript. Safety timeout auto-completes.
+ *   finalizing: The buffered audio is decoded by the local model and the finished
+ *               transcript is written once. The widget shows the decoding progress.
  *
  *   HOLD-TO-TALK DETECTION
  *   ──────────────────────
@@ -61,7 +60,7 @@
 import type { ExtensionAPI, ExtensionContext, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { isKeyRelease, isKeyRepeat, matchesKey, Key, type KeyId } from "@earendil-works/pi-tui";
 
-import { spawn, spawnSync, type ChildProcess } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -86,7 +85,6 @@ import { makeWidgetRegistry, type WidgetRegistry } from "./voice/ui-widget-base"
 import { makeRenderTicker, type RenderTicker } from "./voice/ui-render-ticker";
 import { TtsInstallProgressWidget } from "./voice/tts-install-progress";
 import { TtsPlaybackIndicator } from "./voice/tts-playback-indicator";
-import { buildDeepgramWsUrl, resolveDeepgramApiKey, SAMPLE_RATE, CHANNELS } from "./voice/deepgram";
 import {
 	startLocalSession,
 	stopLocalSession,
@@ -94,6 +92,8 @@ import {
 	checkLocalServer,
 	LOCAL_MODELS,
 	DEFAULT_LOCAL_ENDPOINT,
+	SAMPLE_RATE,
+	CHANNELS,
 	getLanguagesForLocalModel,
 	isLanguageSupportedByModel,
 	localLanguageDisplayName,
@@ -134,9 +134,7 @@ type VoiceState = "idle" | "warmup" | "recording" | "finalizing";
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
-const KEEPALIVE_INTERVAL_MS = 8000;
 const MAX_RECORDING_SECS = 120;
-const STREAM_FINALIZE_TIMEOUT_MS = 2500;
 
 // Hold-to-talk timing — Apple-style deliberate hold detection
 // The goal: typing normally should NEVER accidentally trigger voice.
@@ -370,373 +368,19 @@ function detectAudioCaptureTool(): AudioCaptureTool | null {
 	return null;
 }
 
-// ─── Deepgram WebSocket Streaming ────────────────────────────────────────────
-
-interface StreamingSession {
-	backend: "deepgram";
-	ws: WebSocket;
-	recProcess: ChildProcess;
-	interimText: string;
-	finalizedParts: string[];
-	keepAliveTimer: ReturnType<typeof setInterval> | null;
-	staleSessionTimer: ReturnType<typeof setTimeout> | null;
-	finalizeTimer: ReturnType<typeof setTimeout> | null;
-	closed: boolean;
-	stopRequested: boolean;
-	hadAudioData: boolean; // Track if we received any audio data
-	hadSpeech: boolean; // Track if Deepgram detected any speech
-	receivedMessage: boolean; // Track if we got ANY message from Deepgram
-	onTranscript: (interim: string, finals: string[]) => void;
-	onDone: (fullText: string, meta: { hadAudio: boolean; hadSpeech: boolean }) => void;
-	onError: (err: string) => void;
-}
-
-/** Union of session types — Deepgram streaming or local batch */
-type VoiceSession = StreamingSession | LocalSession;
-
-function startStreamingSession(
-	config: VoiceConfig,
-	callbacks: {
-		onTranscript: (interim: string, finals: string[]) => void;
-		onDone: (fullText: string, meta: { hadAudio: boolean; hadSpeech: boolean }) => void;
-		onError: (err: string) => void;
-	}
-): StreamingSession | null {
-	const apiKey = resolveDeepgramApiKey(config);
-	voiceDebug("startStreamingSession", { hasApiKey: !!apiKey });
-	if (!apiKey) {
-		voiceDebug("startStreamingSession → no API key, calling onError");
-		callbacks.onError("DEEPGRAM_API_KEY not set");
-		return null;
-	}
-
-	// ── Audio capture: try rec (SoX) → ffmpeg → arecord (Linux ALSA) ──
-	const audioTool = detectAudioCaptureTool();
-	if (!audioTool) {
-		voiceDebug("startStreamingSession → no audio capture tool found");
-		callbacks.onError("No audio capture tool found. Install one of: sox, ffmpeg, or arecord (Linux)");
-		return null;
-	}
-	voiceDebug("Using audio capture tool:", audioTool.name);
-
-	const recProc = spawn(audioTool.cmd, audioTool.args, { stdio: ["pipe", "pipe", "pipe"] });
-
-	recProc.stderr?.on("data", (d: Buffer) => {
-		const msg = d.toString().trim();
-		// Suppress noisy but harmless messages
-		if (msg.includes("buffer overrun") || msg.includes("Discarding") || msg.includes("Last message repeated")) return;
-		voiceDebug(`${audioTool.name} stderr:`, msg);
-	});
-
-	const wsUrl = buildDeepgramWsUrl(config);
-	const ws = new WebSocket(wsUrl, {
-		headers: {
-			Authorization: `Token ${apiKey}`,
-		},
-	} as any);
-
-	// Connection timeout — abort if Deepgram doesn't respond within 10s
-	const wsConnectTimeout = setTimeout(() => {
-		if (ws.readyState !== WebSocket.OPEN) {
-			voiceDebug("WebSocket connection timeout (10s)");
-			try {
-				ws.close();
-			} catch {}
-			try {
-				recProc.kill("SIGTERM");
-			} catch {}
-			callbacks.onError("Deepgram connection timed out (10s). Check your network.");
-		}
-	}, 10_000);
-
-	const session: StreamingSession = {
-		backend: "deepgram",
-		ws,
-		recProcess: recProc,
-		interimText: "",
-		finalizedParts: [],
-		keepAliveTimer: null,
-		staleSessionTimer: null,
-		finalizeTimer: null,
-		closed: false,
-		stopRequested: false,
-		hadAudioData: false,
-		hadSpeech: false,
-		receivedMessage: false,
-		onTranscript: callbacks.onTranscript,
-		onDone: callbacks.onDone,
-		onError: callbacks.onError,
-	};
-
-	// Handle HTTP error responses before WebSocket upgrade (e.g., 400 Bad Request, 401 Unauthorized)
-	// Only available with Node.js `ws` package — skip if using browser-style WebSocket
-	if (typeof (ws as any).on === "function") {
-		(ws as any).on("unexpected-response", (_req: any, res: any) => {
-			let body = "";
-			res.on("data", (d: Buffer) => {
-				body += d.toString();
-			});
-			res.on("end", () => {
-				voiceDebug("WebSocket unexpected-response", { status: res.statusCode, body });
-				if (!session.closed) {
-					failStreamingSession(session, `Deepgram HTTP ${res.statusCode}: ${body.slice(0, 200)}`);
-				}
-			});
-		});
-	}
-
-	ws.onopen = () => {
-		clearTimeout(wsConnectTimeout);
-		voiceDebug("WebSocket onopen → streaming audio");
-		try {
-			ws.send(JSON.stringify({ type: "KeepAlive" }));
-		} catch {}
-
-		session.keepAliveTimer = setInterval(() => {
-			if (ws.readyState === WebSocket.OPEN) {
-				try {
-					ws.send(JSON.stringify({ type: "KeepAlive" }));
-				} catch {}
-			}
-		}, KEEPALIVE_INTERVAL_MS);
-
-		recProc.stdout?.on("data", (chunk: Buffer) => {
-			if (ws.readyState === WebSocket.OPEN) {
-				session.hadAudioData = true;
-				try {
-					ws.send(new Uint8Array(chunk));
-				} catch {}
-				// Feed audio data to level meter for reactive waveform
-				updateAudioLevel(chunk);
-				// Start stale-session watchdog on first audio chunk
-				if (!session.staleSessionTimer && !session.receivedMessage) {
-					session.staleSessionTimer = setTimeout(() => {
-						if (!session.closed && !session.receivedMessage) {
-							voiceDebug("Stale session: no Deepgram response after 15s of audio");
-							failStreamingSession(session, "No response from Deepgram (15s). Check your API key and network.");
-						}
-					}, 15_000);
-				}
-			}
-		});
-	};
-
-	ws.onmessage = (event: MessageEvent) => {
-		// R22: once the session is finalized (finalizeSession / abortSession) the
-		// transport must stop writing the editor — a late Results message would
-		// otherwise overwrite what the user typed while the session was finalizing.
-		if (session.closed) return;
-		try {
-			const msg = typeof event.data === "string" ? JSON.parse(event.data) : null;
-			if (!msg) return;
-
-			// Cancel stale-session watchdog on first response
-			if (!session.receivedMessage) {
-				session.receivedMessage = true;
-				if (session.staleSessionTimer) {
-					clearTimeout(session.staleSessionTimer);
-					session.staleSessionTimer = null;
-				}
-			}
-
-			if (msg.type === "Results") {
-				const alt = msg.channel?.alternatives?.[0];
-				const transcript = alt?.transcript || "";
-
-				if (transcript.trim()) {
-					session.hadSpeech = true;
-				}
-
-				if (msg.is_final) {
-					if (transcript.trim()) {
-						session.finalizedParts.push(transcript.trim());
-					}
-					session.interimText = "";
-				} else {
-					session.interimText = transcript;
-				}
-
-				session.onTranscript(session.interimText, session.finalizedParts);
-			} else if (msg.type === "Error" || msg.type === "error") {
-				failStreamingSession(session, msg.message || msg.description || "Deepgram error");
-			}
-		} catch (err) {
-			voiceDebug("onmessage parse error", { error: String(err) });
-		}
-	};
-
-	ws.onerror = (ev) => {
-		clearTimeout(wsConnectTimeout);
-		const errMsg = (ev as any)?.message || (ev as any)?.error?.message || "unknown";
-		voiceDebug("WebSocket onerror", { readyState: ws.readyState, error: errMsg });
-		if (!session.closed) {
-			failStreamingSession(session, `WebSocket error: ${errMsg}`);
-		}
-	};
-
-	ws.onclose = (ev) => {
-		clearTimeout(wsConnectTimeout);
-		const code = (ev as any)?.code;
-		const reason = (ev as any)?.reason;
-		voiceDebug("WebSocket onclose", { code, reason, closed: session.closed });
-		if (!session.closed) {
-			// Unexpected close — distinguish normal completion from network drops
-			if (session.stopRequested || code === 1000 || code === 1001 || session.finalizedParts.length > 0) {
-				if (session.interimText.trim()) {
-					session.finalizedParts.push(session.interimText.trim());
-					session.interimText = "";
-				}
-				// Normal close or we have usable transcript data — finalize
-				finalizeSession(session);
-			} else {
-				// Abnormal close with no transcript — treat as error
-				failStreamingSession(session, `Connection lost (code ${code ?? "unknown"}${reason ? `: ${reason}` : ""})`);
-			}
-		}
-	};
-
-	recProc.on("error", (err) => {
-		voiceDebug("SoX process error:", err.message);
-		if (!session.closed) {
-			failStreamingSession(session, `SoX error: ${err.message}`);
-		}
-	});
-
-	recProc.on("close", (code, signal) => {
-		voiceDebug("SoX process closed", { code, signal, closed: session.closed, wsState: ws.readyState });
-		// Only send CloseStream if the session isn't already being torn down
-		// (stopStreamingSession sends its own CloseStream before killing SoX)
-		if (!session.closed && !session.stopRequested && ws.readyState === WebSocket.OPEN) {
-			try {
-				ws.send(JSON.stringify({ type: "CloseStream" }));
-			} catch {}
-		}
-	});
-
-	return session;
-}
-
-function stopStreamingSession(session: StreamingSession): void {
-	if (session.closed) return;
-	session.stopRequested = true;
-
-	try {
-		session.recProcess.kill("SIGTERM");
-	} catch {}
-
-	if (session.ws.readyState === WebSocket.OPEN) {
-		try {
-			session.ws.send(JSON.stringify({ type: "CloseStream" }));
-		} catch {}
-	}
-
-	if (!session.finalizeTimer) {
-		session.finalizeTimer = setTimeout(() => {
-			session.finalizeTimer = null;
-			if (session.closed) return;
-			if (session.interimText.trim()) {
-				session.finalizedParts.push(session.interimText.trim());
-				session.interimText = "";
-			}
-			finalizeSession(session);
-		}, STREAM_FINALIZE_TIMEOUT_MS);
-	}
-}
-
-function finalizeSession(session: StreamingSession): void {
-	if (session.closed) return;
-	session.closed = true;
-	voiceDebug("finalizeSession", {
-		hadAudio: session.hadAudioData,
-		hadSpeech: session.hadSpeech,
-		parts: session.finalizedParts.length,
-	});
-
-	if (session.staleSessionTimer) {
-		clearTimeout(session.staleSessionTimer);
-		session.staleSessionTimer = null;
-	}
-	if (session.finalizeTimer) {
-		clearTimeout(session.finalizeTimer);
-		session.finalizeTimer = null;
-	}
-	if (session.keepAliveTimer) {
-		clearInterval(session.keepAliveTimer);
-		session.keepAliveTimer = null;
-	}
-
-	try {
-		session.ws.close();
-	} catch {}
-	try {
-		session.recProcess.kill("SIGKILL");
-	} catch {}
-
-	const fullText = joinTranscriptParts(session.finalizedParts);
-	session.onDone(fullText, {
-		hadAudio: session.hadAudioData,
-		hadSpeech: session.hadSpeech,
-	});
-}
-
-function failStreamingSession(session: StreamingSession, err: string): void {
-	if (session.closed) return;
-	session.closed = true;
-	session.stopRequested = true;
-
-	if (session.staleSessionTimer) {
-		clearTimeout(session.staleSessionTimer);
-		session.staleSessionTimer = null;
-	}
-	if (session.finalizeTimer) {
-		clearTimeout(session.finalizeTimer);
-		session.finalizeTimer = null;
-	}
-	if (session.keepAliveTimer) {
-		clearInterval(session.keepAliveTimer);
-		session.keepAliveTimer = null;
-	}
-
-	try {
-		session.ws.close();
-	} catch {}
-	try {
-		session.recProcess.kill("SIGKILL");
-	} catch {}
-	session.onError(err);
-}
-
 // ─── Abort helper — nuke everything synchronously ────────────────────────────
 
-function abortSession(session: VoiceSession | null): void {
+function abortSession(session: LocalSession | null): void {
 	if (!session || session.closed) return;
-	// Replace callbacks with no-ops BEFORE the backend-specific abort path so any
-	// in-flight async work (sherpa transcription, late ws messages, recProcess close)
-	// that resolves after abort cannot reach the recording state machine — including
-	// across session replacement, where the surviving callbacks would otherwise
-	// write into the new session's editor / fire notifications on the new ctx.
+	// Replace callbacks with no-ops BEFORE aborting so any in-flight async work
+	// (sherpa transcription, recProcess close) that resolves after abort cannot reach the
+	// recording state machine — including across session replacement, where the surviving
+	// callbacks would otherwise write into the new session's editor / fire notifications
+	// on the new ctx.
 	session.onTranscript = () => {};
 	session.onDone = () => {};
 	session.onError = () => {};
-	if (session.backend === "local") {
-		abortLocalSession(session);
-		return;
-	}
-	session.closed = true;
-	if (session.staleSessionTimer) {
-		clearTimeout(session.staleSessionTimer);
-		session.staleSessionTimer = null;
-	}
-	if (session.keepAliveTimer) {
-		clearInterval(session.keepAliveTimer);
-		session.keepAliveTimer = null;
-	}
-	try {
-		session.ws.close();
-	} catch {}
-	try {
-		session.recProcess.kill("SIGKILL");
-	} catch {}
+	abortLocalSession(session);
 }
 
 // ─── Extension ───────────────────────────────────────────────────────────────
@@ -785,8 +429,8 @@ export default function (pi: ExtensionAPI) {
 		.map((p) => (p.length <= 1 ? p.toUpperCase() : p[0]!.toUpperCase() + p.slice(1)))
 		.join("+");
 
-	// Streaming session state
-	let activeSession: VoiceSession | null = null;
+	// Active recording session
+	let activeSession: LocalSession | null = null;
 
 	// ─── Offline punctuation (spec §4.3–§4.6) ────────────────────────────────
 	// One synchronous, marks-only step between the final transcript and the editor write. The
@@ -1073,8 +717,6 @@ export default function (pi: ExtensionAPI) {
 		}
 	}
 
-	let preRecordingSession: StreamingSession | null = null; // Started during warmup, promoted on confirm (Deepgram only)
-
 	let lastStopTime = 0; // For Escape-to-clear-editor within 30s of recording
 	let lastEscapeTime = 0; // For double-escape to clear editor
 	let recordingStartedAt = 0; // When recording actually started (for grace period)
@@ -1231,7 +873,6 @@ export default function (pi: ExtensionAPI) {
 		holdConfirmed = false;
 		clearHoldTimer();
 		clearReleaseTimer();
-		abortPreRecording();
 		if (opts?.cooldown) errorCooldownUntil = Date.now() + opts.cooldown;
 	}
 
@@ -1309,20 +950,11 @@ export default function (pi: ExtensionAPI) {
 		summaryLines: string[],
 		source: "first-run" | "setup-command"
 	) {
-		const isLocal = nextConfig.backend === "local";
-		const hasKey = !!resolveDeepgramApiKey(nextConfig);
-		// Local backend is always valid (sherpa handles everything). Deepgram needs API key.
-		const validated = isLocal || hasKey;
-		config = finalizeOnboardingConfig(nextConfig, { validated, source });
+		// One capture path, so a saved setup is always usable: there is no key to check.
+		config = finalizeOnboardingConfig(nextConfig, { validated: true, source });
 		configSource = selectedScope;
 		const savedPath = saveConfig(config, selectedScope, currentCwd, { loadedSource: configSource });
-		const statusHeader = validated
-			? "Voice setup complete."
-			: "Voice setup saved, but DEEPGRAM_API_KEY is still required.";
-		uiCtx.ui.notify(
-			[statusHeader, ...summaryLines, "", `Saved to ${savedPath}`].join("\n"),
-			validated ? "info" : "warning"
-		);
+		uiCtx.ui.notify(["Voice setup complete.", ...summaryLines, "", `Saved to ${savedPath}`].join("\n"), "info");
 	}
 
 	// ─── Warmup Widget ──────────────────────────────────────────────────────
@@ -1589,57 +1221,14 @@ export default function (pi: ExtensionAPI) {
 			// Snapshot editor text before voice overwrites it with live transcript
 			editorTextBeforeVoice = ctx?.hasUI ? ctx.ui.getEditorText() || "" : "";
 
-			return startStreamingRecording();
+			return startRecording();
 		} finally {
 			_startingRecording = false;
 		}
 	}
 
-	// ── Pre-recording: start capturing audio during warmup so we don't miss words ──
-	function startPreRecording() {
-		abortActiveSpeak();
-		if (preRecordingSession) return; // Already started
-		if (config.backend === "local") return; // No pre-recording for local batch mode
-		if (!resolveDeepgramApiKey(config)) return; // No key — skip silently
-		if (!detectAudioCaptureTool()) return; // No audio tool — skip silently
-
-		voiceDebug("startPreRecording → capturing audio during warmup");
-
-		const session = startStreamingSession(config, {
-			onTranscript: (interim, finals) => {
-				// During warmup, silently accumulate transcript
-				// (don't update UI — user hasn't committed to voice yet)
-				voiceDebug("preRecording transcript", { interim: interim.slice(0, 50), finals: finals.length });
-			},
-			onDone: (fullText, meta) => {
-				// Pre-recording ended (user released during warmup) — discard
-				voiceDebug("preRecording onDone (discarded)", { fullText: fullText.slice(0, 50) });
-				if (preRecordingSession === session) preRecordingSession = null;
-			},
-			onError: (err: string) => {
-				voiceDebug("preRecording onError (ignored)", { err });
-				if (preRecordingSession === session) preRecordingSession = null;
-			},
-		});
-
-		if (session) {
-			preRecordingSession = session;
-		}
-	}
-
-	function abortPreRecording() {
-		if (preRecordingSession) {
-			voiceDebug("abortPreRecording → discarding warmup audio");
-			abortSession(preRecordingSession);
-			preRecordingSession = null;
-		}
-	}
-
-	async function startStreamingRecording(): Promise<boolean> {
-		voiceDebug("startStreamingRecording called", {
-			hasKey: !!resolveDeepgramApiKey(config),
-			hasPreRecording: !!preRecordingSession,
-		});
+	async function startRecording(): Promise<boolean> {
+		voiceDebug("startRecording called");
 		setVoiceState("recording");
 
 		// ── Callbacks for the active recording session ──
@@ -1693,7 +1282,6 @@ export default function (pi: ExtensionAPI) {
 
 				if (ctx?.hasUI) {
 					const prefix = editorTextBeforeVoice ? editorTextBeforeVoice + " " : "";
-					const isLocal = config.backend === "local";
 					// Offline punctuation (spec §4.3–§4.6): one synchronous, marks-only step over the
 					// transcript that is about to be written. It decides from the text alone, never waits
 					// for a download or a load, and leaves the text unchanged when the punctuation step
@@ -1707,18 +1295,9 @@ export default function (pi: ExtensionAPI) {
 					// R24: the editor read/write is a UI call — a throw must leave
 					// `editorWriteFailed` true and still reach the history record and the tail.
 					try {
-						if (isLocal) {
-							// Local backend (batch mode): no interim transcripts were sent to the editor,
-							// so we must always insert the final text. This is the ONLY place it arrives.
-							ctx.ui.setEditorText(finalText);
-						} else {
-							// Streaming backend: interim transcripts already updated the editor live.
-							// Only set final text if the editor still has content (user didn't hit Enter).
-							const currentEditorText = ctx.ui.getEditorText?.() ?? "";
-							if (currentEditorText.trim()) {
-								ctx.ui.setEditorText(finalText);
-							}
-						}
+						// No interim transcript was ever sent to the editor, so the finished text is the
+						// only write — this is the ONLY place the transcript arrives.
+						ctx.ui.setEditorText(finalText);
 					} catch (err) {
 						editorWriteFailed = true;
 						voiceDebug("editor write threw — continuing the completion", { error: String(err) });
@@ -1849,53 +1428,27 @@ export default function (pi: ExtensionAPI) {
 			},
 		};
 
-		// ── Promote pre-recording, start local, or start streaming ──
-		let session: VoiceSession | null;
-
-		if (config.backend === "local") {
-			// Local backend: buffer audio, transcribe on stop
-			const audioTool = detectAudioCaptureTool();
-			if (!audioTool) {
-				recordingCallbacks.onError("No audio capture tool found. Install one of: sox, ffmpeg, or arecord (Linux)");
-				resetHoldState();
-				setVoiceState("idle");
-				return false;
-			}
-			const recProc = spawn(audioTool.cmd, audioTool.args, { stdio: ["pipe", "pipe", "pipe"] });
-			recProc.stderr?.on("data", (d: Buffer) => {
-				const msg = d.toString().trim();
-				if (msg.includes("buffer overrun") || msg.includes("Discarding") || msg.includes("Last message repeated"))
-					return;
-				voiceDebug(`${audioTool.name} stderr:`, msg);
-			});
-			session = startLocalSession(recProc, recordingCallbacks);
-
-			// Feed audio level meter for waveform animation
-			recProc.stdout?.on("data", (chunk: Buffer) => {
-				updateAudioLevel(chunk);
-			});
-		} else if (preRecordingSession) {
-			// Promote: swap callbacks so pre-recorded audio feeds into real UI
-			voiceDebug("Promoting pre-recording session to active");
-			session = preRecordingSession;
-			preRecordingSession = null;
-			session.onTranscript = recordingCallbacks.onTranscript;
-			session.onDone = recordingCallbacks.onDone;
-			session.onError = recordingCallbacks.onError;
-			// Flush any transcript already accumulated during warmup
-			if (session.finalizedParts.length > 0 || session.interimText) {
-				updateLiveTranscriptWidget(session.interimText, session.finalizedParts);
-			}
-		} else {
-			session = startStreamingSession(config, recordingCallbacks);
-		}
-
-		if (!session) {
-			// startStreamingSession returned null — reset ALL state
+		// ── Start the local capture session ──
+		const audioTool = detectAudioCaptureTool();
+		if (!audioTool) {
+			recordingCallbacks.onError("No audio capture tool found. Install one of: sox, ffmpeg, or arecord (Linux)");
 			resetHoldState();
 			setVoiceState("idle");
 			return false;
 		}
+		const recProc = spawn(audioTool.cmd, audioTool.args, { stdio: ["pipe", "pipe", "pipe"] });
+		recProc.stderr?.on("data", (d: Buffer) => {
+			const msg = d.toString().trim();
+			if (msg.includes("buffer overrun") || msg.includes("Discarding") || msg.includes("Last message repeated")) return;
+			voiceDebug(`${audioTool.name} stderr:`, msg);
+		});
+		// Audio is buffered locally; transcription runs on stop.
+		const session = startLocalSession(recProc, recordingCallbacks);
+
+		// Feed audio level meter for waveform animation
+		recProc.stdout?.on("data", (chunk: Buffer) => {
+			updateAudioLevel(chunk);
+		});
 
 		activeSession = session;
 
@@ -1961,17 +1514,13 @@ export default function (pi: ExtensionAPI) {
 			setVoiceState("finalizing");
 			clearRecordingAnimTimer();
 			hideWidget();
-			if (activeSession.backend === "local") {
-				// Local: show which model is transcribing + estimated time
-				const modelName =
-					LOCAL_MODELS.find((m) => m.id === (config.localModel || "whisper-small"))?.name ||
-					config.localModel ||
-					"local model";
-				ctx?.ui.notify(`Transcribing with ${modelName}…`, "info");
-				await stopLocalSession(activeSession, config);
-			} else {
-				stopStreamingSession(activeSession);
-			}
+			// Show which model is transcribing + estimated time
+			const modelName =
+				LOCAL_MODELS.find((m) => m.id === (config.localModel || "whisper-small"))?.name ||
+				config.localModel ||
+				"local model";
+			ctx?.ui.notify(`Transcribing with ${modelName}…`, "info");
+			await stopLocalSession(activeSession, config);
 		} else {
 			// No active session — shouldn't happen, but recover gracefully
 			voiceDebug("stopVoiceRecording: no active session, resetting to idle");
@@ -2033,7 +1582,6 @@ export default function (pi: ExtensionAPI) {
 		// Released during warmup — cancel (user held but not long enough)
 		if (voiceState === "warmup") {
 			resetHoldState();
-			abortPreRecording();
 			clearWarmupWidget();
 			hideWidget();
 			setVoiceState("idle");
@@ -2173,7 +1721,6 @@ export default function (pi: ExtensionAPI) {
 					if (voiceState === "warmup") {
 						const holdDuration = spaceDownTime ? Date.now() - spaceDownTime : 0;
 						resetHoldState();
-						abortPreRecording();
 						clearWarmupWidget();
 						hideWidget();
 						setVoiceState("idle");
@@ -2246,7 +1793,6 @@ export default function (pi: ExtensionAPI) {
 							holdConfirmed = true;
 							setVoiceState("warmup");
 							showWarmupWidget();
-							startPreRecording();
 
 							const alreadyElapsed = now - (spaceDownTime || now);
 							const remaining = Math.max(0, getHoldThresholdMs() - alreadyElapsed);
@@ -2260,7 +1806,7 @@ export default function (pi: ExtensionAPI) {
 									recordingStartedAt = Date.now();
 									// Clear release timer during async recording startup to
 									// prevent a false stop. The 250ms gap timer is re-armed
-									// once recording is actually ready — see startStreamingRecording (#13).
+									// once recording is actually ready — see startRecording (#13).
 									clearReleaseTimer();
 									voiceDebug("holdActivationTimer fired → starting recording (Kitty repeat path)");
 									startVoiceRecording()
@@ -2367,7 +1913,6 @@ export default function (pi: ExtensionAPI) {
 
 						setVoiceState("warmup");
 						showWarmupWidget();
-						startPreRecording();
 
 						holdActivationTimer = setTimeout(() => {
 							holdActivationTimer = null;
@@ -2420,7 +1965,6 @@ export default function (pi: ExtensionAPI) {
 							holdConfirmed = true;
 							setVoiceState("warmup");
 							showWarmupWidget();
-							startPreRecording();
 
 							const alreadyElapsed = now - spaceDownTime;
 							const remaining = Math.max(0, getHoldThresholdMs() - alreadyElapsed);
@@ -2469,7 +2013,6 @@ export default function (pi: ExtensionAPI) {
 						// Gap too large → previous hold abandoned, new tap
 						const wasInWarmup = (voiceState as VoiceState) === "warmup";
 						resetHoldState();
-						abortPreRecording();
 						clearWarmupWidget();
 						hideWidget();
 						if (wasInWarmup) setVoiceState("idle");
@@ -2524,7 +2067,6 @@ export default function (pi: ExtensionAPI) {
 				// During recording: cancel recording and clear transcript
 				if (voiceState === "recording" || voiceState === "warmup" || voiceState === "finalizing") {
 					voiceDebug("Escape pressed → canceling voice");
-					abortPreRecording();
 					if (activeSession) {
 						abortSession(activeSession);
 						activeSession = null;
@@ -2605,7 +2147,6 @@ export default function (pi: ExtensionAPI) {
 				await stopVoiceRecording();
 			} else if (voiceState === "warmup") {
 				// Cancel warmup
-				abortPreRecording();
 				clearWarmupWidget();
 				hideWidget();
 				resetHoldState();
@@ -2685,7 +2226,9 @@ export default function (pi: ExtensionAPI) {
 		if (!startCtx.hasUI) return;
 
 		// Try migration if a backend is already configured.
-		const hasKey = !!resolveDeepgramApiKey(config);
+		// The cloud key resolver is gone, so no key can exist any more. `hasKey` stays false until
+		// Task 6 drops it from the activation predicate along with the rest of the cloud copy.
+		const hasKey = false;
 		const hasLocalModel = config.backend === "local" && !!config.localModel;
 		const audioTool = detectAudioCaptureTool();
 		if (hasKey || hasLocalModel) {
@@ -3059,7 +2602,6 @@ export default function (pi: ExtensionAPI) {
 					await stopVoiceRecording();
 					cmdCtx.ui.notify("Recording stopped and transcribed.", "info");
 				} else if (voiceState === "warmup") {
-					abortPreRecording();
 					clearWarmupWidget();
 					hideWidget();
 					resetHoldState();
@@ -3127,7 +2669,6 @@ export default function (pi: ExtensionAPI) {
 			if (sub === "test") {
 				cmdCtx.ui.notify("Testing voice setup…", "info");
 				const isLocal = config.backend === "local";
-				const dgKey = resolveDeepgramApiKey(config);
 				const tool = detectAudioCaptureTool();
 
 				const lines = [
@@ -3146,8 +2687,6 @@ export default function (pi: ExtensionAPI) {
 				if (isLocal) {
 					lines.push(`    local model:       ${config.localModel || "whisper-small"}`);
 					lines.push(`    local endpoint:    ${config.localEndpoint || DEFAULT_LOCAL_ENDPOINT}`);
-				} else {
-					lines.push(`    DEEPGRAM_API_KEY:  ${dgKey ? "set (" + dgKey.slice(0, 8) + "…)" : "NOT SET"}`);
 				}
 				lines.push("");
 				lines.push("  Config:");
@@ -3241,30 +2780,11 @@ export default function (pi: ExtensionAPI) {
 					} catch (e: any) {
 						lines.push(`    sherpa-onnx:       NOT AVAILABLE — ${e?.message || e}`);
 					}
-				} else if (dgKey) {
-					// Deepgram API key validation
-					try {
-						const res = await fetch("https://api.deepgram.com/v1/projects", {
-							method: "GET",
-							headers: { Authorization: `Token ${dgKey}` },
-							signal: AbortSignal.timeout(5000),
-						});
-						if (res.ok) {
-							lines.push("    Deepgram API:      OK (key validated)");
-						} else if (res.status === 401 || res.status === 403) {
-							lines.push("    Deepgram API:      INVALID KEY — check your API key");
-						} else {
-							lines.push(`    Deepgram API:      ERROR (HTTP ${res.status})`);
-						}
-					} catch (err) {
-						const msg = err instanceof Error ? err.message : String(err);
-						lines.push(`    Deepgram API:      UNREACHABLE — ${msg}`);
-					}
 				}
 
 				// Summary
 				lines.push("");
-				let ready: boolean;
+				let ready = false;
 				if (isLocal && config.localEndpoint) {
 					const serverOk = (await checkLocalServer(config.localEndpoint)).ok;
 					ready = !!tool && serverOk;
@@ -3289,24 +2809,6 @@ export default function (pi: ExtensionAPI) {
 						lines.push("    apt install sox        # Linux");
 					} else {
 						lines.push("  All checks passed — voice is ready (in-process sherpa-onnx)!");
-						lines.push(`  Hold SPACE to record, or use ${toggleShortcutLabel} to toggle.`);
-					}
-				} else {
-					ready = !!dgKey && !!tool;
-					if (!dgKey) {
-						lines.push("  Setup needed:");
-						lines.push("    1. Get a free key → https://dpgr.am/pi-voice ($200 free credit)");
-						lines.push('    2. export DEEPGRAM_API_KEY="your-key" (add to ~/.zshrc)');
-						lines.push("    3. Or run /voice-settings to configure");
-					} else if (!tool) {
-						lines.push("  Setup needed — install any one of:");
-						lines.push("    brew install sox       # macOS (recommended)");
-						lines.push("    brew install ffmpeg    # macOS (alternative)");
-						lines.push("    apt install sox        # Linux");
-						lines.push("    apt install ffmpeg     # Linux (alternative)");
-						lines.push("    choco install sox      # Windows");
-					} else {
-						lines.push("  All checks passed — voice is ready!");
 						lines.push(`  Hold SPACE to record, or use ${toggleShortcutLabel} to toggle.`);
 					}
 				}
@@ -3382,7 +2884,6 @@ export default function (pi: ExtensionAPI) {
 		const { VoiceSettingsPanel } = await import("./voice/settings-panel");
 		type PanelAction = import("./voice/settings-panel").PanelAction;
 		const { LANGUAGES } = await import("./voice/onboarding");
-		const { resolveDeepgramApiKey } = await import("./voice/deepgram");
 
 		const device = detectDevice();
 		// Construct the panel inside the custom() callback so the host theme
@@ -3404,7 +2905,8 @@ export default function (pi: ExtensionAPI) {
 					clearRecognizerCache();
 				} catch {}
 			},
-			resolveApiKey: () => resolveDeepgramApiKey(config) ?? undefined,
+			// The panel's API Key row still consumes this until the row goes with the cloud backend.
+			resolveApiKey: () => undefined, // removed in Task 4
 			deepgramLanguages: LANGUAGES.map((l) => ({ name: l.name, code: l.code, popular: l.popular })),
 		};
 

@@ -59,3 +59,15 @@ test("the settings panel names no Deepgram Aura voice", () => {
 test("voice.ts registers no cloud TTS command or import", () => {
 	expect(matching(/tts-deepgram|registerCommand\("voice-stream"/, ["extensions/voice.ts"])).toEqual([]);
 });
+
+test("the cloud STT module is gone", () => {
+	expect(Object.keys(SOURCES).filter((file) => /voice\/deepgram\.ts$/.test(file))).toEqual([]);
+});
+
+test("voice.ts no longer holds a streaming session", () => {
+	// Scanning the identifier, not the constructor literal: the removed TTS module built its socket
+	// as `new (globalThis as any).WebSocket(...)`, which a literal scan would have missed.
+	expect(
+		matching(/WebSocket|StreamingSession|preRecording|startStreamingRecording|voice\/deepgram/, ["extensions/voice.ts"])
+	).toEqual([]);
+});
