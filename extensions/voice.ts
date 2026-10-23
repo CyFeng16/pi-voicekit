@@ -698,7 +698,7 @@ export default function (pi: ExtensionAPI) {
 		try {
 			sessionCtx.ui.notify(
 				[
-					"Voice polish has been removed — a dictated transcript is no longer sent to an LLM: no cloud call, no charge.",
+					"Voice polish has been removed — a dictated transcript is no longer sent to an LLM: no API call, no charge.",
 					"Chinese transcripts that come back unpunctuated are now punctuated offline instead.",
 					"/voice-punctuation status shows whether it ran and why.",
 				].join("\n"),
@@ -781,7 +781,7 @@ export default function (pi: ExtensionAPI) {
 					ctx.ui.setStatus("voice", undefined);
 					break;
 				}
-				const modeTag = !config.onboarding.completed ? "SETUP" : config.backend === "local" ? "LOCAL" : "STREAM";
+				const modeTag = config.onboarding.completed && config.localModel ? "LOCAL" : "SETUP";
 				ctx.ui.setStatus("voice", `MIC ${modeTag}`);
 				break;
 			}
@@ -798,12 +798,7 @@ export default function (pi: ExtensionAPI) {
 				break;
 			}
 			case "finalizing":
-				if (config.backend === "local") {
-					ctx.ui.setStatus("voice", "STT...");
-				} else {
-					// Don't show "STT..." — live transcript handles it
-					ctx.ui.setStatus("voice", "");
-				}
+				ctx.ui.setStatus("voice", "STT...");
 				break;
 		}
 	}
@@ -1609,7 +1604,7 @@ export default function (pi: ExtensionAPI) {
 		clearReleaseTimer();
 		if (voiceState === "warmup" || voiceState === "recording" || spaceDownTime || spaceConsumed || holdConfirmed) {
 			// Use longer timeout during active recording — key repeats can be
-			// irregular when the system is under load (Deepgram streaming, etc.)
+			// irregular when the system is under load (audio capture, etc.)
 			const timeout = voiceState === "recording" || spaceConsumed ? RELEASE_DETECT_RECORDING_MS : RELEASE_DETECT_MS;
 			voiceDebug("resetReleaseDetect", { timeout, voiceState, spaceConsumed });
 			releaseGapTimer = new GapTimer(realTimerPort, { ms: timeout, onFire: onSpaceReleaseDetected });
@@ -2206,6 +2201,25 @@ export default function (pi: ExtensionAPI) {
 			// "MIC STREAM" text from a prior session. Hold-to-talk wiring
 			// only runs when enabled.
 			updateVoiceStatus();
+			// "Completed" is not "configured": the API-key backend is gone, so a config that finished
+			// onboarding without a local model has no working path. Send its owner to the settings
+			// panel instead of wiring hold-to-talk onto an implicit default model.
+			if (!config.localModel) {
+				if (isStartup && startCtx.hasUI) {
+					startCtx.ui.notify(
+						[
+							"pi-voicekit needs a local model before it can dictate.",
+							"",
+							"  The API-key speech backend was removed in 0.6.0 — the key in your settings is not used.",
+							"  Your settings are intact; choose a local model to start dictating.",
+							"",
+							"  Run /voice-setup to open the settings panel and choose a model.",
+						].join("\n"),
+						"warning"
+					);
+				}
+				return;
+			}
 			if (config.enabled) {
 				setupHoldToTalk();
 			}
@@ -2217,58 +2231,50 @@ export default function (pi: ExtensionAPI) {
 		// notifications anyway, and migration wiring (setupHoldToTalk) requires UI.
 		if (!startCtx.hasUI) return;
 
-		// Try migration if a backend is already configured.
-		// The cloud key resolver is gone, so no key can exist any more. `hasKey` stays false until
-		// Task 6 drops it from the activation predicate along with the rest of the cloud copy.
-		const hasKey = false;
-		const hasLocalModel = config.backend === "local" && !!config.localModel;
+		// Try migration if a local model is already configured. The activation predicate keys on the
+		// model alone: the settings panel writes `localModel` and no longer writes any backend field,
+		// so requiring one here would save a working config that never activates.
+		const hasLocalModel = !!config.localModel;
 		const audioTool = detectAudioCaptureTool();
-		if (hasKey || hasLocalModel) {
-			// Backend configured (Deepgram key or local model) — auto-activate.
-			// Migration runs every transition; the welcome notification is gated
-			// on isStartup so /new and /resume don't re-spam the hint.
+		if (hasLocalModel) {
+			// Local model configured — auto-activate. Migration runs every transition; the welcome
+			// notification is gated on isStartup so /new and /resume don't re-spam the hint.
 			config.onboarding.completed = true;
 			config.onboarding.completedAt = new Date().toISOString();
 			config.onboarding.source = "migration";
-			const configToSave = getSessionStartPersistedConfig({
-				config,
-				envDeepgramApiKey: process.env.DEEPGRAM_API_KEY,
-			});
+			const configToSave = getSessionStartPersistedConfig({ config });
 			saveConfig(configToSave, config.scope === "project" ? "project" : "global", currentCwd, {
 				loadedSource: configSource,
 			});
 			updateVoiceStatus();
 			setupHoldToTalk();
 			if (!isStartup) return;
-			const backendLabel = hasLocalModel
-				? `Local model: ${LOCAL_MODELS.find((m) => m.id === config.localModel)?.name || config.localModel} (offline, batch mode)`
-				: "Deepgram Nova-3 (cloud, live streaming)";
+			const modelLabel = LOCAL_MODELS.find((m) => m.id === config.localModel)?.name || config.localModel;
 			const lines = [
 				"pi-voicekit ready!",
 				"",
 				"  Hold SPACE to record → release to transcribe",
 				`  ${toggleShortcutLabel} to toggle recording`,
-				`  Backend: ${backendLabel}`,
+				`  Local model: ${modelLabel} (offline, batch mode)`,
 				`  Audio: ${audioTool ? `${audioTool.name}` : "NONE — install sox or ffmpeg"}`,
 				"",
-				"  /voice-settings to change backend, model, or language",
+				"  /voice-settings to change model or language",
 			];
 			startCtx.ui.notify(lines.join("\n"), audioTool ? "info" : "warning");
 			return;
 		}
 
-		// No backend configured — show install hint only on actual startup.
+		// No local model yet — show the single-path install hint only on actual startup.
 		if (!isStartup) return;
 		const lines = [
 			"pi-voicekit installed — voice input for Pi",
 			"",
-			"  Two backends available:",
-			"  • Deepgram — cloud, live streaming, $200 free credit (6–12 months of use)",
-			"  • Local models — fully offline, no API key, auto-downloads on first use",
+			"  One path, fully offline:",
+			"  • Local models — no API key, auto-downloads on first use",
 			"",
 			`  Audio capture: ${audioTool ? `${audioTool.name} ✓` : "not found — install sox or ffmpeg"}`,
 			"",
-			"  Run /voice-settings to choose your backend and get started.",
+			"  Run /voice-setup to open the settings panel and choose a model.",
 		];
 		startCtx.ui.notify(lines.join("\n"), "info");
 	});
@@ -2551,13 +2557,13 @@ export default function (pi: ExtensionAPI) {
 				config.enabled = true;
 				updateVoiceStatus();
 				setupHoldToTalk();
-				const backendInfo =
-					config.backend === "local"
-						? `Voice enabled (local model: ${config.localModel || "whisper-small"}).`
-						: "Voice enabled (Deepgram streaming).";
+				const modelName = LOCAL_MODELS.find((m) => m.id === config.localModel)?.name || config.localModel;
+				const enabledInfo = modelName
+					? `Voice enabled (local model: ${modelName}).`
+					: "Voice enabled — no local model selected yet. Run /voice-setup to choose one.";
 				cmdCtx.ui.notify(
 					[
-						backendInfo,
+						enabledInfo,
 						"",
 						"  Hold SPACE → release to transcribe",
 						`  ${toggleShortcutLabel} → toggle recording on/off`,
@@ -2660,13 +2666,12 @@ export default function (pi: ExtensionAPI) {
 
 			if (sub === "test") {
 				cmdCtx.ui.notify("Testing voice setup…", "info");
-				const isLocal = config.backend === "local";
 				const tool = detectAudioCaptureTool();
 
 				const lines = [
 					"Voice diagnostics:",
 					"",
-					`  Backend: ${isLocal ? "local" : "deepgram"}`,
+					"  Engine: local, offline (batch mode)",
 					"",
 					"  Audio capture:",
 					`    tool:              ${tool ? `${tool.name} (${tool.cmd})` : "NONE FOUND"}`,
@@ -2676,9 +2681,7 @@ export default function (pi: ExtensionAPI) {
 					lines.push("    install one:       brew install sox (or ffmpeg)");
 				}
 
-				if (isLocal) {
-					lines.push(`    local model:       ${config.localModel || "whisper-small"}`);
-				}
+				lines.push(`    local model:       ${config.localModel || "none selected — run /voice-setup"}`);
 				lines.push("");
 				lines.push("  Config:");
 				lines.push(`    language:          ${config.language}`);
@@ -2749,36 +2752,31 @@ export default function (pi: ExtensionAPI) {
 					lines.push("    mic capture:       skipped (no audio tool)");
 				}
 
-				if (isLocal) {
-					// In-process sherpa-onnx mode — check module availability
-					try {
-						const { initSherpa, isSherpaAvailable } = await import("./voice/sherpa-engine");
-						if (!isSherpaAvailable()) await initSherpa();
-						const { isSherpaAvailable: checkAgain, getSherpaError } = await import("./voice/sherpa-engine");
-						if (checkAgain()) {
-							lines.push("    sherpa-onnx:       OK (in-process mode)");
-						} else {
-							lines.push(`    sherpa-onnx:       NOT AVAILABLE — ${getSherpaError() || "unknown"}`);
-						}
-					} catch (e: any) {
-						lines.push(`    sherpa-onnx:       NOT AVAILABLE — ${e?.message || e}`);
+				// In-process sherpa-onnx mode — check module availability
+				try {
+					const { initSherpa, isSherpaAvailable } = await import("./voice/sherpa-engine");
+					if (!isSherpaAvailable()) await initSherpa();
+					const { isSherpaAvailable: checkAgain, getSherpaError } = await import("./voice/sherpa-engine");
+					if (checkAgain()) {
+						lines.push("    sherpa-onnx:       OK (in-process mode)");
+					} else {
+						lines.push(`    sherpa-onnx:       NOT AVAILABLE — ${getSherpaError() || "unknown"}`);
 					}
+				} catch (e: any) {
+					lines.push(`    sherpa-onnx:       NOT AVAILABLE — ${e?.message || e}`);
 				}
 
 				// Summary
 				lines.push("");
-				let ready = false;
-				if (isLocal) {
-					// In-process sherpa-onnx mode — no server needed
-					ready = !!tool;
-					if (!tool) {
-						lines.push("  Setup needed — install any one of:");
-						lines.push("    brew install sox       # macOS (recommended)");
-						lines.push("    apt install sox        # Linux");
-					} else {
-						lines.push("  All checks passed — voice is ready (in-process sherpa-onnx)!");
-						lines.push(`  Hold SPACE to record, or use ${toggleShortcutLabel} to toggle.`);
-					}
+				// In-process sherpa-onnx mode — no server needed
+				const ready = !!tool;
+				if (!tool) {
+					lines.push("  Setup needed — install any one of:");
+					lines.push("    brew install sox       # macOS (recommended)");
+					lines.push("    apt install sox        # Linux");
+				} else {
+					lines.push("  All checks passed — voice is ready (in-process sherpa-onnx)!");
+					lines.push(`  Hold SPACE to record, or use ${toggleShortcutLabel} to toggle.`);
 				}
 
 				cmdCtx.ui.notify(lines.join("\n"), ready ? "info" : "warning");
@@ -2944,8 +2942,8 @@ export default function (pi: ExtensionAPI) {
 								"",
 								"To fix:",
 								"  1. Ensure sherpa-onnx-node is installed: bun add sherpa-onnx-node",
-								"  2. Check platform compatibility (macOS/Linux x64/arm64)",
-								"  3. Or switch to Deepgram (cloud) backend in /voice-settings",
+								"  2. Check platform compatibility (see the error above: 64-bit macOS/Linux/Windows x64)",
+								"  3. Then retry the download from /voice-models",
 							].join("\n"),
 							"error"
 						);
@@ -3445,7 +3443,7 @@ export default function (pi: ExtensionAPI) {
 				model = undefined;
 			}
 			const installed = isTtsModelInstalled(modelId);
-			lines.push("  Local backend:");
+			lines.push("  Local TTS:");
 			lines.push(`    Model:      ${modelId}${model ? ` (${model.name}, ${model.size})` : " — unknown id"}`);
 			lines.push(`    Installed:  ${installed ? "yes" : "NO — first speak will download"}`);
 			if (model) {
@@ -3474,7 +3472,7 @@ export default function (pi: ExtensionAPI) {
 	// ─── /voice-settings — unified pi-voicekit settings panel ─────────────
 
 	pi.registerCommand("voice-settings", {
-		description: "Open pi-voicekit settings — backend, models, language, device",
+		description: "Open pi-voicekit settings — models, language, device",
 		handler: async (_args, cmdCtx) => openSettingsPanel(cmdCtx),
 	});
 

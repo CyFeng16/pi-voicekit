@@ -3,6 +3,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import voiceExtension, { safeErrorText } from "../extensions/voice";
+import { resetPunctuationForTest } from "../extensions/voice/punctuation";
 import {
 	DEFAULT_CONFIG,
 	getSessionStartPersistedConfig,
@@ -1023,5 +1024,114 @@ describe("settings writes refuse to destroy a configuration they could not read"
 		);
 		expect(() => saveGlobalVoiceFields({ punctuationEnabled: false }, { agentDir })).toThrow(/unread|refus/i);
 		expect(fs.readFileSync(settingsPath, "utf8")).toBe("{ this is not json");
+	});
+});
+
+describe("session_start activation (the local model is the only path)", () => {
+	// There is no session harness: `voice.ts` registers its lifecycle handlers when its default
+	// export runs, so these tests drive the captured `session_start` handler. Two things make the
+	// run hermetic — `os.homedir` points at a temp dir (the handler reads AND rewrites
+	// `<home>/.pi/agent/settings.json` on migration), and the punctuation prepare's scheduler is
+	// replaced with a no-op so a cold config can never start the ~285 MB model download mid-test.
+	interface SessionHarness {
+		notices: Array<[string, string]>;
+		statuses: Array<[string, string | undefined]>;
+		readonly holdToTalkSubscribed: boolean;
+		joinedNotices(): string;
+	}
+
+	async function runSessionStart(voice: unknown): Promise<SessionHarness> {
+		const home = makeTempDir();
+		const cwd = makeTempDir();
+		writeSettings(home, ".pi/agent/settings.json", voice);
+
+		const homeSpy = spyOn(os, "homedir").mockReturnValue(home);
+		resetPunctuationForTest(null, () => {});
+		try {
+			const handlers = new Map<string, (event: any, sessionCtx: any) => Promise<void>>();
+			const pi = {
+				on: (name: string, handler: any) => handlers.set(name, handler),
+				registerShortcut: () => {},
+				registerCommand: () => {},
+			} as any;
+
+			const notices: Array<[string, string]> = [];
+			const statuses: Array<[string, string | undefined]> = [];
+			let holdToTalkSubscribed = false;
+			const sessionCtx = {
+				hasUI: true,
+				cwd,
+				ui: {
+					notify: (message: string, type: string) => notices.push([message, type]),
+					setStatus: (key: string, value: string | undefined) => statuses.push([key, value]),
+					onTerminalInput: () => {
+						holdToTalkSubscribed = true;
+						return () => {};
+					},
+				},
+			};
+
+			voiceExtension(pi);
+			const sessionStart = handlers.get("session_start");
+			expect(sessionStart).toBeDefined();
+			await sessionStart!({ reason: "startup" }, sessionCtx);
+
+			return {
+				notices,
+				statuses,
+				get holdToTalkSubscribed() {
+					return holdToTalkSubscribed;
+				},
+				joinedNotices: () => notices.map(([message]) => message).join("\n"),
+			};
+		} finally {
+			resetPunctuationForTest();
+			homeSpy.mockRestore();
+		}
+	}
+
+	test("a local model alone auto-activates hold-to-talk", async () => {
+		const session = await runSessionStart({
+			onboarding: { completed: true },
+			localModel: "paraformer-zh",
+			language: "zh",
+		});
+
+		// The completed branch keeps its historical silence (brief step 3: "behave as today"), so the
+		// observable activation is the hold-to-talk subscription plus the LOCAL status entry. What
+		// must not appear anywhere is a cloud backend name.
+		expect(session.holdToTalkSubscribed).toBe(true);
+		expect(session.statuses).toContainEqual(["voice", "MIC LOCAL"]);
+		expect(session.joinedNotices()).not.toMatch(/deepgram|cloud|nova-3/i);
+	});
+
+	test("a local model without completed onboarding is migrated and activated", async () => {
+		// The panel writes `localModel` and never writes `backend` any more; the activation predicate
+		// must key on the model alone or the settings write succeeds and nothing ever activates.
+		const session = await runSessionStart({ localModel: "paraformer-zh", language: "zh" });
+
+		expect(session.holdToTalkSubscribed).toBe(true);
+		expect(session.joinedNotices()).toContain("Paraformer zh (bilingual)");
+	});
+
+	test("a completed config with no local model is sent to setup, not silently defaulted", async () => {
+		// The shape every Deepgram user has after the upgrade: onboarding completed, no localModel.
+		// "Completed" is not "configured" — the branch must not wire hold-to-talk onto a default.
+		const session = await runSessionStart({ onboarding: { completed: true }, backend: "deepgram" });
+
+		expect(session.joinedNotices()).toContain("/voice-setup");
+		expect(session.holdToTalkSubscribed).toBe(false);
+		expect(session.joinedNotices()).not.toMatch(/deepgram|cloud|nova-3/i);
+	});
+
+	test("no local model sends the user to setup instead of a dead backend", async () => {
+		const session = await runSessionStart({});
+
+		// The install hint is the only remaining entry point: one path, and it names the command that
+		// opens the settings panel.
+		expect(session.joinedNotices()).toContain("pi-voicekit installed");
+		expect(session.joinedNotices()).toContain("/voice-setup");
+		expect(session.joinedNotices()).not.toMatch(/deepgram|cloud|nova-3|two backends/i);
+		expect(session.holdToTalkSubscribed).toBe(false);
 	});
 });

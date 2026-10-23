@@ -110,3 +110,16 @@ test("voice.ts no longer imports the Nova-3 language table", () => {
 	// languageDisplayName, runVoiceOnboarding, …), so the rule names only the two symbols that die.
 	expect(matching(/LANGUAGES|modelForLanguage/, ["extensions/voice.ts"])).toEqual([]);
 });
+
+// ─── Task 6: startup activation and operator-facing copy ─────────────────────
+
+test("voice.ts carries no cloud copy left", () => {
+	expect(matching(/DEEPGRAM|Deepgram|cloud/i, ["extensions/voice.ts"])).toEqual([]);
+});
+
+test("the sherpa messages name a platform, never a cloud fallback", () => {
+	expect(
+		matching(/deepgram|cloud backend/i, ["extensions/voice/sherpa-loader.ts", "extensions/voice/local.ts"])
+	).toEqual([]);
+	expect(SOURCES["extensions/voice/sherpa-loader.ts"]).toMatch(/win32[\s\S]{0,80}arm64/);
+});
