@@ -1,5 +1,5 @@
 import type { ExtensionCommandContext, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import type { VoiceBackend, VoiceConfig, VoiceSettingsScope } from "./config";
+import type { VoiceConfig, VoiceSettingsScope } from "./config";
 import { LOCAL_MODELS, getLanguagesForLocalModel, type LocalLangEntry, type LocalModelInfo } from "./local";
 import {
 	detectDevice,
@@ -29,93 +29,8 @@ export interface FirstRunDecision {
 	action: "start" | "later";
 }
 
-// ─── Nova-3 supported languages for live streaming ──────────────────────
-// All verified for streaming support. "multi" removed — not supported for live.
-
-export interface LangEntry {
-	name: string;
-	code: string;
-	popular?: boolean;
-	model?: string;
-}
-
-export const LANGUAGES: LangEntry[] = [
-	// Top popular — shown first in picker
-	{ name: "English", code: "en", popular: true },
-	{ name: "Hindi", code: "hi", popular: true },
-	{ name: "Spanish", code: "es", popular: true },
-	{ name: "French", code: "fr", popular: true },
-	{ name: "German", code: "de", popular: true },
-	{ name: "Portuguese — Brazil", code: "pt-BR", popular: true },
-	{ name: "Japanese", code: "ja", popular: true },
-	{ name: "Korean", code: "ko", popular: true },
-	{ name: "Arabic", code: "ar", popular: true },
-	{ name: "Russian", code: "ru", popular: true },
-	// Nova-2 only (auto-switches model — shown in picker)
-	{ name: "Chinese — Mandarin [Nova-2]", code: "zh", popular: true, model: "nova-2" },
-	{ name: "Chinese — Mandarin Simplified [Nova-2]", code: "zh-CN", model: "nova-2" },
-	{ name: "Chinese — Mandarin Traditional [Nova-2]", code: "zh-TW", model: "nova-2" },
-	{ name: "Chinese — Cantonese [Nova-2]", code: "zh-HK", model: "nova-2" },
-	// All others alphabetically (Nova-3)
-	{ name: "Belarusian", code: "be" },
-	{ name: "Bengali", code: "bn" },
-	{ name: "Bosnian", code: "bs" },
-	{ name: "Bulgarian", code: "bg" },
-	{ name: "Catalan", code: "ca" },
-	{ name: "Croatian", code: "hr" },
-	{ name: "Czech", code: "cs" },
-	{ name: "Danish", code: "da" },
-	{ name: "Dutch", code: "nl" },
-	{ name: "English — Australia", code: "en-AU" },
-	{ name: "English — India", code: "en-IN" },
-	{ name: "English — New Zealand", code: "en-NZ" },
-	{ name: "English — UK", code: "en-GB" },
-	{ name: "English — US", code: "en-US" },
-	{ name: "Estonian", code: "et" },
-	{ name: "Finnish", code: "fi" },
-	{ name: "Flemish", code: "nl-BE" },
-	{ name: "French — Canada", code: "fr-CA" },
-	{ name: "German — Switzerland", code: "de-CH" },
-	{ name: "Greek", code: "el" },
-	{ name: "Hebrew", code: "he" },
-	{ name: "Hungarian", code: "hu" },
-	{ name: "Indonesian", code: "id" },
-	{ name: "Italian", code: "it" },
-	{ name: "Kannada", code: "kn" },
-	{ name: "Korean — KR", code: "ko-KR" },
-	{ name: "Latvian", code: "lv" },
-	{ name: "Lithuanian", code: "lt" },
-	{ name: "Macedonian", code: "mk" },
-	{ name: "Malay", code: "ms" },
-	{ name: "Marathi", code: "mr" },
-	{ name: "Norwegian", code: "no" },
-	{ name: "Persian", code: "fa" },
-	{ name: "Polish", code: "pl" },
-	{ name: "Portuguese", code: "pt" },
-	{ name: "Portuguese — Portugal", code: "pt-PT" },
-	{ name: "Romanian", code: "ro" },
-	{ name: "Serbian", code: "sr" },
-	{ name: "Slovak", code: "sk" },
-	{ name: "Slovenian", code: "sl" },
-	{ name: "Spanish — Latin America", code: "es-419" },
-	{ name: "Swedish", code: "sv" },
-	{ name: "Tagalog", code: "tl" },
-	{ name: "Tamil", code: "ta" },
-	{ name: "Telugu", code: "te" },
-	{ name: "Turkish", code: "tr" },
-	{ name: "Ukrainian", code: "uk" },
-	{ name: "Urdu", code: "ur" },
-	{ name: "Vietnamese", code: "vi" },
-];
-
-function formatLangOption(l: LangEntry): string {
+function formatLangOption(l: LocalLangEntry): string {
 	return `${l.name} (${l.code})`;
-}
-
-/** Get the best model for a language code. Nova-2 for Chinese, Nova-3 for everything else. */
-export function modelForLanguage(code: string): string {
-	const entry = LANGUAGES.find((l) => l.code === code);
-	return entry?.model || "nova-3";
 }
 
 /** Extract language code from "Language Name (code)" format */
@@ -124,29 +39,28 @@ export function extractLanguageCode(selection: string): string {
 	return match ? match[1] : "en";
 }
 
-/** Find display name for a language code */
+/** Find display name for a language code, resolved against the local model language catalogs. */
 export function languageDisplayName(code: string): string {
-	const entry = LANGUAGES.find((l) => l.code === code);
-	return entry ? `${entry.name} (${entry.code})` : code;
+	for (const model of LOCAL_MODELS) {
+		const { languages } = getLanguagesForLocalModel(model.id);
+		const entry = languages.find((l) => l.code === code);
+		if (entry) return `${entry.name} (${entry.code})`;
+	}
+	return code;
 }
 
 /** Show language picker with fuzzy search — uses ctx.ui.custom() for real-time filtering.
- *  Pass `overrideLanguages` to show a model-specific language list (e.g. for local Whisper/Parakeet). */
+ *  `languages` is the candidate list, derived from the selected local model. */
 export async function pickLanguage(
 	ctx: VoiceUiContext,
 	currentCode: string,
-	overrideLanguages?: LocalLangEntry[]
+	languages: LocalLangEntry[]
 ): Promise<string | undefined> {
 	const { Container, Input, Spacer, Text, fuzzyFilter, getKeybindings } = await import("@earendil-works/pi-tui");
 
-	const langList: LangEntry[] = overrideLanguages
-		? overrideLanguages.map((l) => ({ name: l.name, code: l.code, popular: l.popular }))
-		: LANGUAGES;
-	const current = overrideLanguages
-		? (langList.find((l) => l.code === currentCode)?.name ?? currentCode)
-		: languageDisplayName(currentCode);
-	const popular = langList.filter((l) => l.popular);
-	const allItems = langList.map((l) => ({ ...l, label: formatLangOption(l) }));
+	const current = languageDisplayName(currentCode);
+	const popular = languages.filter((l) => l.popular);
+	const allItems = languages.map((l) => ({ ...l, label: formatLangOption(l) }));
 
 	return ctx.ui.custom<string | undefined>((tui, theme, _keybindings, done) => {
 		const container = new Container();
@@ -172,9 +86,8 @@ export async function pickLanguage(
 					const isCurrent = item.code === currentCode;
 					const prefix = isSelected ? theme.fg("accent", "→ ") : "  ";
 					const text = isSelected ? theme.fg("accent", item.label) : item.label;
-					const badge = item.model ? theme.fg("warning", ` [${item.model}]`) : "";
 					const check = isCurrent ? theme.fg("success", " ✓") : "";
-					listContainer.addChild(new Text(`${prefix}${text}${badge}${check}`, 0, 0));
+					listContainer.addChild(new Text(`${prefix}${text}${check}`, 0, 0));
 				}
 				if (filtered.length > popular.length) {
 					listContainer.addChild(new Text(theme.fg("muted", "  ───────────────────"), 0, 0));
@@ -185,9 +98,8 @@ export async function pickLanguage(
 						const isCurrent = item.code === currentCode;
 						const prefix = isSelected ? theme.fg("accent", "→ ") : "  ";
 						const text = isSelected ? theme.fg("accent", item.label) : item.label;
-						const badge = item.model ? theme.fg("warning", ` [${item.model}]`) : "";
 						const check = isCurrent ? theme.fg("success", " ✓") : "";
-						listContainer.addChild(new Text(`${prefix}${text}${badge}${check}`, 0, 0));
+						listContainer.addChild(new Text(`${prefix}${text}${check}`, 0, 0));
 					}
 				}
 			} else {
@@ -199,9 +111,8 @@ export async function pickLanguage(
 					const isCurrent = item.code === currentCode;
 					const prefix = isSelected ? theme.fg("accent", "→ ") : "  ";
 					const text = isSelected ? theme.fg("accent", item.label) : item.label;
-					const badge = item.model ? theme.fg("warning", ` [${item.model}]`) : "";
 					const check = isCurrent ? theme.fg("success", " ✓") : "";
-					listContainer.addChild(new Text(`${prefix}${text}${badge}${check}`, 0, 0));
+					listContainer.addChild(new Text(`${prefix}${text}${check}`, 0, 0));
 				}
 			}
 
@@ -469,174 +380,75 @@ export async function runVoiceOnboarding(
 ): Promise<OnboardingResult | undefined> {
 	const isFirstRun = options?.isFirstRun ?? !currentConfig.onboarding.completed;
 
-	// ─── Choose backend ──────────────────────────────────────
-	const backendChoice = await ctx.ui.select("Choose transcription backend:", [
-		"Deepgram — cloud, live streaming as you speak, $200 free credit",
-		"Local model — fully offline, no API key, transcribes after recording",
-	]);
-	if (!backendChoice) return undefined;
-	const selectedBackend: VoiceBackend = backendChoice.includes("Local") ? "local" : "deepgram";
+	// ─── Smart local setup ────────────────────────────────
+	const device = detectDevice();
+	const detectedLang = localeToLanguageCode(device.systemLocale);
+	const language = currentConfig.language || detectedLang;
+
+	// Auto-recommend the best model
+	const recommended = autoRecommendModel(LOCAL_MODELS, device, language);
+	const deviceSummary = formatDeviceSummary(device);
 
 	let localModel = currentConfig.localModel;
 
-	if (selectedBackend === "local") {
-		// ─── Smart local backend setup ───────────────────────
-		const device = detectDevice();
-		const detectedLang = localeToLanguageCode(device.systemLocale);
-		const language = currentConfig.language || detectedLang;
+	if (recommended) {
+		const fitness = getModelFitness(recommended, device);
+		const setupChoice = await ctx.ui.select(`Detected: ${deviceSummary}`, [
+			`Install ${recommended.name} (${recommended.size}) ${fitnessLabel(fitness)} — recommended`,
+			"Choose a different model",
+		]);
+		if (!setupChoice) return undefined;
 
-		// Auto-recommend the best model
-		const recommended = autoRecommendModel(LOCAL_MODELS, device, language);
-		const deviceSummary = formatDeviceSummary(device);
-
-		if (recommended) {
-			const fitness = getModelFitness(recommended, device);
-			const setupChoice = await ctx.ui.select(`Detected: ${deviceSummary}`, [
-				`Install ${recommended.name} (${recommended.size}) ${fitnessLabel(fitness)} — recommended`,
-				"Choose a different model",
-			]);
-			if (!setupChoice) return undefined;
-
-			if (setupChoice.startsWith("Install")) {
-				// Accept recommendation — will auto-download on first use
-				localModel = recommended.id;
-				ctx.ui.notify(
-					[
-						`Selected: ${recommended.name} (${recommended.size})`,
-						"Model downloads on first use — fully offline after that.",
-						"",
-						"Note: Local models transcribe after you finish recording (batch mode).",
-						"For live streaming as you speak, use Deepgram instead.",
-					].join("\n"),
-					"info"
-				);
-			} else if (setupChoice.startsWith("Choose")) {
-				// Full model list with fuzzy search
-				const picked = await pickLocalModel(ctx, localModel, language);
-				if (!picked) return undefined;
-				localModel = picked.id;
-				ctx.ui.notify(`Selected: ${picked.name} (${picked.size})`, "info");
-			}
-		} else {
-			// No recommendation — show full picker
+		if (setupChoice.startsWith("Install")) {
+			// Accept recommendation — will auto-download on first use
+			localModel = recommended.id;
+			ctx.ui.notify(
+				[
+					`Selected: ${recommended.name} (${recommended.size})`,
+					"Model downloads on first use — fully offline after that.",
+					"",
+					"Note: Local models transcribe after you finish recording (batch mode).",
+				].join("\n"),
+				"info"
+			);
+		} else if (setupChoice.startsWith("Choose")) {
+			// Full model list with fuzzy search
 			const picked = await pickLocalModel(ctx, localModel, language);
 			if (!picked) return undefined;
 			localModel = picked.id;
+			ctx.ui.notify(`Selected: ${picked.name} (${picked.size})`, "info");
 		}
 	} else {
-		// ─── Deepgram backend setup (unchanged logic) ────────
-		const hasDeepgramKey = Boolean(process.env.DEEPGRAM_API_KEY || currentConfig.deepgramApiKey);
-
-		if (!hasDeepgramKey) {
-			const keyAction = await ctx.ui.select("Deepgram API key not found. What would you like to do?", [
-				"Paste API key now",
-				"I'll set it up later (ask pi to help or export DEEPGRAM_API_KEY=...)",
-			]);
-			if (!keyAction) return undefined;
-
-			if (keyAction.startsWith("Paste")) {
-				ctx.ui.notify(
-					[
-						"Get your free Deepgram API key:",
-						"  → https://dpgr.am/pi-voice",
-						"  (Sign up → $200 free credits, no card needed)",
-						"",
-						"Paste your key below:",
-					].join("\n"),
-					"info"
-				);
-				const apiKey = await ctx.ui.input("DEEPGRAM_API_KEY");
-				if (apiKey && apiKey.trim().length > 10) {
-					const trimmedKey = apiKey.trim();
-
-					// Reject keys with embedded newlines — these would corrupt shell files
-					if (trimmedKey.includes("\n") || trimmedKey.includes("\r")) {
-						ctx.ui.notify("Key contains newlines — rejected for safety.", "error");
-					} else {
-						const fs = await import("node:fs");
-						const os = await import("node:os");
-						const home = os.homedir();
-						const envSecretsPath = `${home}/.env.secrets`;
-						const zshrcPath = `${home}/.zshrc`;
-						// Use single-quoted shell escaping to prevent injection
-						const exportLine = `export DEEPGRAM_API_KEY='${shellEscapeSingleQuoted(trimmedKey)}'`;
-
-						const targetFile = fs.existsSync(envSecretsPath) ? envSecretsPath : zshrcPath;
-						const existing = fs.existsSync(targetFile) ? fs.readFileSync(targetFile, "utf-8") : "";
-						const isNewFile = !fs.existsSync(targetFile);
-
-						if (existing.includes("DEEPGRAM_API_KEY")) {
-							const updated = existing.replace(/^export DEEPGRAM_API_KEY=.*$/m, exportLine);
-							fs.writeFileSync(targetFile, updated, { mode: 0o600 });
-						} else {
-							fs.appendFileSync(targetFile, `\n${exportLine}\n`);
-						}
-						// Ensure restrictive permissions on secrets files
-						if (isNewFile) {
-							try {
-								fs.chmodSync(targetFile, 0o600);
-							} catch {}
-						}
-
-						process.env.DEEPGRAM_API_KEY = trimmedKey;
-
-						ctx.ui.notify(
-							`API key saved to ${targetFile}\nActive in this session. New terminals will pick it up automatically.`,
-							"info"
-						);
-					}
-				} else if (apiKey !== undefined && apiKey !== null) {
-					ctx.ui.notify(
-						'Key looks too short — skipped. You can set it later:\n  export DEEPGRAM_API_KEY="your-key"',
-						"warning"
-					);
-				}
-			} else {
-				ctx.ui.notify(
-					[
-						"No problem! When you're ready:",
-						"  1. Get a key → https://dpgr.am/pi-voice ($200 free credits)",
-						'  2. Run: export DEEPGRAM_API_KEY="your-key"',
-						'  3. Or ask pi: "help me set up my Deepgram API key"',
-					].join("\n"),
-					"info"
-				);
-			}
-		}
+		// No recommendation — show full picker
+		const picked = await pickLocalModel(ctx, localModel, language);
+		if (!picked) return undefined;
+		localModel = picked.id;
 	}
 
 	// ─── Choose language (first-run only) ────────────────────
 	let langCode = currentConfig.language;
 	if (isFirstRun) {
-		if (selectedBackend === "local" && localModel) {
-			const { languages, englishOnly } = getLanguagesForLocalModel(localModel);
-			if (englishOnly) {
-				// Single-language model — auto-set
-				langCode = languages[0]?.code || "en";
-				const langName = languages[0]?.name || "English";
-				ctx.ui.notify(`Language set to ${langName} (only language supported by this model).`, "info");
-			} else {
-				// Auto-detect from system locale, let user confirm or change
-				const device = detectDevice();
-				const detectedLang = localeToLanguageCode(device.systemLocale);
-				const detectedEntry = languages.find((l) => l.code === detectedLang);
-				if (detectedEntry) {
-					langCode = detectedLang;
-					ctx.ui.notify(
-						`Language auto-detected: ${detectedEntry.name} (${detectedEntry.code}). Change in /voice-settings.`,
-						"info"
-					);
-				} else {
-					const picked = await pickLanguage(ctx, currentConfig.language, languages);
-					if (!picked) return undefined;
-					langCode = picked;
-				}
-			}
+		// The model step above always settles an id; unknown ids resolve to the full list in local.ts.
+		const { languages, englishOnly } = getLanguagesForLocalModel(localModel ?? "");
+		if (englishOnly) {
+			// Single-language model — auto-set
+			langCode = languages[0]?.code || "en";
+			const langName = languages[0]?.name || "English";
+			ctx.ui.notify(`Language set to ${langName} (only language supported by this model).`, "info");
 		} else {
-			// Deepgram — show full language list
-			const picked = await pickLanguage(ctx, currentConfig.language);
-			if (!picked) return undefined;
-			langCode = picked;
+			// Auto-detect from system locale, let user confirm or change
+			const detectedEntry = languages.find((l) => l.code === detectedLang);
+			if (detectedEntry) {
+				langCode = detectedLang;
+				ctx.ui.notify(
+					`Language auto-detected: ${detectedEntry.name} (${detectedEntry.code}). Change in /voice-settings.`,
+					"info"
+				);
+			} else {
+				const picked = await pickLanguage(ctx, currentConfig.language, languages);
+				if (!picked) return undefined;
+				langCode = picked;
+			}
 		}
 	}
 
@@ -649,18 +461,11 @@ export async function runVoiceOnboarding(
 	const selectedScope: VoiceSettingsScope = scopeChoice.startsWith("Project") ? "project" : "global";
 
 	const selectedModel = LOCAL_MODELS.find((m) => m.id === localModel);
-	const backendLabel =
-		selectedBackend === "local"
-			? `Local — ${selectedModel?.name || localModel} (in-process)`
-			: "Deepgram Nova-3 (streaming)";
 
 	const summaryLines = [
-		`Backend: ${backendLabel}`,
+		`Backend: Local — ${selectedModel?.name || localModel} (in-process)`,
 		`Language: ${languageDisplayName(langCode)}${isFirstRun ? "" : " (change in /voice-settings)"}`,
 		`Scope: ${selectedScope}`,
-		...(selectedBackend === "deepgram"
-			? [`API key: ${process.env.DEEPGRAM_API_KEY ? "configured" : "not yet set"}`]
-			: []),
 	];
 
 	const confirm = await ctx.ui.confirm("Confirm voice setup", summaryLines.join("\n"));
@@ -673,8 +478,7 @@ export async function runVoiceOnboarding(
 			...currentConfig,
 			language: langCode,
 			scope: selectedScope,
-			backend: selectedBackend,
-			localModel: selectedBackend === "local" ? localModel : currentConfig.localModel,
+			localModel,
 			onboarding: {
 				...currentConfig.onboarding,
 				completed: false,

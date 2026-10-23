@@ -74,13 +74,7 @@ import {
 	type VoiceConfig,
 	type VoiceSettingsScope,
 } from "./voice/config";
-import {
-	finalizeOnboardingConfig,
-	runVoiceOnboarding,
-	pickLanguage,
-	languageDisplayName,
-	modelForLanguage,
-} from "./voice/onboarding";
+import { finalizeOnboardingConfig, runVoiceOnboarding, pickLanguage, languageDisplayName } from "./voice/onboarding";
 import { makeWidgetRegistry, type WidgetRegistry } from "./voice/ui-widget-base";
 import { makeRenderTicker, type RenderTicker } from "./voice/ui-render-ticker";
 import { TtsInstallProgressWidget } from "./voice/tts-install-progress";
@@ -2857,7 +2851,6 @@ export default function (pi: ExtensionAPI) {
 		const { isSherpaAvailable, clearRecognizerCache } = await import("./voice/sherpa-engine");
 		const { VoiceSettingsPanel } = await import("./voice/settings-panel");
 		type PanelAction = import("./voice/settings-panel").PanelAction;
-		const { LANGUAGES } = await import("./voice/onboarding");
 
 		const device = detectDevice();
 		// Construct the panel inside the custom() callback so the host theme

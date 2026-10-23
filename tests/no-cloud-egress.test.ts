@@ -98,3 +98,15 @@ test("the settings panel exposes no backend choice", () => {
 		])
 	).toEqual([]);
 });
+
+test("onboarding offers no cloud path and no Nova-3 language table", () => {
+	expect(
+		matching(/DEEPGRAM|dpgr\.am|LANGUAGES|modelForLanguage|VoiceBackend/, ["extensions/voice/onboarding.ts"])
+	).toEqual([]);
+});
+
+test("voice.ts no longer imports the Nova-3 language table", () => {
+	// `voice.ts` legitimately imports other symbols from `./voice/onboarding` (pickLanguage,
+	// languageDisplayName, runVoiceOnboarding, …), so the rule names only the two symbols that die.
+	expect(matching(/LANGUAGES|modelForLanguage/, ["extensions/voice.ts"])).toEqual([]);
+});
