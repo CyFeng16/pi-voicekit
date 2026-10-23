@@ -822,12 +822,17 @@ describe("scrubRetiredVoiceKeys (the retired credentials are erased on startup)"
 		expect(result.removed).toEqual(["deepgramApiKey", "localEndpoint"]);
 		// The sentence is assembled in config.ts — the one file the egress gate exempts — so the
 		// caller only ever displays it. It names the retired keys and the env var, and neither the
-		// secret value nor the host may reach the notice.
+		// secret value nor the host may reach the notice. It also has to carry the claim the product
+		// makes now: the first start of an upgrade is where a user is told what the extension promises,
+		// so the old absolute must not survive in the notice itself.
 		expect(result.message).toContain("deepgramApiKey");
 		expect(result.message).toContain("localEndpoint");
 		expect(result.message).toContain("DEEPGRAM_API_KEY");
 		expect(result.message).toContain("0.6.0");
 		expect(result.message).toContain("~/.env.secrets");
+		expect(result.message).toContain("no audio is uploaded to a remote speech service");
+		expect(result.message).toMatch(/system audio routing/);
+		expect(result.message).not.toMatch(/\baudio\s+(?:never|ever|does\s?n[o']t)\s+leave?s?\b/i);
 		expect(result.message).not.toContain("SECRET-0.5.x-key");
 		expect(result.message).not.toContain("10.0.0.5");
 

@@ -55,9 +55,10 @@ stored or a `localEndpoint` pointed somewhere, that path no longer exists and no
   and "configured" stopped being the same thing: the start notifies that a local model is needed, points at
   `/voice-setup`, and leaves hold-to-talk off until one is selected. Nothing else in the global `settings.json`
   is changed by the retired-key cleanup.
-- **The only outbound request left is the first-use model download.** Recognition, punctuation and synthesis run
-  inside the process, so no audio reaches a remote speech service; the download is a file fetch, made once per model
-  and resumable, and `tests/no-cloud-egress.test.ts` gates the source tree against a cloud call site returning.
+- **The only outbound request this extension makes is the first-use model download.** Recognition, punctuation
+  and synthesis run inside the process, so no audio reaches a remote speech service; the download is a file fetch,
+  made once per model and resumable, and `tests/no-cloud-egress.test.ts` gates the source tree against a cloud call
+  site returning.
 
 ### Migration
 

@@ -8,7 +8,8 @@
 | < 0.6   | ❌ Not supported — those releases still carry the cloud backends; upgrade |
 
 > **Audit status.** The most recent audit on record is dated 2026-03-12 and covered the pre-3.0
-> codebase; it says nothing about 0.6.0, and no audit of this version exists.
+> codebase — upstream's `v3.x` numbering, which this fork's `0.6.0` version line does not belong to.
+> It says nothing about 0.6.0, and no audit of this version exists.
 
 ## Reporting a Vulnerability
 

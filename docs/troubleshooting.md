@@ -177,7 +177,7 @@ step is blocked — a proxy, a firewall, DNS, an offline machine — or the disk
   installs; blocking `huggingface.co` stops both speech recognition and punctuation.
 
 Once the files are on disk, dictation, punctuation and speech all work with the network down —
-the download is the only outbound step in the extension.
+the download is the only outbound step this extension takes.
 
 ## Symptom: last word gets cut off
 
@@ -200,12 +200,13 @@ A transcript that fails the rule gets no mark added, and neither does one whose
 punctuation fails at any point — the step is fail-open, so "no punctuation" always means
 "nothing was inserted", never "text was lost".
 
-The model is downloaded the first time a dictation needs it (~285 MB), and that first
-dictation gets no mark added while the download starts in the background. Once the
-download has completed, verified against its digest and the engine has been constructed —
-any of which can fail — later qualifying dictations are punctuated; until then they get no
-mark added, and `/voice-punctuation status` reports the state. On a fresh install this is
-the usual explanation.
+The model is a one-time ~285 MB download, fetched in the background from the moment a session
+starts — or, on a machine where that did not happen, the first time a dictation needs it.
+Either way a dictation that arrives while the download is still running gets no mark added.
+Once the download has completed, verified against its digest and the engine has been
+constructed — any of which can fail — later qualifying dictations are punctuated; until
+then they get no mark added, and `/voice-punctuation status` reports the state. On a fresh
+install this is the usual explanation.
 
 ### Fix
 

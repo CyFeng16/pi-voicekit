@@ -2249,10 +2249,11 @@ export default function (pi: ExtensionAPI) {
 		voiceDebug("pi-voicekit loaded", { reason });
 
 		// Privacy cleanup, on EVERY start and before any early return below: a file written by 0.5.x may
-		// still carry the retired backend credentials, and the product now claims audio never leaves the
-		// machine. Best-effort — the file may be unreadable, and that must not cost dictation, exactly
-		// like the voiceCleanup guard at the top of this handler. The notice text is built in config.ts
-		// (the one file allowed to name the retired keys); this handler only displays it.
+		// still carry the retired backend credentials, and the product claims no audio is uploaded to a
+		// remote speech service. Best-effort — the file may be unreadable, and that must not cost
+		// dictation, exactly like the voiceCleanup guard at the top of this handler. The notice text is
+		// built in config.ts (the one file allowed to name the retired keys); this handler only
+		// displays it.
 		try {
 			const scrubbed = scrubRetiredVoiceKeys(getGlobalSettingsPath());
 			if (scrubbed.message && startCtx.hasUI) startCtx.ui.notify(scrubbed.message, "info");

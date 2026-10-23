@@ -566,9 +566,10 @@ export function saveGlobalVoiceFields(
 
 /**
  * The two settings a 0.5.x file may still carry from the retired speech backends. They are not read
- * any more, but they are still credentials on disk, and the product now claims audio never leaves the
- * machine — so the first start after the upgrade erases them. They are spelled here, in the one file
- * the egress gate exempts, so `voice.ts` never has to name them.
+ * any more, but they are still credentials on disk, and the product claims no audio is uploaded to a
+ * remote speech service — so the first start after the upgrade erases them rather than leave them
+ * lying there. They are spelled here, in the one file the egress gate exempts, so `voice.ts` never has
+ * to name them.
  */
 const RETIRED_VOICE_KEYS = ["deepgramApiKey", "localEndpoint"] as const;
 
@@ -838,10 +839,12 @@ export function scrubRetiredVoiceKeys(settingsPath: string): { removed: string[]
 	return {
 		removed,
 		message: [
-			"pi-voicekit is local-only from 0.6.0: your audio never leaves this machine.",
+			"pi-voicekit is local-only from 0.6.0: no audio is uploaded to a remote speech service.",
 			`Erased the retired ${removed.join(" and ")} from ${settingsPath}.`,
 			"A DEEPGRAM_API_KEY exported from ~/.env.secrets or a shell rc file is no longer read,",
 			"and pi-voicekit does not edit those files — delete it there yourself.",
+			"That claim has two exceptions — system audio routing and /voice-autosubmit — documented",
+			"in the Privacy section of README.md.",
 		].join("\n"),
 	};
 }
