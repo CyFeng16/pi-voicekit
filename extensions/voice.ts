@@ -54,7 +54,7 @@
  *   - Configurable shortcut (default Ctrl+Shift+V) → toggle start/stop (always works)
 
  *
- * Config in ~/.pi/agent/settings.json under "voice": { ... }
+ * Config in Pi's agent directory (settings.json) under "voice": { ... }
  */
 
 import type { ExtensionAPI, ExtensionContext, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";

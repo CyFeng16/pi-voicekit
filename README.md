@@ -405,6 +405,11 @@ Settings stored in Pi's settings files under the `voice` key:
 | Global  | `~/.pi/agent/settings.json`   |
 | Project | `<project>/.pi/settings.json` |
 
+Both paths follow Pi: the global one sits in Pi's agent directory, so a build run with
+`PI_CODING_AGENT_DIR` set uses that directory instead of `~/.pi/agent`; the project one uses
+Pi's config-directory name rather than a literal `.pi`. Downloaded models are separate and always
+live under `~/.pi/models`.
+
 ```json
 {
 	"voice": {

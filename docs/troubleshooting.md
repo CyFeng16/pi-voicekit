@@ -237,7 +237,7 @@ Either:
 1. Open `/voice-settings`, go to the **General** tab and set **Scope** to `Project (this repo)`;
    the next save writes the repository's `.pi/settings.json`
 2. Inspect both files:
-   - `~/.pi/agent/settings.json` (global)
+   - `~/.pi/agent/settings.json` (global — Pi's agent directory, which `PI_CODING_AGENT_DIR` moves)
    - `<project>/.pi/settings.json` (project)
 3. Project settings override global settings — with one exception: a machine-wide `false`
    for `punctuationEnabled`, `fillerRemovalEnabled` or `numeralNormalizationEnabled` is
