@@ -827,6 +827,72 @@ describe("scrubRetiredVoiceKeys (the retired credentials are erased on startup)"
 		expect(scrubRetiredVoiceKeys(plainPath)).toEqual({ removed: [] });
 		expect(fs.readFileSync(plainPath, "utf8")).toBe(withoutVoice);
 	});
+
+	// The scrub deletes two keys; every other byte of the file must survive, including values a
+	// JavaScript number cannot carry. A `JSON.parse` → `JSON.stringify` round trip is lossy
+	// (`9007199254740993` renders as `...992`, `1e400` as `null`), so these tests assert on the raw
+	// text of the rewritten file rather than on its parsed value, and write the file as raw text too.
+	function writeRawText(contents: string): string {
+		const settingsPath = path.join(makeTempDir(), "settings.json");
+		fs.writeFileSync(settingsPath, contents);
+		return settingsPath;
+	}
+
+	function neighbourBlock(text: string): string {
+		return text.slice(text.indexOf('"otherPlugin"'), text.indexOf('"voice"'));
+	}
+
+	test("preserves an integer beyond 2^53 in a neighbouring plugin's settings", () => {
+		const raw = `{
+	"theme": "x",
+	"otherPlugin": {
+		"id": 9007199254740993,
+		"window": { "csv": "a, b}", "list": [1, 2, { "brace": "}" }] }
+	},
+	"voice": {
+		"language": "zh",
+		"deepgramApiKey": "SECRET-0.5.x-key",
+		"localEndpoint": "http://10.0.0.5:8080",
+		"localModel": "paraformer-zh"
+	}
+}
+`;
+		const settingsPath = writeRawText(raw);
+
+		const result = scrubRetiredVoiceKeys(settingsPath);
+
+		expect(result.removed).toEqual(["deepgramApiKey", "localEndpoint"]);
+		const after = fs.readFileSync(settingsPath, "utf8");
+		// 9007199254740993 is not representable: the round trip would store ...992 instead.
+		expect(after).toContain('"id": 9007199254740993,');
+		// Nested objects, arrays and strings holding `,` and `}` survive byte-for-byte, up to the block
+		// the scrub is allowed to edit.
+		expect(neighbourBlock(after)).toBe(neighbourBlock(raw));
+		const parsed = JSON.parse(after);
+		expect(parsed.voice.language).toBe("zh");
+		expect(parsed.voice.localModel).toBe("paraformer-zh");
+		expect("deepgramApiKey" in parsed.voice).toBe(false);
+		expect("localEndpoint" in parsed.voice).toBe(false);
+	});
+
+	test("preserves a numeric literal outside the JavaScript number range", () => {
+		const raw = `{
+	"otherPlugin": { "limit": 1e400 },
+	"voice": { "localEndpoint": "http://10.0.0.5:8080", "language": "zh" }
+}
+`;
+		const settingsPath = writeRawText(raw);
+
+		const result = scrubRetiredVoiceKeys(settingsPath);
+
+		expect(result.removed).toEqual(["localEndpoint"]);
+		const after = fs.readFileSync(settingsPath, "utf8");
+		// `JSON.parse` turns this literal into Infinity and `JSON.stringify` writes it back as null.
+		expect(after).toContain('"limit": 1e400');
+		expect(after).not.toContain("null");
+		expect(neighbourBlock(after)).toBe(neighbourBlock(raw));
+		expect(JSON.parse(after).voice).toEqual({ language: "zh" });
+	});
 });
 
 describe("/voice-speak-stop registration (regression)", () => {

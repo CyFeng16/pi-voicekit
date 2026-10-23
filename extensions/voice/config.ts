@@ -393,13 +393,16 @@ const LEGACY_POST_PROCESS_KEYS = [
 
 /**
  * Atomic settings write: temp file + rename prevents corruption from partial
- * writes. Shared by every writer in this module so the path cannot diverge.
+ * writes. Shared by every writer in this module so the path cannot diverge. The text form exists
+ * for the scrub, which edits a settings file by deleting a member's bytes instead of reserializing
+ * the whole document (`JSON.parse` → `JSON.stringify` silently rounds integers beyond 2^53 and
+ * writes `1e400` back as `null`).
  */
-function writeSettingsFile(settingsPath: string, settings: Record<string, unknown>): void {
+function writeSettingsText(settingsPath: string, text: string): void {
 	fs.mkdirSync(path.dirname(settingsPath), { recursive: true });
 	const tmpPath = `${settingsPath}.${process.pid}.tmp`;
 	try {
-		fs.writeFileSync(tmpPath, JSON.stringify(settings, null, 2) + "\n");
+		fs.writeFileSync(tmpPath, text);
 		fs.renameSync(tmpPath, settingsPath);
 	} finally {
 		try {
@@ -408,16 +411,23 @@ function writeSettingsFile(settingsPath: string, settings: Record<string, unknow
 	}
 }
 
+function writeSettingsFile(settingsPath: string, settings: Record<string, unknown>): void {
+	writeSettingsText(settingsPath, JSON.stringify(settings, null, 2) + "\n");
+}
+
 /**
- * Read a settings file for a write. A missing file is `{}`; a file that exists but cannot be
- * parsed must NOT be treated as missing — merging into `{}` would replace a damaged settings file
- * with a fresh object and lose every other key. It is logged and left untouched instead, and the
- * throw hands the failure to the caller's guard rather than reporting a write that never happened.
+ * Read a settings file for a write, as both text and parsed value. A missing file is empty text and
+ * `{}`; a file that exists but cannot be parsed must NOT be treated as missing — merging into `{}`
+ * would replace a damaged settings file with a fresh object and lose every other key. It is logged
+ * and left untouched instead, and the throw hands the failure to the caller's guard rather than
+ * reporting a write that never happened. The raw text is returned for writers that must not
+ * reserialize values they do not change.
  */
-function readSettingsForWrite(settingsPath: string): Record<string, unknown> {
-	if (!fs.existsSync(settingsPath)) return {};
+function readSettingsForWrite(settingsPath: string): { text: string; settings: Record<string, unknown> } {
+	if (!fs.existsSync(settingsPath)) return { text: "", settings: {} };
 	try {
-		return JSON.parse(fs.readFileSync(settingsPath, "utf8"));
+		const text = fs.readFileSync(settingsPath, "utf8");
+		return { text, settings: JSON.parse(text) as Record<string, unknown> };
 	} catch (err) {
 		const reason = err instanceof Error ? err.message : String(err);
 		process.stderr.write(`[pi-voicekit] Warning: not writing ${settingsPath}: ${reason}\n`);
@@ -432,7 +442,7 @@ export function saveConfig(
 	options: ConfigPathOptions = {}
 ): string {
 	const settingsPath = scope === "project" ? getProjectSettingsPath(cwd) : getGlobalSettingsPath(options);
-	const settings = readSettingsForWrite(settingsPath);
+	const { settings } = readSettingsForWrite(settingsPath);
 	const serialized: Record<string, unknown> = { ...serializeConfig(config, scope) };
 	const existingVoice = settings[SETTINGS_KEY];
 	// A config loaded from nowhere (no settings file carried a `voice` block) holds defaults, so
@@ -485,7 +495,7 @@ export function saveGlobalVoiceFields(
 ): string {
 	const settingsPath = getGlobalSettingsPath(options);
 	// A file that exists but cannot be parsed is refused, not overwritten — see readSettingsForWrite.
-	const settings = readSettingsForWrite(settingsPath);
+	const { settings } = readSettingsForWrite(settingsPath);
 	const existing = settings[SETTINGS_KEY];
 	const voice: Record<string, unknown> =
 		existing && typeof existing === "object" ? { ...(existing as Record<string, unknown>) } : {};
@@ -507,6 +517,146 @@ export function saveGlobalVoiceFields(
 const RETIRED_VOICE_KEYS = ["deepgramApiKey", "localEndpoint"] as const;
 
 /**
+ * A member of a JSON object as it sits in the raw text: `start` is the opening quote of its key and
+ * `end` the last byte of its value. `leadingStart` .. `end` covers the member together with its own
+ * indentation, so members around a deleted one keep their exact layout; `valueStart` .. `end` is the
+ * value alone.
+ */
+interface RawMember {
+	key: string;
+	leadingStart: number;
+	start: number;
+	valueStart: number;
+	end: number;
+}
+
+const JSON_WHITESPACE = " \t\n\r";
+const JSON_TOKEN_BREAK = ",:[]{}" + JSON_WHITESPACE;
+
+function skipJsonWhitespace(text: string, index: number): number {
+	let i = index;
+	while (i < text.length && JSON_WHITESPACE.includes(text[i])) i += 1;
+	return i;
+}
+
+/** `text[index]` is a quote: return the index just past the closing quote of that string. */
+function scanJsonString(text: string, index: number): number {
+	let i = index + 1;
+	while (i < text.length) {
+		const ch = text[i];
+		if (ch === "\\") {
+			i += 2;
+			continue;
+		}
+		if (ch === '"') return i + 1;
+		i += 1;
+	}
+	throw new Error(`unterminated string at offset ${index}`);
+}
+
+/** `text[index]` opens a `{` or `[`: return the index just past its matching close. */
+function scanJsonContainer(text: string, index: number): number {
+	const stack: string[] = [];
+	let i = index;
+	while (i < text.length) {
+		const ch = text[i];
+		if (ch === '"') {
+			i = scanJsonString(text, i);
+			continue;
+		}
+		if (ch === "{" || ch === "[") {
+			stack.push(ch);
+		} else if (ch === "}" || ch === "]") {
+			const open = stack.pop();
+			if (!((ch === "}" && open === "{") || (ch === "]" && open === "["))) {
+				throw new Error(`unbalanced "${ch}" at offset ${i}`);
+			}
+			if (stack.length === 0) return i + 1;
+		}
+		i += 1;
+	}
+	throw new Error(`unterminated container at offset ${index}`);
+}
+
+function scanJsonValue(text: string, index: number): number {
+	const ch = text[index];
+	if (ch === '"') return scanJsonString(text, index);
+	if (ch === "{" || ch === "[") return scanJsonContainer(text, index);
+	let i = index;
+	while (i < text.length && !JSON_TOKEN_BREAK.includes(text[i])) i += 1;
+	if (i === index) throw new Error(`unexpected "${ch}" at offset ${index}`);
+	return i;
+}
+
+/**
+ * Locate every member of the JSON object opening at `openBrace`. Values are measured, never decoded:
+ * that is what lets a writer delete one member and leave number literals the JavaScript number type
+ * cannot hold (`9007199254740993`, `1e400`) exactly as they were. Throws on text it cannot read, so
+ * a caller refuses to rewrite rather than guess at the shape.
+ */
+function scanJsonObjectMembers(text: string, openBrace: number): { closeBrace: number; members: RawMember[] } {
+	if (text[openBrace] !== "{") throw new Error(`expected "{" at offset ${openBrace}`);
+	const members: RawMember[] = [];
+	let leadingStart = openBrace + 1;
+	let i = skipJsonWhitespace(text, leadingStart);
+	if (text[i] === "}") return { closeBrace: i, members };
+	for (;;) {
+		const keyStart = i;
+		if (text[i] !== '"') throw new Error(`expected an object key at offset ${i}`);
+		const keyEnd = scanJsonString(text, keyStart);
+		const key = JSON.parse(text.slice(keyStart, keyEnd)) as string;
+		i = skipJsonWhitespace(text, keyEnd);
+		if (text[i] !== ":") throw new Error(`expected ":" at offset ${i}`);
+		i = skipJsonWhitespace(text, i + 1);
+		const valueStart = i;
+		const valueEnd = scanJsonValue(text, i);
+		members.push({ key, leadingStart, start: keyStart, valueStart, end: valueEnd });
+		i = skipJsonWhitespace(text, valueEnd);
+		if (text[i] === ",") {
+			leadingStart = i + 1;
+			i = skipJsonWhitespace(text, leadingStart);
+			continue;
+		}
+		if (text[i] === "}") return { closeBrace: i, members };
+		throw new Error(`expected "," or "}" at offset ${i}`);
+	}
+}
+
+/**
+ * Delete the named members from the top-level object `key` of `text` and return the rewritten text.
+ * Only the deleted members' bytes disappear; every other member keeps its exact spelling (number
+ * literals included) and its indentation. The result is re-parsed and compared against the parsed
+ * settings minus the deleted keys, so a disagreement between the scan and the parser is a refusal,
+ * not a damaged file.
+ */
+function removeObjectMembers(
+	text: string,
+	settings: Record<string, unknown>,
+	key: string,
+	keysToRemove: readonly string[]
+): string {
+	const top = scanJsonObjectMembers(text, skipJsonWhitespace(text, 0));
+	const targets = top.members.filter((member) => member.key === key);
+	if (targets.length !== 1) throw new Error(`expected exactly one "${key}" member, found ${targets.length}`);
+	const target = targets[0];
+
+	const inner = scanJsonObjectMembers(text, target.valueStart);
+	const kept = inner.members.filter((member) => !keysToRemove.includes(member.key));
+	if (kept.length === inner.members.length) throw new Error(`"${key}" holds none of the members to remove`);
+
+	const body = kept.map((member) => text.slice(member.leadingStart, member.end)).join(",");
+	const tail = text.slice(inner.members[inner.members.length - 1].end, inner.closeBrace);
+	const patched = text.slice(0, target.valueStart) + "{" + body + tail + "}" + text.slice(target.end);
+
+	const remaining = { ...(settings[key] as Record<string, unknown>) };
+	for (const removedKey of keysToRemove) delete remaining[removedKey];
+	if (JSON.stringify(JSON.parse(patched)) !== JSON.stringify({ ...settings, [key]: remaining })) {
+		throw new Error(`refusing to rewrite "${key}": the edited text does not match the parsed settings`);
+	}
+	return patched;
+}
+
+/**
  * Erase the retired credentials from a settings file, in place.
  *
  * Best-effort by contract:
@@ -523,21 +673,21 @@ const RETIRED_VOICE_KEYS = ["deepgramApiKey", "localEndpoint"] as const;
  *
  * Deliberately not `saveConfig`: that refuses to write when the in-memory config came from defaults,
  * and it rebuilds the whole `voice` block from the parsed config. Here the file is the truth and
- * every other key is left exactly as it was.
+ * every other key is left exactly as it was — including values `JSON.parse`/`JSON.stringify` cannot
+ * round-trip, which is why the rewrite deletes the two members from the raw text instead of
+ * reserializing the document.
  */
 export function scrubRetiredVoiceKeys(settingsPath: string): { removed: string[]; message?: string } {
 	if (!fs.existsSync(settingsPath)) return { removed: [] };
 
-	const settings = readSettingsForWrite(settingsPath);
+	const { text, settings } = readSettingsForWrite(settingsPath);
 	const existing = settings[SETTINGS_KEY];
-	if (!existing || typeof existing !== "object") return { removed: [] };
+	if (!existing || typeof existing !== "object" || Array.isArray(existing)) return { removed: [] };
 
-	const voice = existing as Record<string, unknown>;
-	const removed = RETIRED_VOICE_KEYS.filter((key) => key in voice);
+	const removed = RETIRED_VOICE_KEYS.filter((key) => key in existing);
 	if (removed.length === 0) return { removed: [] };
 
-	for (const key of removed) delete voice[key];
-	writeSettingsFile(settingsPath, settings);
+	writeSettingsText(settingsPath, removeObjectMembers(text, settings, SETTINGS_KEY, removed));
 
 	return {
 		removed,
