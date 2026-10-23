@@ -1,7 +1,7 @@
 {
   "name": "pi-voicekit",
   "version": "0.5.1",
-  "description": "Voice in + voice out for Pi CLI — hold-to-talk STT for Chinese and English (Deepgram streaming or 21 offline models) plus TTS (Kitten Nano, Piper, Kokoro, or Deepgram Aura)",
+  "description": "Voice in + voice out for Pi CLI — local-only hold-to-talk STT for Chinese and English (21 offline models) plus offline TTS (Kitten Nano, Piper, Kokoro); audio never leaves your machine",
   "type": "module",
   "keywords": [
     "pi-package",
@@ -10,8 +10,11 @@
     "voice",
     "speech-to-text",
     "stt",
-    "deepgram",
-    "nova-3",
+    "local-first",
+    "offline",
+    "private",
+    "privacy",
+    "air-gapped",
     "hold-to-talk",
     "voice-input",
     "transcription",
@@ -25,9 +28,7 @@
     "text-to-speech",
     "kitten-tts",
     "piper-tts",
-    "kokoro",
-    "deepgram-tts",
-    "aura"
+    "kokoro"
   ],
   "author": {
     "name": "codexstar69",
@@ -55,19 +56,14 @@
     "@earendil-works/pi-coding-agent": "*",
     "@earendil-works/pi-tui": "*"
   },
-  "dependencies": {
-    "ws": "^8.22.0"
-  },
   "devDependencies": {
     "@earendil-works/pi-coding-agent": "^0.87.1",
     "@earendil-works/pi-tui": "^0.87.1",
-    "@types/ws": "^8",
     "prettier": "3.3.3"
   },
   "overrides": {
     "protobufjs": "^7.6.6",
-    "@protobufjs/utf8": "^1.1.2",
-    "ws": "$ws"
+    "@protobufjs/utf8": "^1.1.2"
   },
   "pi": {
     "extensions": [

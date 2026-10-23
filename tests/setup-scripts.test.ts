@@ -24,6 +24,7 @@ describe("documentation", () => {
 		expect(pkg.name).toBe("pi-voicekit");
 		expect(pkg.pi?.extensions).toContain("./extensions/voice.ts");
 		expect(pkg.keywords).toContain("pi-extension");
-		expect(pkg.keywords).toContain("deepgram");
+		expect(pkg.keywords).not.toContain("deepgram");
+		expect(pkg.keywords).toContain("privacy");
 	});
 });

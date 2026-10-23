@@ -115,9 +115,19 @@ describe("Pi dependency support", () => {
 	});
 });
 
-// The three packages the security overrides exist for. `ws` is the only one a
-// consumer receives; the other two arrive through the pinned Pi dev baseline.
-const GUARDED_PACKAGES = ["protobufjs", "@protobufjs/utf8", "ws"] as const;
+// The two packages the security overrides exist for. Both arrive through the pinned
+// Pi dev baseline; the published package ships no runtime dependency of its own.
+const GUARDED_PACKAGES = ["protobufjs", "@protobufjs/utf8"] as const;
+
+describe("published manifest metadata", () => {
+	test("the ws dependency is gone from every manifest field", () => {
+		const pkg = readJson("package.json");
+		expect(Object.keys(pkg.dependencies ?? {})).toEqual([]);
+		expect(pkg.overrides?.ws).toBeUndefined();
+		expect(Object.keys(pkg.devDependencies ?? {})).not.toContain("@types/ws");
+		expect(Object.keys(pkg.devDependencies ?? {})).not.toContain("ws");
+	});
+});
 
 function escapeRegExp(value: string): string {
 	return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
