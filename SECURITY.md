@@ -7,6 +7,9 @@
 | 0.6.x   | ✅ Active support |
 | < 0.6   | ❌ Not supported — those releases still carry the cloud backends; upgrade |
 
+> **Audit status.** The most recent audit on record is dated 2026-03-12 and covered the pre-3.0
+> codebase; it says nothing about 0.6.0, and no audit of this version exists.
+
 ## Reporting a Vulnerability
 
 If you discover a security vulnerability in pi-voicekit, **please report it responsibly.**

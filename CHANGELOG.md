@@ -25,9 +25,11 @@ stored or a `localEndpoint` pointed somewhere, that path no longer exists and no
   synthesised in process by a local TTS model — Kitten Nano, Piper or Kokoro — and `/voice-speak` fetches a local
   voice instead of calling a cloud one.
 - **The external-server fallback is removed with `localEndpoint`.** 0.5.x could post audio to a sherpa server
-  over HTTP instead of loading the engine in process, and a non-loopback endpoint was how some setups kept
-  recognition outside the CLI. Neither is possible any more: the engine loads in process, or dictation does not
-  run.
+  over HTTP instead of loading the engine in process, but only when that endpoint was loopback: the transcription
+  path refused anything else outright, so the setting never made remote recognition work. What a non-loopback
+  endpoint did do was reach out unguarded from the `/voice test` health probe, which reported a host of the
+  user's choosing as reachable without ever sending it audio. None of it survives: the engine loads in process,
+  or dictation does not run.
 - **`ws` is no longer a dependency, and nothing is left under `dependencies`.** It was the last runtime
   dependency the package installed for itself; the only one it still declares is `sherpa-onnx-node` in
   `optionalDependencies`, optional precisely because the native engine has no build for every platform, so an
@@ -54,7 +56,7 @@ stored or a `localEndpoint` pointed somewhere, that path no longer exists and no
   `/voice-setup`, and leaves hold-to-talk off until one is selected. Nothing else in the global `settings.json`
   is changed by the retired-key cleanup.
 - **The only outbound request left is the first-use model download.** Recognition, punctuation and synthesis run
-  inside the process, so audio is not transmitted anywhere; the download is a file fetch, made once per model
+  inside the process, so no audio reaches a remote speech service; the download is a file fetch, made once per model
   and resumable, and `tests/no-cloud-egress.test.ts` gates the source tree against a cloud call site returning.
 
 ### Migration

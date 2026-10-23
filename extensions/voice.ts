@@ -949,6 +949,10 @@ export default function (pi: ExtensionAPI) {
 		hideWidget();
 		resetHoldState();
 		_startingRecording = false;
+		// The flag dies with the mode it describes: a panel round-trip that clears the model mid-dictation
+		// disarms here, and leaving it set would make the next toggle press a "Dictation mode stopped."
+		// no-op instead of a start. `voiceCleanup` resets it for the same reason.
+		dictationMode = false;
 		audioLevel = 0;
 		audioLevelSmoothed = 0;
 		recordingStart = 0;

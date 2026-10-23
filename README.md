@@ -139,8 +139,9 @@ not supported (the model measured F1 0.175 on English), and a transcript whose
 punctuation is already dense enough — one mark per 20 characters or more — is left alone;
 a sparser one is punctuated even if it carries a mark or two.
 
-The model is a one-time ~285 MB download, fetched in the background the first time a
-dictation needs it: that first dictation gets no mark added while the download starts.
+The model is a one-time ~285 MB download, fetched in the background from the moment a session
+starts — or, on a machine where that did not happen, the first time a dictation needs it.
+Either way a dictation that arrives while the download is still running gets no mark added.
 Once the download has completed, verified against its digest and the engine has been
 constructed — any of which can fail — later qualifying dictations are punctuated; until
 then they get no mark added, and `/voice-punctuation status` reports the state. The
@@ -156,13 +157,14 @@ it did not, and the state of the model.
 
 | Action               | Key                  | Notes                                                                   |
 | -------------------- | -------------------- | ----------------------------------------------------------------------- |
-| **Record to editor** | Hold `SPACE` (≥0.7s) | Release to finalize. Pre-records during warmup so you don't miss words. |
+| **Record to editor** | Hold `SPACE` (≥0.7s) | Release to finalize. Capture starts when the hold reaches the threshold. |
 | **Toggle recording** | `Ctrl+Shift+V`       | Works in all terminals — press to start, press again to stop.           |
 | **Clear editor**     | `Escape` × 2         | Double-tap within 500ms to clear all text.                              |
 
 ### How recording works
 
-1. **Hold SPACE** — the warmup countdown appears and audio capture starts immediately (pre-recording)
+1. **Hold SPACE** — a countdown shows how long is left. Audio capture starts when the threshold is
+   reached, so begin speaking then: anything said during the countdown is not recorded
 2. **Keep holding** — audio streams into a memory buffer
 3. **Release SPACE** — recording continues for 1.5s (tail recording) to catch your last word, then finalizes
 4. The active local model transcribes the buffer in process (2–10 seconds), the transcript is
@@ -327,7 +329,7 @@ this README.
 | **Enterprise download pipeline** | Pre-checks (disk, network, permissions), live progress with speed/ETA, post-verification |
 | **Handy integration**            | Auto-detects models from Handy app, imports via symlink                                  |
 | **Audio fallback chain**         | Tries sox → ffmpeg → arecord in order — ffmpeg first when `PULSE_SERVER` is set          |
-| **Pre-recording**                | Audio capture starts during warmup — you never miss the first word                       |
+| **Hold threshold**               | 200–3000 ms, default 700 ms (`/voice-hold-delay`). Capture starts at the threshold, not on the press |
 | **Tail recording**               | Keeps recording 1.5s after release so your last word isn't clipped                       |
 | **Offline punctuation**          | Chinese dictations that come back unpunctuated get full stops, commas and question marks from an in-process model — marks only, no wording changes, fail-open, English not supported. Both engines stay resident (~300 MB each) and the model is fetched once — see [Engine residency](docs/BENCHMARKS.md#engine-residency) |
 | **Chinese + English**            | The supported and validated scope, mixed Chinese–English included. Every other language in the catalogue is unvalidated — see [Language scope](#language-scope). |

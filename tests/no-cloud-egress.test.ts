@@ -52,8 +52,22 @@ test("speak.ts and the settings panel carry no cloud TTS dispatch", () => {
 	).toEqual([]);
 });
 
+/**
+ * Aura ids are `aura-<name>-<lang>`, and Aura-2 inserts the generation: `aura-2-thalia-en`, which is
+ * the shape the removed backend documented and a user could paste into `ttsDeepgramVoiceId`. The
+ * optional group is the point — a pattern that only matched Aura-1 would pass this file while a
+ * reintroduced Aura-2 voice sat in the settings panel undetected.
+ */
+const AURA_VOICE_ID = /aura-(?:\d+-)?[a-z]+-[a-z]{2}/;
+
+test("the Aura voice-id pattern matches the identifiers the removed backend used", () => {
+	expect(AURA_VOICE_ID.test("aura-2-thalia-en")).toBe(true);
+	expect(AURA_VOICE_ID.test("aura-asteria-en")).toBe(true);
+	expect(AURA_VOICE_ID.test("aurelia")).toBe(false);
+});
+
 test("the settings panel names no Deepgram Aura voice", () => {
-	expect(matching(/aura-[a-z]+-[a-z]{2}/, ["extensions/voice/settings-panel.ts"])).toEqual([]);
+	expect(matching(AURA_VOICE_ID, ["extensions/voice/settings-panel.ts"])).toEqual([]);
 });
 
 test("voice.ts registers no cloud TTS command or import", () => {

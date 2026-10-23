@@ -170,8 +170,10 @@ step is blocked — a proxy, a firewall, DNS, an offline machine — or the disk
   `~/.pi/models`, so the TTS collection appears as one aggregate `tts` row — deleting that row
   removes every installed TTS model.
 - Confirm the machine can reach both download hosts. Every speech model and the punctuation model
-  come from `huggingface.co`; TTS archives come from `github.com`. Those two hosts are the whole
-  allowlist. Blocking `github.com` breaks only the TTS install — speech recognition still
+  come from `huggingface.co`; TTS archives come from `github.com`. Those two are the initial
+  download sources, not the whole allowlist: the requests follow redirects, and a GitHub release
+  download is answered from a separate asset host (`*.githubusercontent.com`), so that host must be
+  reachable too. Blocking `github.com` breaks only the TTS install — speech recognition still
   installs; blocking `huggingface.co` stops both speech recognition and punctuation.
 
 Once the files are on disk, dictation, punctuation and speech all work with the network down —
