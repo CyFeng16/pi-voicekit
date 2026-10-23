@@ -71,8 +71,9 @@ HuggingFace or GitHub releases.
 
 ### 2. No Telemetry
 
-pi-voicekit does not collect, transmit, or store any usage data, analytics, or telemetry. Nothing is
-sent anywhere: there is no crash reporter and no remote logging.
+pi-voicekit does not collect, transmit, or store any usage data, analytics, or telemetry. No
+telemetry, analytics or crash reporting is transmitted: there is no crash reporter and no remote
+logging.
 
 ### 3. Minimal Attack Surface
 

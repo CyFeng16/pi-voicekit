@@ -513,15 +513,17 @@ model is on disk, dictation and speech work with the network down.
 - `/voice history` keeps this session's transcripts in memory only.
 - `PI_VOICE_DEBUG=1` appends diagnostics — including a 100-character transcript preview —
   to `$TMPDIR/pi-voice-debug.log`. It is off unless you set it.
-- No telemetry, no analytics, no crash reporting: nothing is sent anywhere.
+- No telemetry, analytics or crash reporting is transmitted: there is no crash reporter and no
+  remote logging.
 
 ### Upgrading from 0.5.x
 
-0.6.0 removed the cloud backends, so the first start erases a stored `deepgramApiKey` and
-a `localEndpoint` from `settings.json` and tells you it did. The rest of the file is left
-exactly as it was, byte for byte, including formatting `JSON.parse`/`JSON.stringify` would
-not preserve. An API key exported from a shell profile or `~/.env.secrets` is no longer
-read at all; the extension does not edit those files, so delete the line yourself.
+0.6.0 removed the cloud backends, so the first start erases a stored provider API key and a
+`localEndpoint` from `settings.json` and tells you it did — the field names are listed in
+[SECURITY.md](SECURITY.md). The rest of the file is left exactly as it was, byte for byte,
+including formatting `JSON.parse`/`JSON.stringify` would not preserve. An API key exported from
+a shell profile or `~/.env.secrets` is no longer read at all; the extension does not edit those
+files, so delete the line yourself.
 
 See [SECURITY.md](SECURITY.md) for vulnerability reporting.
 

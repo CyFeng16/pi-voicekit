@@ -129,7 +129,8 @@ Your terminal may be sending key-repeat events faster than expected. The typing 
 
 ### Workarounds
 - Use `Ctrl+Shift+V` exclusively (toggle mode, no hold detection involved)
-- The hold threshold is 1200ms — a normal space press is well under this
+- The hold threshold is 700ms — `/voice-hold-delay` accepts 200–3000 ms, so raise it if a
+  normal space press still trips the detector
 
 ## Symptom: transcription times out
 
@@ -143,6 +144,30 @@ on this CPU, or the native runtime is in a bad state after an install change.
 - Restart Pi if you switched or upgraded pi-voicekit since it started
 - Dictate in shorter bursts (`/voice dictate` accepts `/voice stop` at any time), or pick a faster
   model in the Device tab
+
+## Symptom: the model download fails, or the model never reaches ready
+
+### What it means
+
+Model files are the only thing pi-voicekit fetches from the network: the speech model, the TTS
+model and the ~285 MB punctuation model, downloaded once on first use from `huggingface.co` or
+`github.com`. A download that fails, or a model that stays unusable, means that single outbound
+step is blocked — a proxy, a firewall, DNS, an offline machine — or the disk is full.
+
+### Fix
+
+- Retry. A partial download is kept next to the target file and resumed with a `Range` request,
+  so the next attempt starts where the last one stopped.
+- Check free space in the settings panel's **Device** tab (`/voice-settings`). A download refuses
+  to start when the volume cannot hold 1.2× the model size, and reports the free and required
+  megabytes in the error.
+- If retries keep failing on a partial file, delete the model in the **Downloaded** tab (select
+  it, press `x` twice) or remove `~/.pi/models/<model-id>/` and fetch it again.
+- Confirm the machine can reach `huggingface.co` and `github.com`. Those two hosts are the whole
+  allowlist, and if either is blocked no model can be installed.
+
+Once the files are on disk, dictation, punctuation and speech all work with the network down —
+the download is the only outbound step in the extension.
 
 ## Symptom: last word gets cut off
 

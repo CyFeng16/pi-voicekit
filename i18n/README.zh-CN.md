@@ -355,6 +355,10 @@ extensions/voice/ui-icons.ts                字形与图标集
 extensions/voice/ui-width.ts                中日韩宽字符感知的宽度工具
 extensions/voice/ui-locale-labels.ts        本地语言名与音色标签
 
+# benchmarks（仅仓库内 — 从不发布）
+bench/manifest.jsonl                        基准切片：数据集、划分、许可证、选择规则
+bench/fetch.py                              确定性拉取脚本 — 写入 bench/data/（已 gitignore）
+
 # types
 extensions/voice/sherpa-onnx-node.d.ts      可选原生模块的类型声明
 ```
@@ -458,12 +462,13 @@ TTS 模型，以及需要它的机器上那份约 285 MB 的标点模型。下�
 - `/voice history` 仅在内存中保留本会话的转录。
 - `PI_VOICE_DEBUG=1` 会把诊断信息（包含最多 100 个字符的转录预览）追加到
   `$TMPDIR/pi-voice-debug.log`。除非你设置该变量，否则它是关闭的。
-- 没有遥测、没有分析、没有崩溃上报：任何数据都不会被发送出去。
+- 不传输遥测、分析或崩溃上报数据：没有任何崩溃上报器，也没有远程日志。
 
 ### 从 0.5.x 升级
 
-0.6.0 移除了云端后端，因此首次启动会清除 `settings.json` 中保存的 `deepgramApiKey` 与
-`localEndpoint`，并告知你做过这件事。文件其余部分保持原样、逐字节不变，包括
+0.6.0 移除了云端后端，因此首次启动会清除 `settings.json` 中保存的提供商 API 密钥与
+`localEndpoint`，并告知你做过这件事（字段名见 [SECURITY.md](../SECURITY.md)）。
+文件其余部分保持原样、逐字节不变，包括
 `JSON.parse`/`JSON.stringify` 无法保留的格式。从 shell 配置或 `~/.env.secrets` 导出的 API 密钥
 不再被读取；扩展不会修改这些文件，请自行删除那一行。
 
