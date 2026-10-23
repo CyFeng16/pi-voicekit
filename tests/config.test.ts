@@ -10,6 +10,7 @@ import {
 	needsOnboarding,
 	saveConfig,
 	saveGlobalVoiceFields,
+	scrubRetiredVoiceKeys,
 	VOICE_CONFIG_VERSION,
 	type VoiceConfig,
 } from "../extensions/voice/config";
@@ -732,6 +733,102 @@ describe("v5 config migration (the cloud backend fields are gone)", () => {
 	});
 });
 
+describe("scrubRetiredVoiceKeys (the retired credentials are erased on startup)", () => {
+	function writeRaw(dir: string, contents: unknown): string {
+		const settingsPath = path.join(dir, "settings.json");
+		fs.mkdirSync(dir, { recursive: true });
+		fs.writeFileSync(settingsPath, JSON.stringify(contents, null, 2));
+		return settingsPath;
+	}
+
+	test("removes a stored key and endpoint, leaving every other key untouched", () => {
+		const settingsPath = writeRaw(makeTempDir(), {
+			theme: "x",
+			voice: {
+				language: "zh",
+				deepgramApiKey: "SECRET-0.5.x-key",
+				localEndpoint: "http://10.0.0.5:8080",
+				localModel: "paraformer-zh",
+			},
+		});
+
+		const result = scrubRetiredVoiceKeys(settingsPath);
+
+		expect(result.removed).toEqual(["deepgramApiKey", "localEndpoint"]);
+		// The sentence is assembled in config.ts — the one file the egress gate exempts — so the
+		// caller only ever displays it. It names the retired keys and the env var, and neither the
+		// secret value nor the host may reach the notice.
+		expect(result.message).toContain("deepgramApiKey");
+		expect(result.message).toContain("localEndpoint");
+		expect(result.message).toContain("DEEPGRAM_API_KEY");
+		expect(result.message).toContain("0.6.0");
+		expect(result.message).toContain("~/.env.secrets");
+		expect(result.message).not.toContain("SECRET-0.5.x-key");
+		expect(result.message).not.toContain("10.0.0.5");
+
+		const after = JSON.parse(fs.readFileSync(settingsPath, "utf8"));
+		expect(after.theme).toBe("x");
+		expect(after.voice.language).toBe("zh");
+		expect(after.voice.localModel).toBe("paraformer-zh");
+		expect("deepgramApiKey" in after.voice).toBe(false);
+		expect("localEndpoint" in after.voice).toBe(false);
+	});
+
+	test("creates no settings file when none exists", () => {
+		const dir = makeTempDir();
+		const settingsPath = path.join(dir, "settings.json");
+
+		const result = scrubRetiredVoiceKeys(settingsPath);
+
+		expect(result.removed).toEqual([]);
+		expect(result.message).toBeUndefined();
+		expect(fs.existsSync(settingsPath)).toBe(false);
+		// Not even a stray temp file from the atomic writer.
+		expect(fs.readdirSync(dir)).toEqual([]);
+	});
+
+	test("refuses to rewrite an unreadable settings file", () => {
+		const dir = makeTempDir();
+		const settingsPath = path.join(dir, "settings.json");
+		fs.writeFileSync(settingsPath, "{ not json");
+
+		expect(() => scrubRetiredVoiceKeys(settingsPath)).toThrow(/unread|refus/i);
+		expect(fs.readFileSync(settingsPath, "utf8")).toBe("{ not json");
+	});
+
+	test("is idempotent", () => {
+		const settingsPath = writeRaw(makeTempDir(), {
+			voice: { language: "zh", deepgramApiKey: "SECRET-0.5.x-key", localEndpoint: "http://10.0.0.5:8080" },
+		});
+
+		expect(scrubRetiredVoiceKeys(settingsPath).removed).toEqual(["deepgramApiKey", "localEndpoint"]);
+		const afterFirst = fs.readFileSync(settingsPath, "utf8");
+
+		const second = scrubRetiredVoiceKeys(settingsPath);
+
+		// No second notice and no second write: the caller keys the notice on `removed`.
+		expect(second.removed).toEqual([]);
+		expect(second.message).toBeUndefined();
+		expect(fs.readFileSync(settingsPath, "utf8")).toBe(afterFirst);
+	});
+
+	test("does not rewrite a settings file with nothing to remove", () => {
+		// Two shapes reach the same no-op branch: a block that never carried a retired key, and a
+		// file with no voice block at all. Neither may be reformatted or rewritten.
+		const withVoice = JSON.stringify({ voice: { language: "zh", localModel: "paraformer-zh" } }, null, 2);
+		const voicePath = path.join(makeTempDir(), "settings.json");
+		fs.writeFileSync(voicePath, withVoice);
+		expect(scrubRetiredVoiceKeys(voicePath)).toEqual({ removed: [] });
+		expect(fs.readFileSync(voicePath, "utf8")).toBe(withVoice);
+
+		const withoutVoice = JSON.stringify({ theme: "x" }, null, 2);
+		const plainPath = path.join(makeTempDir(), "settings.json");
+		fs.writeFileSync(plainPath, withoutVoice);
+		expect(scrubRetiredVoiceKeys(plainPath)).toEqual({ removed: [] });
+		expect(fs.readFileSync(plainPath, "utf8")).toBe(withoutVoice);
+	});
+});
+
 describe("/voice-speak-stop registration (regression)", () => {
 	// There is no command harness: `extensions/voice.ts` registers its commands only when its
 	// default export runs. This drives the real registration with a minimal mock, then executes
@@ -886,10 +983,21 @@ describe("session_start activation (the local model is the only path)", () => {
 		joinedNotices(): string;
 	}
 
-	async function runSessionStart(voice: unknown): Promise<SessionHarness> {
+	async function runSessionStart(
+		voice: unknown,
+		options: { projectVoice?: unknown; corruptGlobalSettings?: boolean } = {}
+	): Promise<SessionHarness> {
 		const home = makeTempDir();
 		const cwd = makeTempDir();
-		writeSettings(home, ".pi/agent/settings.json", voice);
+		if (options.corruptGlobalSettings) {
+			// A file that exists but cannot be parsed — the one shape the scrub refuses to rewrite.
+			const settingsPath = path.join(home, ".pi", "agent", "settings.json");
+			fs.mkdirSync(path.dirname(settingsPath), { recursive: true });
+			fs.writeFileSync(settingsPath, "{ not json");
+		} else {
+			writeSettings(home, ".pi/agent/settings.json", voice);
+		}
+		if (options.projectVoice !== undefined) writeSettings(cwd, ".pi/settings.json", options.projectVoice);
 
 		const homeSpy = spyOn(os, "homedir").mockReturnValue(home);
 		resetPunctuationForTest(null, () => {});
@@ -979,5 +1087,22 @@ describe("session_start activation (the local model is the only path)", () => {
 		expect(session.joinedNotices()).toContain("/voice-setup");
 		expect(session.joinedNotices()).not.toMatch(/deepgram|cloud|nova-3|two backends/i);
 		expect(session.holdToTalkSubscribed).toBe(false);
+	});
+
+	test("a scrub failure does not stop the session from wiring voice", async () => {
+		// Review Focus #2: the credential scrub is best-effort. The global settings file it targets is
+		// unparseable while this session's config comes from the project file, so activation still has
+		// its local model and the scrub is the only thing that fails. The handler must warn, then keep
+		// going to setupHoldToTalk() — a privacy cleanup may never cost dictation.
+		const session = await runSessionStart(undefined, {
+			corruptGlobalSettings: true,
+			projectVoice: { onboarding: { completed: true }, localModel: "paraformer-zh", language: "zh" },
+		});
+
+		expect(session.holdToTalkSubscribed).toBe(true);
+		const warnings = session.notices.filter(([, type]) => type === "warning");
+		expect(warnings).toHaveLength(1);
+		expect(warnings[0]![0]).toMatch(/settings file/i);
+		expect(warnings[0]![0]).toMatch(/still on disk/i);
 	});
 });

@@ -361,11 +361,6 @@ export function loadGlobalToggleShortcut(options: ConfigPathOptions = {}): strin
 	return fallback;
 }
 
-/** The config `session_start` persists once a migration marks onboarding complete; nothing is stripped. */
-export function getSessionStartPersistedConfig({ config }: { config: VoiceConfig }): VoiceConfig {
-	return config;
-}
-
 function serializeConfig(config: VoiceConfig, scope: VoiceSettingsScope): VoiceConfig {
 	return {
 		...config,
@@ -501,6 +496,58 @@ export function saveGlobalVoiceFields(
 	settings[SETTINGS_KEY] = voice;
 	writeSettingsFile(settingsPath, settings);
 	return settingsPath;
+}
+
+/**
+ * The two settings a 0.5.x file may still carry from the retired speech backends. They are not read
+ * any more, but they are still credentials on disk, and the product now claims audio never leaves the
+ * machine — so the first start after the upgrade erases them. They are spelled here, in the one file
+ * the egress gate exempts, so `voice.ts` never has to name them.
+ */
+const RETIRED_VOICE_KEYS = ["deepgramApiKey", "localEndpoint"] as const;
+
+/**
+ * Erase the retired credentials from a settings file, in place.
+ *
+ * Best-effort by contract:
+ * - a missing file returns `{ removed: [] }` and is NOT created — a machine that never configured
+ *   voice should not grow a settings file out of a cleanup;
+ * - a file that exists but cannot be parsed throws (`readSettingsForWrite`) instead of being
+ *   replaced by `{}`; the caller decides what that failure costs;
+ * - a file with nothing to remove is not rewritten at all.
+ *
+ * `message` is the finished, user-facing sentence, assembled here rather than at the call site:
+ * `voice.ts` must never contain a retired identifier (spec §8.3), and this module is the single
+ * exemption in `tests/no-cloud-egress.test.ts`. The sentence names the keys and the environment
+ * variable, and never the secret value or an endpoint host.
+ *
+ * Deliberately not `saveConfig`: that refuses to write when the in-memory config came from defaults,
+ * and it rebuilds the whole `voice` block from the parsed config. Here the file is the truth and
+ * every other key is left exactly as it was.
+ */
+export function scrubRetiredVoiceKeys(settingsPath: string): { removed: string[]; message?: string } {
+	if (!fs.existsSync(settingsPath)) return { removed: [] };
+
+	const settings = readSettingsForWrite(settingsPath);
+	const existing = settings[SETTINGS_KEY];
+	if (!existing || typeof existing !== "object") return { removed: [] };
+
+	const voice = existing as Record<string, unknown>;
+	const removed = RETIRED_VOICE_KEYS.filter((key) => key in voice);
+	if (removed.length === 0) return { removed: [] };
+
+	for (const key of removed) delete voice[key];
+	writeSettingsFile(settingsPath, settings);
+
+	return {
+		removed,
+		message: [
+			"pi-voicekit is local-only from 0.6.0: your audio never leaves this machine.",
+			`Erased the retired ${removed.join(" and ")} from ${settingsPath}.`,
+			"A DEEPGRAM_API_KEY exported from ~/.env.secrets or a shell rc file is no longer read,",
+			"and pi-voicekit does not edit those files — delete it there yourself.",
+		].join("\n"),
+	};
 }
 
 export function needsOnboarding(config: VoiceConfig, source: VoiceConfigSource): boolean {

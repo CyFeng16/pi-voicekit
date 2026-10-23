@@ -66,11 +66,12 @@ import * as os from "node:os";
 import * as path from "node:path";
 import {
 	DEFAULT_CONFIG,
-	getSessionStartPersistedConfig,
+	getGlobalSettingsPath,
 	loadConfigWithSource,
 	loadGlobalToggleShortcut,
 	saveConfig,
 	saveGlobalVoiceFields,
+	scrubRetiredVoiceKeys,
 	type VoiceConfig,
 	type VoiceSettingsScope,
 } from "./voice/config";
@@ -2190,6 +2191,27 @@ export default function (pi: ExtensionAPI) {
 		// a fresh `pi` process picks up source changes).
 		voiceDebug("pi-voicekit loaded", { reason });
 
+		// Privacy cleanup, on EVERY start and before any early return below: a file written by 0.5.x may
+		// still carry the retired backend credentials, and the product now claims audio never leaves the
+		// machine. Best-effort — the file may be unreadable, and that must not cost dictation, exactly
+		// like the voiceCleanup guard at the top of this handler. The notice text is built in config.ts
+		// (the one file allowed to name the retired keys); this handler only displays it.
+		try {
+			const scrubbed = scrubRetiredVoiceKeys(getGlobalSettingsPath());
+			if (scrubbed.message && startCtx.hasUI) startCtx.ui.notify(scrubbed.message, "info");
+		} catch (err) {
+			voiceDebug("retired credential scrub failed", { error: safeErrorText(err) });
+			if (startCtx.hasUI) {
+				startCtx.ui.notify(
+					[
+						"pi-voicekit could not read your settings file, so the retired speech-service credentials are still on disk.",
+						`  ${safeErrorText(err)}`,
+					].join("\n"),
+					"warning"
+				);
+			}
+		}
+
 		// Migration / setup runs on EVERY session_start, regardless of reason.
 		// Only the first-run notification is gated on isStartup.
 		if (config.onboarding.completed) {
@@ -2242,8 +2264,7 @@ export default function (pi: ExtensionAPI) {
 			config.onboarding.completed = true;
 			config.onboarding.completedAt = new Date().toISOString();
 			config.onboarding.source = "migration";
-			const configToSave = getSessionStartPersistedConfig({ config });
-			saveConfig(configToSave, config.scope === "project" ? "project" : "global", currentCwd, {
+			saveConfig(config, config.scope === "project" ? "project" : "global", currentCwd, {
 				loadedSource: configSource,
 			});
 			updateVoiceStatus();
