@@ -7,6 +7,62 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-10-23
+
+**This is a breaking release: both cloud backends are gone, and the package is local-only.** Recognition,
+punctuation and synthesis run in process on `sherpa-onnx-node`. If you came to 0.6.0 with a provider key
+stored or a `localEndpoint` pointed somewhere, that path no longer exists and nothing replaces it — the
+[Migration](#migration) steps at the end of this entry are the whole upgrade.
+
+### Removed
+
+- **The streaming speech-to-text backend is removed, and nothing replaces it.** The WebSocket transport, the
+  hosted models and the key that authenticated them are gone from the code. The in-process engine is the only
+  path left, so a configuration that still names the cloud backend dictates nothing until a local model is
+  selected.
+- **The cloud text-to-speech backend is removed.** The hosted Aura voices and their settings are gone; speech is
+  synthesised in process by a local TTS model — Kitten Nano, Piper or Kokoro — and `/voice-speak` fetches a local
+  voice instead of calling a cloud one.
+- **The external-server fallback is removed with `localEndpoint`.** 0.5.x could post audio to a sherpa server
+  over HTTP instead of loading the engine in process, and a non-loopback endpoint was how some setups kept
+  recognition outside the CLI. Neither is possible any more: the engine loads in process, or dictation does not
+  run.
+- **`ws` is no longer a dependency, and the package now declares none.** It was the last runtime dependency; the
+  only declaration left is `sherpa-onnx-node` in `optionalDependencies`, optional precisely because the native
+  engine has no build for every platform, so an install on an unsupported one still completes.
+
+### Changed
+
+- **The first start after the upgrade erases the stored provider key and endpoint from `settings.json`, and says
+  so.** `deepgramApiKey` and `localEndpoint` are deleted from the global `voice` block; every other setting and
+  the file's own formatting are left alone, because the members are cut out of the raw text instead of being
+  re-serialised. A `DEEPGRAM_API_KEY` exported from `~/.env.secrets` or a shell rc file is a different matter —
+  the extension no longer reads it and never edits those files, so deleting that line is yours to do.
+- **The configuration schema moves to version 5, and the retired fields are gone from it.** `deepgramApiKey`,
+  `backend`, `ttsBackend`, `localEndpoint`, `ttsDeepgramVoiceId` and `ttsDeepgramStreaming` are no longer part of
+  `VoiceConfig`. A file written by 0.5.x still loads: the two credentials are erased on the first start, and the
+  other four fields stop being read and drop out the next time the extension writes the file.
+- **The language picker follows the active local model instead of a fixed cloud language table.** It offers the
+  languages the selected model declares it supports, so the list can no longer name a language the active
+  engine cannot transcribe. The loss is regional variants the cloud model accepted — `zh-CN`, `zh-TW`, `zh-HK`,
+  `pt-BR` — which no local model declares; a single-language model skips the picker entirely.
+- **A configuration that finished onboarding without a local model opens the setup panel instead of dictating
+  with an implicit default model.** With the key backend gone, "completed" and "configured" stopped being the
+  same thing: the start notifies that a local model is needed, points at `/voice-setup`, and leaves
+  hold-to-talk off until one is selected. Nothing else in the file is changed by that.
+- **The only outbound request left is the first-use model download.** Recognition, punctuation and synthesis run
+  inside the process, so audio is not transmitted anywhere; the download is a file fetch, made once per model
+  and resumable, and `tests/no-cloud-egress.test.ts` gates the source tree against a cloud call site returning.
+
+### Migration
+
+1. If `DEEPGRAM_API_KEY` is exported in `~/.env.secrets` or a shell rc file, delete that line. 0.6.0 does not
+   read it, and it does not edit those files.
+2. Start Pi once. The retired key and endpoint are erased from `settings.json` and a notice says which ones; the
+   rest of your configuration is untouched.
+3. Run `/voice-setup`, open the **Models** tab and select a model — 43 MB for the smallest — then dictate as
+   before. Speech works the same way once a local TTS model is selected under TTS.
+
 ## [0.5.1] - 2026-10-18
 
 ### Changed
