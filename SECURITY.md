@@ -50,15 +50,26 @@ The following are **out of scope:**
 
 pi-voicekit follows these security principles:
 
-### 1. No audio is transmitted off the machine
+### 1. No audio is uploaded to a remote speech service
 
 Recording, recognition, punctuation and speech synthesis run inside the Pi process on
-[sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx); the audio never leaves the host. There is no
-endpoint to configure and no credential to store.
+[sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx); no audio is sent to a speech service anywhere.
+There is no endpoint to configure and no credential to store.
 
-This is deliberately "off the machine", not "off the process": local playback writes the synthesised
-audio to a temp WAV and hands it to a system player (`afplay`, `paplay`/`aplay`, PowerShell
-`SoundPlayer`) — a local subprocess that runs on the same host (`tts-playback.ts`).
+Two supported configurations put data off the machine, both by the user's own choice and neither by
+the extension's design:
+
+1. **System audio routing.** Playback hands the synthesised WAV to the system player, which inherits
+   the environment. With `PULSE_SERVER` (or an SSH/remote-desktop audio session) pointed at another
+   host, the player sends the speech there. Capture honours the same variable, so a remote microphone
+   means the voice crosses that link before this extension receives it.
+2. **Auto-submit.** `/voice-autosubmit` hands the finished transcript to Pi, which sends it to the
+   configured model. The payload is text rather than audio, and it is off by default — but a
+   dictation then leaves the machine, and the claim above does not cover it.
+
+The claim is therefore about transmission to a speech service, not about every byte that can cross an
+interface: local playback writes a temp WAV and hands it to a system player (`afplay`, `paplay`/`aplay`,
+PowerShell `SoundPlayer`) — a local subprocess that runs on the same host (`tts-playback.ts`).
 
 The enforceable half of the claim is [`tests/no-cloud-egress.test.ts`](tests/no-cloud-egress.test.ts):
 it fails when a module imports the removed WebSocket transport, names a retired vendor identifier or

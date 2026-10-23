@@ -15,7 +15,7 @@
 Hold-to-talk dictation with 21 offline models, plus speech that reads the agent's replies
 aloud. Recognition, punctuation and synthesis all run in process on
 [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx): there is no key, no endpoint and no
-account to set up, and your audio never leaves the machine.
+account to set up, and no audio is uploaded to a remote speech service.
 
 > **Language scope: Chinese and English.** Recognition and punctuation are validated for Chinese,
 > English and mixed Chinese–English dictation only. Every other language a model happens to cover
@@ -474,10 +474,29 @@ saved.
 
 ## Privacy
 
-**No audio is transmitted off the machine.** Recording, recognition, punctuation and
-speech synthesis all run inside the Pi process — sherpa-onnx is loaded natively and works
-on buffers in memory. There is no endpoint to configure, no key to paste, no account to
-create.
+**No audio is uploaded to a remote speech service.** Recording, recognition, punctuation
+and speech synthesis all run inside the Pi process — sherpa-onnx is loaded natively and
+works on buffers in memory. There is no endpoint to configure, no key to paste, no account
+to create.
+
+That is the guarantee the code keeps, and it is narrower than "nothing ever leaves the
+machine". Two configurations this README supports send data off it. Both are your own
+configuration, and the extension does not do either by itself:
+
+1. **System audio routing.** Playback hands the synthesised WAV to the system player, and
+   that process inherits your environment. Point PulseAudio at another host
+   (`PULSE_SERVER`, an SSH audio tunnel, a remote desktop session) and the player sends the
+   speech there — the [audio tool](#setup-2-minutes) honours the same variable, so a
+   remote microphone means your voice crosses that link before this extension ever sees
+   it.
+2. **Auto-submit.** With `/voice-autosubmit` on, the finished transcript is sent to the
+   agent, which passes it to whatever model Pi is configured with. That is text rather
+   than audio, and it is off unless you turn it on — but it is a dictation leaving the
+   machine, and the claim above says nothing about it.
+
+Neither path is a speech service this extension chose. If you need the stronger statement
+— no audio of any kind crossing any interface — keep playback local and leave auto-submit
+off.
 
 ### What the gate checks
 
@@ -491,7 +510,7 @@ plainly: the gate binds the transport and the vendor this repository deleted, an
 ordinary code from growing a new call site. A future module could still build its own
 network client — which is why this is a test you can read, not a promise in prose.
 
-### The one outbound step
+### The one outbound step this extension takes
 
 Model files are downloaded once, on first use, from HuggingFace or GitHub releases: the
 speech models you pick, the TTS models you pick, and the ~285 MB punctuation model on a
@@ -507,9 +526,10 @@ model is on disk, dictation and speech work with the network down.
   to prove the microphone works — it is deleted as soon as its size is read.)
 - Speech playback writes the synthesised audio to a temp WAV with mode `0600` and hands it
   to the local player (`afplay` on macOS, `paplay`/`aplay` on Linux, PowerShell's
-  `SoundPlayer` on Windows), then deletes it. This is why the claim is "not transmitted off
-  the machine" rather than "never leaves the process": a local subprocess does receive the
-  audio, and it is the same machine.
+  `SoundPlayer` on Windows), then deletes it. The player is local but it is a separate
+  process that inherits your environment, which is why [system audio
+  routing](#privacy) is one of the two exceptions above instead of something this
+  extension can promise about.
 - `/voice history` keeps this session's transcripts in memory only.
 - `PI_VOICE_DEBUG=1` appends diagnostics — including a 100-character transcript preview —
   to `$TMPDIR/pi-voice-debug.log`. It is off unless you set it.
