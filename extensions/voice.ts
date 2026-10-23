@@ -3821,26 +3821,6 @@ export default function (pi: ExtensionAPI) {
 		},
 	});
 
-	// v7.1.3 — toggle Deepgram WebSocket streaming TTS (cloud backend).
-	// When ON, /voice-speak uses wss://api.deepgram.com/v1/speak so audio
-	// frames stream into the local player as they arrive (sub-200ms
-	// TTFA in good network conditions). When OFF, the REST `/v1/speak`
-	// path returns a complete WAV.
-	pi.registerCommand("voice-stream", {
-		description: "Toggle Deepgram WebSocket streaming TTS (cloud)",
-		handler: async (args, cmdCtx) => {
-			ctx = cmdCtx;
-			const trimmed = (args || "").trim().toLowerCase();
-			let next: boolean;
-			if (trimmed === "on") next = true;
-			else if (trimmed === "off") next = false;
-			else next = !(config.ttsDeepgramStreaming === true);
-			config.ttsDeepgramStreaming = next;
-			saveConfig(config, config.scope === "project" ? "project" : "global", currentCwd, { loadedSource: configSource });
-			cmdCtx.ui.notify(`Deepgram WebSocket streaming TTS: ${next ? "ON" : "OFF"}`, "info");
-		},
-	});
-
 	// v7.1.3 — tune the hold-to-talk activation delay.
 	pi.registerCommand("voice-hold-delay", {
 		description: "Set hold-to-talk delay in ms (200-3000, default 700)",
@@ -3982,17 +3962,14 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	pi.registerCommand("voice-speak-info", {
-		description: "Show TTS configuration: backend, model, voice, install state",
+		description: "Show TTS configuration: model, voice, install state",
 		handler: async (_args, cmdCtx) => {
 			ctx = cmdCtx;
 			const { getTtsModel, isTtsModelInstalled, TTS_LOCAL_MODELS } = await import("./voice/tts-local-models");
-			const { DEEPGRAM_TTS_VOICES } = await import("./voice/tts-deepgram");
-			const { resolveDeepgramApiKey } = await import("./voice/deepgram");
 
 			const isLocal = (config.ttsBackend ?? "local") === "local";
 			const lines: string[] = ["TTS configuration:", ""];
 			lines.push(`  Enabled:      ${config.ttsEnabled ? "yes" : "no"}`);
-			lines.push(`  Backend:      ${isLocal ? "local (sherpa-onnx)" : "deepgram (cloud REST)"}`);
 			lines.push(`  Language:     ${config.ttsLanguage ?? config.language ?? "en"}`);
 			lines.push(`  Speed:        ${(config.ttsSpeed ?? 1.0).toFixed(2)}x`);
 			lines.push(`  Auto-speak:   ${config.ttsAutoSpeak ? "yes" : "no"}`);
@@ -4019,14 +3996,6 @@ export default function (pi: ExtensionAPI) {
 				}
 				lines.push("");
 				lines.push(`  Catalog:      ${TTS_LOCAL_MODELS.length} models available — /voice-speak-models to browse`);
-			} else {
-				const voiceId = config.ttsDeepgramVoiceId ?? "aura-asteria-en";
-				const voice = DEEPGRAM_TTS_VOICES.find((v) => v.id === voiceId);
-				const apiKey = resolveDeepgramApiKey(config);
-				lines.push("  Deepgram backend:");
-				lines.push(`    Voice:      ${voiceId}${voice ? ` (${voice.name})` : ""}`);
-				lines.push(`    API key:    ${apiKey ? `set (${apiKey.slice(0, 8)}…)` : "NOT SET — set DEEPGRAM_API_KEY"}`);
-				lines.push(`    Catalog:    ${DEEPGRAM_TTS_VOICES.length} Aura voices surfaced`);
 			}
 
 			lines.push("");

@@ -30,7 +30,6 @@ import {
 	type TtsLocalModelInfo,
 	type TtsVoice,
 } from "./tts-local-models";
-import { DEEPGRAM_TTS_VOICES, filterDeepgramVoicesByLanguage } from "./tts-deepgram";
 import { PickerChassis, type PickerRow } from "./ui-picker";
 import { ICON } from "./ui-icons";
 import { localeLabel, formatRomanizedLabel } from "./ui-locale-labels";
@@ -684,7 +683,7 @@ export class VoiceSettingsPanel {
 		//   0: Enabled toggle
 		//   1: Backend toggle
 		//   2: Model picker (local) or read-only label (deepgram)
-		//   3: Voice picker (numeric sid for local; Aura voice id for deepgram)
+		//   3: Voice picker (numeric sid)
 		//   4: Speed (cycles 0.5 / 0.75 / 1.0 / 1.25 / 1.5 / 2.0)
 		//   5: Test (synthesizes "The quick brown fox …")
 		const rows: { label: string; value: string; hint?: string }[] = [
@@ -741,17 +740,13 @@ export class VoiceSettingsPanel {
 
 	/** Status-bar helper: format the current model+voice as one short string. */
 	private formatActiveModelOrVoice(config: VoiceConfig): string {
-		const isLocal = (config.ttsBackend ?? "local") === "local";
-		if (isLocal) {
-			const modelId = config.ttsLocalModel ?? "kitten-nano-en-v0_2";
-			const sid = typeof config.ttsLocalVoiceId === "number" ? config.ttsLocalVoiceId : 0;
-			// Lazy lookup — keep status compact, full label is in the rows below.
-			const model = TTS_LOCAL_MODELS_REF.find((m) => m.id === modelId);
-			const shortName = model?.name ?? modelId;
-			const voice = model?.voices.find((v) => v.sid === sid);
-			return voice ? `${shortName} · ${voice.name}` : `${shortName} · sid ${sid}`;
-		}
-		return config.ttsDeepgramVoiceId ?? "aura-asteria-en";
+		const modelId = config.ttsLocalModel ?? "kitten-nano-en-v0_2";
+		const sid = typeof config.ttsLocalVoiceId === "number" ? config.ttsLocalVoiceId : 0;
+		// Lazy lookup — keep status compact, full label is in the rows below.
+		const model = TTS_LOCAL_MODELS_REF.find((m) => m.id === modelId);
+		const shortName = model?.name ?? modelId;
+		const voice = model?.voices.find((v) => v.sid === sid);
+		return voice ? `${shortName} · ${voice.name}` : `${shortName} · sid ${sid}`;
 	}
 
 	private formatLocalModelLabel(id: string | undefined): string {
@@ -764,15 +759,11 @@ export class VoiceSettingsPanel {
 	}
 
 	private formatVoiceLabel(config: VoiceConfig): string {
-		const isLocal = (config.ttsBackend ?? "local") === "local";
-		if (isLocal) {
-			const modelId = config.ttsLocalModel ?? "kitten-nano-en-v0_2";
-			const sid = typeof config.ttsLocalVoiceId === "number" ? config.ttsLocalVoiceId : 0;
-			const model = TTS_LOCAL_MODELS_REF.find((m) => m.id === modelId);
-			const voice = model?.voices.find((v) => v.sid === sid);
-			return voice ? `${voice.name} (sid ${sid})` : `sid ${sid}`;
-		}
-		return config.ttsDeepgramVoiceId ?? "aura-asteria-en";
+		const modelId = config.ttsLocalModel ?? "kitten-nano-en-v0_2";
+		const sid = typeof config.ttsLocalVoiceId === "number" ? config.ttsLocalVoiceId : 0;
+		const model = TTS_LOCAL_MODELS_REF.find((m) => m.id === modelId);
+		const voice = model?.voices.find((v) => v.sid === sid);
+		return voice ? `${voice.name} (sid ${sid})` : `sid ${sid}`;
 	}
 
 	// ─── Device tab ───────────────────────────────────────────────────────
@@ -1260,26 +1251,18 @@ export class VoiceSettingsPanel {
 
 	private getCurrentVoiceCatalog(): { id: string | number; label: string; meta?: string; language?: string }[] {
 		const { config } = this.p;
-		const isLocal = (config.ttsBackend ?? "local") === "local";
-		if (isLocal) {
-			const modelId = config.ttsLocalModel ?? "kitten-nano-en-v0_2";
-			const model = TTS_LOCAL_MODELS_REF.find((m) => m.id === modelId);
-			if (!model) return [];
-			// v7.1: thread the model's primary language so the picker
-			// can render native-script labels via `localeLabel()`.
-			const language = model.languages[0];
-			return model.voices.map((v: TtsVoice) => ({
-				id: v.sid,
-				label: v.name,
-				meta: v.gender,
-				language,
-			}));
-		}
-		// Deepgram: filter Aura voices by current language for relevance.
-		const lang = config.ttsLanguage || config.language || "en";
-		const filtered = filterDeepgramVoicesByLanguage(lang);
-		const list = filtered.length > 0 ? filtered : DEEPGRAM_TTS_VOICES;
-		return list.map((v) => ({ id: v.id, label: v.name, meta: v.gender, language: v.language }));
+		const modelId = config.ttsLocalModel ?? "kitten-nano-en-v0_2";
+		const model = TTS_LOCAL_MODELS_REF.find((m) => m.id === modelId);
+		if (!model) return [];
+		// v7.1: thread the model's primary language so the picker
+		// can render native-script labels via `localeLabel()`.
+		const language = model.languages[0];
+		return model.voices.map((v: TtsVoice) => ({
+			id: v.sid,
+			label: v.name,
+			meta: v.gender,
+			language,
+		}));
 	}
 
 	private getFilteredTtsVoices(): { id: string | number; label: string; meta?: string; language?: string }[] {
@@ -1293,12 +1276,7 @@ export class VoiceSettingsPanel {
 		this.ttsVoiceSearch = "";
 		const all = this.getCurrentVoiceCatalog();
 		const { config } = this.p;
-		const isLocal = (config.ttsBackend ?? "local") === "local";
-		const currentId: string | number = isLocal
-			? typeof config.ttsLocalVoiceId === "number"
-				? config.ttsLocalVoiceId
-				: 0
-			: (config.ttsDeepgramVoiceId ?? "aura-asteria-en");
+		const currentId: string | number = typeof config.ttsLocalVoiceId === "number" ? config.ttsLocalVoiceId : 0;
 		const idx = all.findIndex((v) => v.id === currentId);
 		this.ttsVoiceRow = idx >= 0 ? idx : 0;
 		this.sub = "tts-voice-picker";
@@ -1308,14 +1286,9 @@ export class VoiceSettingsPanel {
 		const lines: string[] = [];
 		const filtered = this.getFilteredTtsVoices();
 		const { config } = this.p;
-		const isLocal = (config.ttsBackend ?? "local") === "local";
-		const currentId: string | number = isLocal
-			? typeof config.ttsLocalVoiceId === "number"
-				? config.ttsLocalVoiceId
-				: 0
-			: (config.ttsDeepgramVoiceId ?? "aura-asteria-en");
+		const currentId: string | number = typeof config.ttsLocalVoiceId === "number" ? config.ttsLocalVoiceId : 0;
 
-		lines.push(`  ${this.bold(isLocal ? "Pick local voice" : "Pick Deepgram voice")}`);
+		lines.push(`  ${this.bold("Pick voice")}`);
 		const cursor = this.ttsVoiceSearch ? this.ttsVoiceSearch : this.dim("type to filter…");
 		lines.push(`  ${this.dim("Search:")} ${cursor}`);
 		lines.push("");
@@ -1381,11 +1354,8 @@ export class VoiceSettingsPanel {
 		if (matchesKey(data, Key.enter)) {
 			const v = filtered[this.ttsVoiceRow];
 			if (!v) return;
-			const isLocal = (this.p.config.ttsBackend ?? "local") === "local";
-			if (isLocal && typeof v.id === "number") {
+			if (typeof v.id === "number") {
 				this.p.config.ttsLocalVoiceId = v.id;
-			} else if (!isLocal && typeof v.id === "string") {
-				this.p.config.ttsDeepgramVoiceId = v.id;
 			}
 			this.save();
 			this.sub = "main";
