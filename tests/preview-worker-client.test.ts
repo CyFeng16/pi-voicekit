@@ -7,7 +7,6 @@ import {
 	type PreviewEvent,
 	type PreviewWorkerLike,
 } from "../extensions/voice/preview-worker-client";
-import { resolveWorkerEntry } from "../extensions/voice/worker-entry";
 import type { FakePreviewWorkerMode } from "./fixtures/fake-preview-worker";
 
 /**
@@ -26,10 +25,6 @@ const FIXTURE_URL = new URL("./fixtures/fake-preview-worker.ts", import.meta.url
 /** The client must ask for the real entry; a test substitutes the URL, never the contract. */
 // The client resolves its entry through `resolveWorkerEntry`: a published package ships a
 // bundled `.js` (Node cannot strip types under node_modules), a checkout uses the `.ts` source.
-const REAL_WORKER_URL = resolveWorkerEntry(
-	"local-preview-worker",
-	new URL("../extensions/voice/preview-worker-client.ts", import.meta.url).href
-);
 
 interface Spawner {
 	spawn: (url: URL) => PreviewWorkerLike;
@@ -184,7 +179,11 @@ describe("preview worker client", () => {
 		// The recogniser costs ~650 ms to build, so the second recording must not build another one.
 		expect(spawner.spawned).toBe(1);
 		expect(spawner.terminated).toBe(0);
-		expect(spawner.urls.map((url) => url.href)).toEqual([REAL_WORKER_URL.href]);
+		// The client must reach the real entry, never the fixture. Which entry that is depends on
+		// packaging — `.js` in an installed tree, `.ts` in a checkout — and another test builds the
+		// bundles concurrently, so the extension is deliberately not pinned here.
+		expect(spawner.urls).toHaveLength(1);
+		expect(spawner.urls[0].pathname).toMatch(/\/extensions\/voice\/local-preview-worker\.(js|ts)$/);
 		// One worker produced both recordings, and each claim hears only its own.
 		expect(firstEvents.every((event) => event.recordingId === "r1")).toBe(true);
 		expect(secondEvents.every((event) => event.recordingId === "r2")).toBe(true);
