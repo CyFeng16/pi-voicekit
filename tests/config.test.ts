@@ -833,7 +833,7 @@ describe("v6 config migration (the auto-submit switch is gone)", () => {
 
 		const result = loadConfigWithSource(cwd, { agentDir });
 
-		expect("autoSubmitOnSpeak" in (result.config as Record<string, unknown>)).toBe(false);
+		expect("autoSubmitOnSpeak" in (result.config as unknown as Record<string, unknown>)).toBe(false);
 	});
 
 	test("a full save drops the removed switch, keeps other settings, and keeps postProcess keys", () => {
@@ -1353,7 +1353,7 @@ describe("settings writes refuse to destroy a configuration they could not read"
 		expect(() => saveConfig({ ...DEFAULT_CONFIG, scope: "global" }, "global", cwd, { agentDir })).toThrow(
 			/unread|refus/i
 		);
-		expect(() => saveGlobalVoiceFields({ punctuationEnabled: false }, { agentDir })).toThrow(/unread|refus/i);
+		expect(() => saveGlobalVoiceFields({ punctuationNoticeShown: true }, { agentDir })).toThrow(/unread|refus/i);
 		expect(fs.readFileSync(settingsPath, "utf8")).toBe("{ this is not json");
 	});
 });

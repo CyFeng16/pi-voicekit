@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { Worker } from "node:worker_threads";
+import { Worker, type Transferable } from "node:worker_threads";
 import {
 	createPreviewClient,
 	type PreviewClient,

@@ -11,6 +11,14 @@
 
 export type AudioToolName = "ffmpeg" | "sox" | "arecord";
 
-export function audioToolOrder(env: { PULSE_SERVER?: string | undefined } = process.env): AudioToolName[] {
+/** The one environment variable capture-tool preference reads. */
+type CaptureEnv = { PULSE_SERVER?: string | undefined };
+
+/**
+ * Order to try capture tools in. `env` defaults to the process environment: the assertion is only
+ * there because `ProcessEnv` reaches `PULSE_SERVER` through its index signature, so the compiler
+ * cannot tell the optional key exists (TS2559) even though the values are assignable.
+ */
+export function audioToolOrder(env: CaptureEnv = process.env as CaptureEnv): AudioToolName[] {
 	return env.PULSE_SERVER ? ["ffmpeg", "sox", "arecord"] : ["sox", "ffmpeg", "arecord"];
 }

@@ -44,13 +44,13 @@
     "url": "https://github.com/CyFeng16/pi-voicekit/issues"
   },
   "scripts": {
-    "typecheck": "bunx tsc -p tsconfig.json",
+    "typecheck": "bunx tsc -p tsconfig.json && bunx tsc -p tsconfig.tests.json",
     "test": "bun test",
     "build:workers": "bun scripts/build-workers.mjs",
     "prepack": "bun run build:workers",
     "check": "bun run typecheck && bun run test",
-    "format": "prettier --write \"**/*.{ts,json,yml,yaml}\"",
-    "format:check": "prettier --check \"**/*.{ts,json,yml,yaml}\"",
+    "format": "prettier --write \"**/*.{ts,mts,json,yml,yaml}\"",
+    "format:check": "prettier --check \"**/*.{ts,mts,json,yml,yaml}\"",
     "compat:upstream": "node scripts/upstream-compat.mjs",
     "release:dry": "bun run check && bun publish --dry-run"
   },
@@ -61,6 +61,7 @@
   "devDependencies": {
     "@earendil-works/pi-coding-agent": "^0.87.1",
     "@earendil-works/pi-tui": "^0.87.1",
+    "bun-types": "^1.4.4",
     "prettier": "3.3.3"
   },
   "overrides": {
