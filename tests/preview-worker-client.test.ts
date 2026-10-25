@@ -7,6 +7,7 @@ import {
 	type PreviewEvent,
 	type PreviewWorkerLike,
 } from "../extensions/voice/preview-worker-client";
+import { resolveWorkerEntry } from "../extensions/voice/worker-entry";
 import type { FakePreviewWorkerMode } from "./fixtures/fake-preview-worker";
 
 /**
@@ -23,7 +24,12 @@ import type { FakePreviewWorkerMode } from "./fixtures/fake-preview-worker";
 
 const FIXTURE_URL = new URL("./fixtures/fake-preview-worker.ts", import.meta.url);
 /** The client must ask for the real entry; a test substitutes the URL, never the contract. */
-const REAL_WORKER_URL = new URL("../extensions/voice/local-preview-worker.ts", import.meta.url);
+// The client resolves its entry through `resolveWorkerEntry`: a published package ships a
+// bundled `.js` (Node cannot strip types under node_modules), a checkout uses the `.ts` source.
+const REAL_WORKER_URL = resolveWorkerEntry(
+	"local-preview-worker",
+	new URL("../extensions/voice/preview-worker-client.ts", import.meta.url).href
+);
 
 interface Spawner {
 	spawn: (url: URL) => PreviewWorkerLike;

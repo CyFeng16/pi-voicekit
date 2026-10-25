@@ -1,5 +1,6 @@
 import { Worker } from "node:worker_threads";
 import type { FinalRequest, FinalResponse } from "./final-pass-worker";
+import { resolveWorkerEntry } from "./worker-entry";
 
 export interface FinalWorkerLike {
 	postMessage(message: FinalRequest): void;
@@ -140,7 +141,7 @@ export function createFinalPassClient(
 		}, timeoutMs);
 		try {
 			if (!worker) {
-				const created = spawn(new URL("./final-pass-worker.ts", import.meta.url));
+				const created = spawn(resolveWorkerEntry("final-pass-worker", import.meta.url));
 				worker = created;
 				created.on("message", (message: FinalResponse) => {
 					if (worker === created) handle(message);

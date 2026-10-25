@@ -38,6 +38,7 @@
  */
 
 import { Worker, type Transferable } from "node:worker_threads";
+import { resolveWorkerEntry } from "./worker-entry";
 import type { WorkerRequest, WorkerResponse } from "./local-preview-worker";
 
 export type DegradeReason = "preview-worker-failed" | "preview-decode-failed";
@@ -95,8 +96,11 @@ export interface PreviewClient {
 const DEFAULT_FLUSH_TIMEOUT_MS = 5_000;
 const DEFAULT_IDLE_TIMEOUT_MS = 300_000;
 
-/** The entry as a URL: the thread is loaded by the runtime's ESM resolver, never by the host's loader. */
-const WORKER_URL = new URL("./local-preview-worker.ts", import.meta.url);
+/**
+ * The entry as a URL. A published package ships a bundled `.js` next to this file, because
+ * Node will not strip types under `node_modules`; a checkout has only the `.ts` source.
+ */
+const WORKER_URL = resolveWorkerEntry("local-preview-worker", import.meta.url);
 
 type Timer = ReturnType<typeof setTimeout>;
 
