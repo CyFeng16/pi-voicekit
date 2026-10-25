@@ -7,10 +7,12 @@ describe("documentation", () => {
 	const retiredIdentifiers = /deepgram|dpgr\.am/i;
 
 	/**
-	 * The privacy claim and the two exceptions that narrow it. Both are the user's own configuration
-	 * rather than something the extension does: routing playback or capture to another host, and
-	 * handing the transcript to Pi's model. They must sit in the same block as the claim — a reader
-	 * who finds the claim without them believes nothing ever leaves the machine.
+	 * The privacy claim and the one exception that narrows it. That exception is the user's own
+	 * configuration rather than something the extension does: routing playback or capture to another
+	 * host. It must sit in the same block as the claim — a reader who finds the claim without it
+	 * believes nothing ever leaves the machine. The text a user submits is a different kind of
+	 * statement: not an exception to the claim, but a fact the same block has to state, because a
+	 * deleted exception must not take it down with it.
 	 */
 	const CLAIM_EN = "No audio is uploaded to a remote speech service.";
 	const CLAIM_ZH = "没有任何音频被上传到远端语音服务。";
@@ -66,11 +68,14 @@ describe("documentation", () => {
 		expect(readme).toContain("active local model");
 	});
 
-	test("README names both exceptions to the claim where the claim is made", () => {
+	test("README names the single exception to the claim where the claim is made", () => {
 		const block = exceptionBlock(read("README.md"), "## Privacy", CLAIM_EN);
 		expect(block).toContain("System audio routing");
 		expect(block).toContain("PULSE_SERVER");
-		expect(block).toContain("Auto-submit");
+		expect(block).not.toContain("Auto-submit");
+		// The removed exception carried the text-path fact. Deleting it must not narrow the claim, so
+		// the same block still has to say that what the user sends reaches Pi's model.
+		expect(block).toContain("whatever model Pi is configured with");
 	});
 
 	test("zh-CN README mirrors the local-only claim", () => {
@@ -80,11 +85,12 @@ describe("documentation", () => {
 		expect(readme).not.toMatch(retiredIdentifiers);
 	});
 
-	test("zh-CN README carries the same two exceptions", () => {
+	test("zh-CN README carries the same single exception", () => {
 		const block = exceptionBlock(read("i18n/README.zh-CN.md"), "## 隐私", CLAIM_ZH);
 		expect(block).toContain("系统音频路由");
 		expect(block).toContain("PULSE_SERVER");
-		expect(block).toContain("自动提交");
+		expect(block).not.toContain("自动提交");
+		expect(block).toContain("Pi 所配置的模型");
 	});
 
 	test("SECURITY.md states the narrowed claim, under its own heading", () => {
@@ -93,7 +99,8 @@ describe("documentation", () => {
 		// file is where a security reader starts, not the README.
 		expect(security).toContain(`### 1. ${CLAIM_EN.replace(/\.$/, "")}`);
 		expect(security).toContain("System audio routing");
-		expect(security).toContain("Auto-submit");
+		expect(security).not.toContain("Auto-submit");
+		expect(security).toContain("whichever model Pi is configured with");
 	});
 
 	test("no shipped surface carries the absolute the claim was narrowed away from", () => {

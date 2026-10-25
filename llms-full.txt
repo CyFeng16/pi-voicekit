@@ -25,10 +25,11 @@ real one, so this file carries only what is stable and points at the rest.
 
 No audio is uploaded to a remote speech service. Capture, recognition, punctuation and synthesis
 run inside the Pi process; playback writes a temp WAV (mode `0600`) and hands it to a local
-player, then deletes it. Two configurations of the user's own send data off the machine, and the
-claim above does not cover them: system audio routing (a player or capture tool that inherits
-`PULSE_SERVER` / SSH audio is pointed at another host by the user) and `/voice-autosubmit` (the
-finished transcript — text, not audio — goes to Pi and whichever model Pi is configured with).
+player, then deletes it. One configuration the user sets up sends data off the machine, and the claim
+above does not cover it: system audio routing (a player or capture tool that inherits `PULSE_SERVER` /
+SSH audio is pointed at another host by the user). Text is not an exception to that claim: what the
+user sends Pi, typed or dictated and then submitted, goes to whichever model Pi is configured with,
+like every other prompt.
 `tests/no-cloud-egress.test.ts` enforces the part that can be checked: no module imports the
 removed WebSocket transport, names a retired vendor identifier or host, or calls `fetch` outside
 `model-download.ts` and `tts-local-models.ts`. The remaining outbound step is model download,

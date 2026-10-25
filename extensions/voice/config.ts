@@ -842,7 +842,7 @@ export function scrubRetiredVoiceKeys(settingsPath: string): { removed: string[]
 			`Erased the retired ${removed.join(" and ")} from ${settingsPath}.`,
 			"A DEEPGRAM_API_KEY exported from ~/.env.secrets or a shell rc file is no longer read,",
 			"and pi-voicekit does not edit those files — delete it there yourself.",
-			"That claim has two exceptions — system audio routing and /voice-autosubmit — documented",
+			"That claim has one exception — system audio routing — documented",
 			"in the Privacy section of README.md.",
 		].join("\n"),
 	};
