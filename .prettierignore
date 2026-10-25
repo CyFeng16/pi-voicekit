@@ -5,6 +5,14 @@
 # tool-config root (this repo root), so this file is what actually exempts it.
 docs/superpowers/
 
+# The same reason applies to `.superpowers/` — SDD workspaces and the agent
+# artifacts inside them (task briefs, review packages, experiment runs). They are
+# gitignored, never published, and one old workspace alone holds ~480 files of
+# captured runs, so without this line a developer with local SDD state sees
+# `bun run format:check` fail at the repo root while CI (a clean checkout) stays
+# green. Keep this ahead of the markdown rule so the intent reads as one block.
+.superpowers/
+
 # Markdown is hand-formatted by policy (AGENTS.md: "Markdown is intentionally
 # not gated — hand-format docs"), while pi-lens' deferred autoformat would other-
 # wise reflow every edited doc. CI's format:check glob never covered markdown, so
