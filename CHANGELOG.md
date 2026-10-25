@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.5] - 2026-10-25
+
+### Fixed
+
+- **0.6.4 could not start either worker once installed.** Node refuses to strip TypeScript types
+  for files under `node_modules`, and a worker entry is loaded by the runtime's own ESM resolver
+  rather than by the transpiler that loads the extension itself. On an installed copy both workers
+  died at import time: the preview stayed silent and every dictation failed, because the final
+  transcription runs in one. The published package now ships a bundled JavaScript entry beside
+  each worker source (`prepack` builds them; a checkout keeps using the `.ts` source), and the test
+  suite reproduces the installed layout under `node_modules` and spawns the entry with the real
+  Node binary — the case that 0.6.4 shipped without covering.
+
 ## [0.6.4] - 2026-10-25
 
 ### Added
@@ -1486,7 +1499,8 @@ single source of truth per row.
 - VAD pre-filtering
 - Pompom/Lumo creature companion (now separate package)
 
-[Unreleased]: https://github.com/CyFeng16/pi-voicekit/compare/v0.6.4...HEAD
+[Unreleased]: https://github.com/CyFeng16/pi-voicekit/compare/v0.6.5...HEAD
+[0.6.5]: https://github.com/CyFeng16/pi-voicekit/compare/v0.6.4...v0.6.5
 [0.6.4]: https://github.com/CyFeng16/pi-voicekit/compare/v0.6.3...v0.6.4
 [0.6.3]: https://github.com/CyFeng16/pi-voicekit/compare/v0.6.2...v0.6.3
 [0.6.2]: https://github.com/CyFeng16/pi-voicekit/compare/v0.6.1...v0.6.2
