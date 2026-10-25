@@ -4,10 +4,11 @@ import { CONFIG_DIR_NAME, getAgentDir } from "@earendil-works/pi-coding-agent";
 
 export const SETTINGS_KEY = "voice";
 // v4 removed the LLM polish pass and its five `postProcess*` fields; v5 removed the six fields that
-// only the retired cloud backends used. Their values are ignored and never migrated, but an ordinary
-// save keeps a file's own keys in place (spec §4.1); the version is bumped so the schema change is
-// visible, and onboarding stays complete across the bump.
-export const VOICE_CONFIG_VERSION = 5;
+// only the retired cloud backends used; v6 removes the auto-submit switch. Their values are ignored
+// and never migrated, but an ordinary save keeps a file's own `postProcess*` keys in place
+// (spec §4.1); the version is bumped so the schema change is visible, and onboarding stays complete
+// across the bump.
+export const VOICE_CONFIG_VERSION = 6;
 
 export type VoiceSettingsScope = "global" | "project";
 export type VoiceConfigSource = VoiceSettingsScope | "default";
@@ -79,14 +80,6 @@ export interface VoiceConfig {
 	 * `voice.ttsAutoSpeak = false` in settings.json.
 	 */
 	ttsAutoSpeak?: boolean;
-	/**
-	 * v7.1.1: If true, an STT transcription is automatically submitted to
-	 * the agent (turn triggered) instead of just being placed in the
-	 * editor. The user-spoken text bypasses the manual `[enter]` step.
-	 * Defaults to false — preserves the v7.0.x behavior so existing
-	 * users aren't surprised.
-	 */
-	autoSubmitOnSpeak?: boolean;
 	/**
 	 * v7.1.3: hold-to-talk activation delay in milliseconds. Range
 	 * [200, 3000]. Default 700ms — snappy without being trigger-happy.
@@ -161,7 +154,6 @@ export const DEFAULT_CONFIG: VoiceConfig = {
 	ttsLocalVoiceId: 0,
 	ttsSpeed: 1.0,
 	ttsAutoSpeak: true,
-	autoSubmitOnSpeak: false,
 	holdThresholdMs: 700,
 	ttsLanguage: undefined,
 	ttsOnboardingShown: false,
@@ -286,8 +278,6 @@ function migrateConfig(rawVoice: any, source: VoiceConfigSource, globalVoice?: u
 				? Math.max(0.5, Math.min(2.0, rawVoice.ttsSpeed))
 				: DEFAULT_CONFIG.ttsSpeed,
 		ttsAutoSpeak: typeof rawVoice.ttsAutoSpeak === "boolean" ? rawVoice.ttsAutoSpeak : DEFAULT_CONFIG.ttsAutoSpeak,
-		autoSubmitOnSpeak:
-			typeof rawVoice.autoSubmitOnSpeak === "boolean" ? rawVoice.autoSubmitOnSpeak : DEFAULT_CONFIG.autoSubmitOnSpeak,
 		holdThresholdMs:
 			typeof rawVoice.holdThresholdMs === "number" &&
 			Number.isFinite(rawVoice.holdThresholdMs) &&
@@ -545,7 +535,7 @@ type GlobalVoiceFieldKey = "punctuationNoticeShown";
  * `saveConfig(config, "global", …)` renders the WHOLE in-memory config, and in a
  * project-scoped session that object also carries project and default values —
  * writing it globally silently resets every unrelated machine-global setting
- * (TTS speed, auto-submit, hold threshold, …). This writer instead reads the
+ * (TTS speed, hold threshold, …). This writer instead reads the
  * existing global file and merges only the named keys into its `voice` block:
  *
  * - an existing `version` is preserved; a block created here gets the current
