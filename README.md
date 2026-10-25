@@ -94,7 +94,10 @@ When both are in place, hold `SPACE` and dictate.
 
 ## Settings Panel
 
-All configuration lives in one place: `/voice-settings`. Five tabs cover everything you need.
+Everyday configuration lives in one place: `/voice-settings`. Five tabs cover the model,
+language, scope, voice and downloads. A few optional fields have no row of their own and are set
+in `settings.json` instead — the preview's three are listed under
+[Streaming preview](#streaming-preview).
 
 ### General — model, language, scope, voice
 
@@ -105,15 +108,15 @@ switch. Every row is a keyboard shortcut away — `↵` changes, `← →` switc
 
 <img src="https://raw.githubusercontent.com/CyFeng16/pi-voicekit/main/assets/screenshots/settings-models.png" alt="Models tab — browse 22 models with accuracy/speed ratings" width="600" />
 
-Browse 22 models from Parakeet, Whisper, Moonshine, SenseVoice, GigaAM, Paraformer, and Qwen3. Each model shows accuracy and speed ratings (●●●●○/●●●●○), fitness badges, and download status. Fuzzy search to find models fast. Press Enter to activate and download.
+Browse 22 models from Parakeet, Whisper, Moonshine, SenseVoice, GigaAM, Paraformer, and Qwen3. Each model shows accuracy and speed ratings (●●●●○/●●●●○), fitness badges, and download status. Fuzzy search to find models fast. Press Enter to activate and download. The preview entry is the one exception: Enter downloads it, and it can never be activated.
 
 One of the 22 sits in its own **Preview (streaming)** group: a Chinese–English streaming Paraformer
 (226 MB) that is download-only and can never become the final model. Install it and, while you
 record, the words appear in a six-line panel above the editor, scrolled to the newest line.
 The final transcript still comes from your offline model — the preview never writes the editor.
-With the preview model not installed the panel stays away: nothing is downloaded, nothing is
-announced, and dictation behaves exactly as before. `previewEnabled` (a `settings.json` field, on by
-default) turns the panel off without deleting the model.
+With the preview model not installed the preview adds nothing: no panel, no download, no prompt,
+no notice. `previewEnabled` (a `settings.json` field, on by default) turns the panel off without
+deleting the model.
 
 > Screenshots were captured on a v7.0 build: the panel now has five tabs (Speak was added)
 > and the catalogue has grown to 22 models.
@@ -122,7 +125,7 @@ default) turns the panel off without deleting the model.
 
 <img src="https://raw.githubusercontent.com/CyFeng16/pi-voicekit/main/assets/screenshots/settings-downloaded.png" alt="Downloaded tab — manage installed models, activate or delete" width="600" />
 
-See what's installed, total disk usage, and which model is active. Press Enter to activate, `x` to delete. Models from [Handy](https://github.com/cjpais/handy) are auto-detected and can be imported without re-downloading.
+See what's installed, total disk usage, and which model is active. Press Enter to activate, `x` to delete. The preview model appears here too, marked `preview only`; Enter does not activate it. Models from [Handy](https://github.com/cjpais/handy) are auto-detected and can be imported without re-downloading.
 
 ### Speak — TTS models and voices
 
@@ -339,7 +342,7 @@ this README.
 | **22 local models**              | 21 offline recognisers plus one streaming preview model — Parakeet, Whisper, Moonshine, SenseVoice, GigaAM, Paraformer, Qwen3 — with accuracy/speed ratings |
 | **Live streaming preview**       | Words appear above the editor while you record, scrolled to the newest line. The preview model is optional (226 MB), download-only, silent when absent, and never produces the final transcript |
 | **Offline speech**               | 20 local TTS models (Kitten, Kokoro, Piper) read the agent's replies through the system player |
-| **Unified settings panel**       | One overlay panel for all configuration — `/voice-settings`                              |
+| **Unified settings panel**       | One overlay panel for everyday configuration — `/voice-settings`. Optional fields without a row live in `settings.json`, see [Streaming preview](#streaming-preview) |
 | **Device-aware recommendations** | Scores models against your hardware. Only best-in-class models get [recommended].        |
 | **Enterprise download pipeline** | Pre-checks (disk, network, permissions), live progress with speed/ETA, post-verification |
 | **Handy integration**            | Auto-detects models from Handy app, imports via symlink                                  |
@@ -469,7 +472,7 @@ default. All three are `settings.json` fields — the panel has no rows for them
 The recording budget and the preview's 60 s segment cap are separate limits: the cap ends a
 recognition segment early, it does not stop the recording. The preview model lives in
 `~/.pi/models/streaming-paraformer-bilingual-zh-en/` and appears in the Downloaded tab like any
-other download, marked `preview only`; activating that row never writes `config.localModel`.
+other download, marked `preview only`; pressing Enter does not activate it.
 
 ### Punctuation
 
