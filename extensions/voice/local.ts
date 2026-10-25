@@ -936,7 +936,7 @@ export interface LocalSession {
 	/** No longer accepting audio: settled, or aborted. */
 	closed: boolean;
 	hadAudioData: boolean;
-	/** A stop or abort has begun, so a child close from now on is expected (spec §5.1). */
+	/** A stop or abort has begun: a child close or error from now on is expected, and that stop owns the outcome (spec §5.1). */
 	stopping: boolean;
 	/** A terminal result or error has been delivered; every later settle is dropped. */
 	settled: boolean;
@@ -1030,7 +1030,12 @@ export function startLocalSession(recProcess: ChildProcess, callbacks: LocalSess
 	recProcess.on("error", (err) => {
 		// A capture error is not a recording outcome: nothing was transcribed, so it keeps the
 		// capture-error channel, and the close that follows it is expected rather than a second one.
-		if (session.closed) return;
+		// A stop or abort that is already in flight owns the outcome, though: an error the stop caused
+		// itself (a failed `kill`, say) must not settle first and throw the buffered audio away.
+		if (session.closed || session.stopping) {
+			debug("capture error while the session was stopping — ignored:", err.message);
+			return;
+		}
 		session.stopping = true;
 		fail(session, `Audio capture error: ${err.message}`);
 	});
@@ -1058,7 +1063,10 @@ export function startLocalSession(recProcess: ChildProcess, callbacks: LocalSess
  * Stop recording and transcribe the buffered audio in-process via sherpa-onnx.
  */
 export async function stopLocalSession(session: LocalSession, config: VoiceConfig): Promise<void> {
-	if (session.closed) return;
+	// The stop that starts first owns the outcome. A concurrent second call must not race it: the first
+	// pass has already emptied `audioChunks`, so the second would settle an empty "no speech" result
+	// over text that is still being transcribed.
+	if (session.closed || session.stopping) return;
 
 	// From here on the child's exit is this stop's own doing, not an unexpected capture death.
 	session.stopping = true;

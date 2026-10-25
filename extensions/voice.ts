@@ -1245,10 +1245,10 @@ export default function (pi: ExtensionAPI) {
 		setVoiceState("recording");
 
 		// ── Callbacks for the active recording session ──
-		// Adapter until the preview rewrite of this path lands: the session now reports one result union
-		// (`ok` with its text, or `failed` with why the final pass could not finish). A failed final pass
-		// is still routed to the existing error notice here rather than being mistaken for a silent
-		// recording — only this adapter changes, the completion body below is untouched.
+		// TEMPORARY ADAPTER — removed by Task 12 (grep "TEMPORARY ADAPTER"): the session now reports one
+		// result union (`ok` with its text, or `failed` with why the final pass could not finish). A failed
+		// final pass is still routed to the existing error notice here rather than being mistaken for a
+		// silent recording — only this adapter changes, the completion body below is untouched.
 		const recordingCallbacks: {
 			onDone: (result: LocalSessionResult, meta: { hadAudio: boolean }) => Promise<void>;
 			onError: (err: string) => void;

@@ -279,3 +279,54 @@ describe("an unexpected capture close terminates the recording", () => {
 		expect(terminal.results).toEqual([]);
 	});
 });
+
+describe("a stop keeps its own outcome", () => {
+	test("a capture error caused by the stop itself does not discard the recording", async () => {
+		const media = fakeRecProcess();
+		const terminal = collectTerminals();
+		const session = startLocalSession(media.proc, terminal.callbacks);
+
+		media.stdout.emit("data", audio(20));
+		const stopping = stopLocalSession(session, UNKNOWN_MODEL_CONFIG);
+		// A `kill` that fails (EPERM) surfaces as a child `error` while the stop is still draining. The
+		// stop owns the outcome from here on, so that error must not settle anything: the buffered
+		// audio has to reach the final pass instead of being thrown away unanswered.
+		media.proc.emit("error", new Error("kill EPERM"));
+		await stopping;
+
+		expect(media.kills).toEqual(["SIGTERM"]);
+		expect(terminal.errors).toEqual([]);
+		expect(terminal.results).toHaveLength(1);
+		// The final pass ran over the buffered audio — it is the decode, not an empty recording.
+		expect(terminal.results[0]).toEqual({
+			result: { kind: "failed", message: expect.stringContaining("Local transcription failed") },
+			meta: { hadAudio: true },
+		});
+	});
+
+	test("a concurrent second stop is a no-op: the first call owns the outcome", async () => {
+		const media = fakeRecProcess();
+		const terminal = collectTerminals();
+		const session = startLocalSession(media.proc, terminal.callbacks);
+
+		media.stdout.emit("data", audio(20));
+		const first = stopLocalSession(session, UNKNOWN_MODEL_CONFIG);
+		const second = stopLocalSession(session, UNKNOWN_MODEL_CONFIG);
+
+		// The first call owns the outcome, so the second returns before doing any stop work: no second
+		// kill, and nothing settled while the first pass is still decoding.
+		await second;
+		expect(media.kills).toEqual(["SIGTERM"]);
+		expect(terminal.results).toEqual([]);
+		expect(terminal.errors).toEqual([]);
+
+		await first;
+		expect(terminal.results).toHaveLength(1);
+		// The first pass kept the buffered audio, so the terminal carries it. An empty `ok` here is the
+		// second call telling the user "no speech" while the words were still being transcribed.
+		expect(terminal.results[0]).toEqual({
+			result: { kind: "failed", message: expect.stringContaining("Local transcription failed") },
+			meta: { hadAudio: true },
+		});
+	});
+});
