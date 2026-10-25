@@ -1,8 +1,4 @@
-import type { VoiceConfig } from "./config.ts";
 import type { SinkResult } from "./editor-sink.ts";
-import type { FinalPassClient } from "./final-pass-client.ts";
-import type { startLocalSession, stopLocalSession, abortLocalSession } from "./local.ts";
-import type { PreviewClient } from "./preview-worker-client.ts";
 
 export type VoiceState = "idle" | "warmup" | "recording" | "finalizing";
 
@@ -24,25 +20,33 @@ export interface RecordingUiPort {
 	setProgress(elapsedMs: number, holdThresholdMs: number): void;
 }
 
-/** Ports only in Task 6. State and generation ownership move together in Task 7. */
+/**
+ * State ownership only. Lifecycle ports (clock, config, UI, preview, final pass, capture) are
+ * injected when the controller really starts and stops recordings; today it needs the transition log.
+ */
 export interface RecordingControllerDeps {
-	now(): number;
-	getConfig(): VoiceConfig;
-	ui: RecordingUiPort;
-	preview: PreviewClient;
-	finalPass: FinalPassClient;
-	capture: {
-		start: typeof startLocalSession;
-		stop: typeof stopLocalSession;
-		abort: typeof abortLocalSession;
-	};
+	debug(message: string, context?: Record<string, unknown>): void;
 }
 
 export interface RecordingController {
-	start(mode: "hold" | "dictate"): Promise<boolean>;
-	stop(): Promise<void>;
-	cancel(): void;
-	dispose(): Promise<void>;
 	readonly state: VoiceState;
-	readonly previewText: string;
+	setState(next: VoiceState): void;
+}
+
+/**
+ * Single owner of the recording state value. The caller keeps the consequences of a transition
+ * (shared globals, status refresh); the controller keeps the value and its debug breadcrumb.
+ */
+export function createRecordingController(deps: RecordingControllerDeps): RecordingController {
+	let state: VoiceState = "idle";
+	return {
+		get state() {
+			return state;
+		},
+		setState(next) {
+			const prev = state;
+			state = next;
+			if (prev !== next) deps.debug(`STATE: ${prev} → ${next}`);
+		},
+	};
 }
