@@ -11,8 +11,8 @@
 </p>
 
 **为 [Pi](https://github.com/earendil-works/pi-coding-agent) 打造的语音输入与语音输出。**
-按住说话式听写，可选 21 个离线模型，外加能把智能体回复朗读出来的语音合成。识别、标点和
-合成全部在 Pi 进程内通过 [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx) 运行：
+按住说话式听写，21 个离线模型，录音时编辑器上方同步显示实时预览，外加能把智能体回复朗读出来的语音
+合成。识别、标点和合成全部在 Pi 进程内通过 [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx) 运行：
 无需密钥、无需端点、无需账号，也没有任何音频被上传到远端语音服务。
 
 > **语言范围：中文与英文。** 识别与标点仅针对中文、英文以及中英混合听写做过验证。
@@ -95,11 +95,13 @@ pi-voicekit 会自动检测你的音频工具。如果你已安装 sox 或 ffmpe
 
 ### 模型 — 浏览、搜索、安装
 
-<img src="../assets/screenshots/settings-models.png" alt="模型标签页 — 浏览 21 个模型及其准确度/速度评分" width="600" />
+<img src="../assets/screenshots/settings-models.png" alt="模型标签页 — 浏览 22 个模型及其准确度/速度评分" width="600" />
 
-浏览来自 Parakeet、Whisper、Moonshine、SenseVoice、GigaAM、Paraformer 和 Qwen3 的 21 个模型。每个模型都会显示准确度与速度评分（●●●●○/●●●●○）、适配徽章和下载状态。支持模糊搜索，快速定位模型。按回车即可激活并下载。
+浏览来自 Parakeet、Whisper、Moonshine、SenseVoice、GigaAM、Paraformer 和 Qwen3 的 22 个模型。每个模型都会显示准确度与速度评分（●●●●○/●●●●○）、适配徽章和下载状态。支持模糊搜索，快速定位模型。按回车即可激活并下载。
 
-> 截图取自 v7.0 构建：面板现在有五个标签页（新增了朗读页），模型目录也已增至 21 个。
+这 22 个模型里有一个单独放在 **预览（流式）** 分组下：中英双语流式 Paraformer（226 MB），只供下载，不能激活，永远不能成为最终模型。安装后，录音时文字会实时出现在编辑器上方的六行面板中，并滚动到最新一行。最终转录仍由你的离线模型生成 — 预览从不写入编辑器。未安装预览模型时面板根本不会出现：不会下载任何东西，也不会有任何提示，听写行为与之前完全一样。`previewEnabled`（`settings.json` 字段，默认开启）可以关闭面板而不删除模型。
+
+> 截图取自 v7.0 构建：面板现在有五个标签页（新增了朗读页），模型目录也已增至 22 个。
 
 ### 已下载 — 管理已安装的模型
 
@@ -149,9 +151,11 @@ pi-voicekit 会自动检测你的音频工具。如果你已安装 sox 或 ffmpe
 
 1. **按住 SPACE** — 倒计时显示还需按多久。音频采集在达到阈值时才启动，所以请从那时开始说话：
    倒计时期间说的话不会被录下
-2. **继续按住** — 音频流入内存缓冲区
+2. **继续按住** — 音频流入内存缓冲区，同时编辑器上方的实时预览会显示流式模型识别出的文字
+   （仅在已安装预览模型时）
 3. **松开 SPACE** — 录音再持续 1.5 秒（尾部录音）以捕捉最后一个字，然后结束
-4. 当前本地模型在进程内转录这段缓冲区（2–10 秒），文本经清理与标点处理后写入编辑器
+4. 当前本地模型在工作线程中转录这段缓冲区（2–10 秒），文本经清理与标点处理后，按编辑器能
+   整块接收的小块插入光标处，等待发送
 
 ### 命令
 
@@ -218,7 +222,9 @@ pi-voicekit 会自动检测你的音频工具。如果你已安装 sox 或 ffmpe
 
 ## 本地模型
 
-21 个模型，覆盖 7 个家族。按质量排序 — 最好的在前。仅中文与英文经过验证；下表列出的其他语言都不在支持范围内 — 见[语言范围](#语言范围)。
+21 个离线模型，覆盖 7 个家族，外加前面介绍的流式预览条目。下表只覆盖离线模型 — 只有它们能
+生成最终转录。按质量排序 — 最好的在前。仅中文与英文经过验证；下表列出的其他语言都不在支持
+范围内 — 见[语言范围](#语言范围)。
 
 ### 推荐首选
 
@@ -250,17 +256,19 @@ pi-voicekit 会自动检测你的音频工具。如果你已安装 sox 或 ffmpe
 ### 本地模型工作原理
 
 ```
-按住 SPACE → 音频写入内存缓冲区
+按住 SPACE → 音频写入内存缓冲区（已安装预览模型时同时生成实时预览）
                 ↓
-松开 SPACE → 缓冲区送入 sherpa-onnx（进程内）
+松开 SPACE → 缓冲区送入运行在工作线程中的 sherpa-onnx
                 ↓
          CPU 上运行 ONNX 推理（2–10 秒）
                 ↓
-         最终转录文本写入编辑器
+         最终转录文本插入光标处
 ```
 
-听写是批处理而非流式：转录文本在你说完后几秒出现。模型首次使用时会自动下载 — 可续传、
-完成后校验，并会去重（不会重复下载）。设置面板会实时显示下载进度、速度和预计剩余时间。
+听写是批处理而非流式：最终转录文本在你说完后几秒出现 — 编辑器上方的实时预览来自另一个流式
+模型，永远不会成为插入的文本。模型首次使用时会自动下载 — 可续传、完成后校验，并会去重
+（不会重复下载）。流式预览模型是例外：只有在模型标签页按 `↵` 时才会拉取，从不随首次使用下载。
+设置面板会实时显示下载进度、速度和预计剩余时间。
 
 来自 [Handy](https://github.com/cjpais/handy) 的模型（`~/Library/Application Support/com.pais.handy/models/`）会被自动检测，并可通过符号链接导入（零磁盘重复占用）。
 
@@ -292,7 +300,8 @@ pi-voicekit 会自动检测你的音频工具。如果你已安装 sox 或 ffmpe
 | 功能               | 说明                                                                     |
 | ------------------ | ------------------------------------------------------------------------ |
 | **仅本地**         | 只有一条路径：进程内识别与进程内合成。没有端点、没有密钥、没有账号 — 见[隐私](#隐私) |
-| **21 个本地模型**  | Parakeet、Whisper、Moonshine、SenseVoice、GigaAM、Paraformer、Qwen3 — 带准确度/速度评分 |
+| **22 个本地模型**  | 21 个离线识别器加 1 个流式预览模型 — Parakeet、Whisper、Moonshine、SenseVoice、GigaAM、Paraformer、Qwen3 — 带准确度/速度评分 |
+| **实时流式预览**   | 录音时文字实时出现在编辑器上方，滚动到最新一行。预览模型可选（226 MB）、仅下载、未安装时完全静默，且从不生成最终转录 |
 | **离线朗读**       | 20 个本地 TTS 模型（Kitten、Kokoro、Piper），通过系统播放器朗读智能体回复 |
 | **统一设置面板**   | 所有配置集中在一个覆盖面板中 — `/voice-settings`                         |
 | **设备感知推荐**   | 根据你的硬件为模型评分。只有同类最优模型才会标记 [recommended]。         |
@@ -322,13 +331,25 @@ extensions/voice/hold-to-talk.ts            长按检测，Kitty 与非 Kitty �
 extensions/voice/release-controller.ts      录音生命周期、松手处理
 
 # speech-to-text
-extensions/voice/local.ts                   模型目录（21 个模型）、进程内转录
+extensions/voice/local.ts                   模型目录（22 个模型）、进程内转录
 extensions/voice/sherpa-engine.ts           sherpa-onnx 绑定 — 识别器生命周期、推理
 extensions/voice/sherpa-loader.ts           原生模块懒加载
 extensions/voice/model-download.ts          下载管理 — 续传、进度、校验、Handy 导入
 extensions/voice/device.ts                  设备画像 — 内存、GPU、CPU、容器检测
 extensions/voice/transcript-cleanup.ts      语气词清理与口语数字还原
 extensions/voice/transcript-join.ts         分段拼接 — 中日韩边界不加空格
+
+# live preview and workers
+extensions/voice/preview-entrypoint.ts      每次录音一个预览会话与一次最终转录
+extensions/voice/preview-session.ts         预览会话 — 事件、文本、降级、显示生命周期
+extensions/voice/preview-stream.ts          流式分段 — 端点检测与 60 秒分段上限
+extensions/voice/preview-worker-client.ts   预览 worker 客户端 — 认领、局部结果、收尾冲刷、退役
+extensions/voice/local-preview-worker.ts    预览 worker 入口 — 流式识别器运行在主线程之外
+extensions/voice/final-pass-client.ts       最终转录 worker 客户端 — 超时、复用、失效
+extensions/voice/final-pass-worker.ts       最终转录 worker 入口 — 离线识别器运行在主线程之外
+extensions/voice/transcript-composer.ts     已提交前缀与可变的尾部局部文本
+extensions/voice/preview-panel.ts           实时预览挂件 — 六行、尾部可见、无表头
+extensions/voice/editor-sink.ts             按编辑器能整块接收的小块插入光标处
 
 # offline punctuation
 extensions/voice/punctuation.ts             离线标点 — 只插入标点的拼接，失败即放行
@@ -396,6 +417,21 @@ extensions/voice/sherpa-onnx-node.d.ts      可选原生模块的类型声明
 见[隐私](#隐私)。
 
 长按触发延迟默认 **700 毫秒**（`/voice-hold-delay` 接受 200–3000 毫秒）。
+
+### 流式预览
+
+三个普通可选字段：显式的项目值优先，其次全局值，最后默认值。三者都是 `settings.json` 字段 —
+面板里没有对应的行。
+
+| 设置                  | 默认值                                 | 说明                                                          |
+| --------------------- | -------------------------------------- | ------------------------------------------------------------- |
+| `previewEnabled`      | `true`                                 | 录音时挂载实时预览。设为 `false` 时预览 worker 也不会启动。    |
+| `localPreviewModel`   | `streaming-paraformer-bilingual-zh-en` | 流式目录条目，永不能作为最终模型使用。                        |
+| `maxRecordingSeconds` | `120`                                  | 一次录音的时长预算，单位为秒 — 正有限数。                     |
+
+录音预算与预览的 60 秒分段上限是两个独立限制：分段上限只提前结束一个识别分段，不会停止录音。
+预览模型位于 `~/.pi/models/streaming-paraformer-bilingual-zh-en/`，会像其他下载一样出现在已下载
+标签页，并标记为 `preview only`；激活该行永远不会写入 `config.localModel`。
 
 ### 标点
 
@@ -465,10 +501,10 @@ SSH 音频隧道、远程桌面会话），播放器就会把语音发到那里 
 
 ### 本扩展唯一的外发步骤
 
-模型文件在首次使用时从 HuggingFace 或 GitHub Releases 下载一次：你选中的语音识别模型、你选中的
-TTS 模型，以及需要它的机器上那份约 285 MB 的标点模型。下载可续传并在完成时校验：语音识别模型
-的文件必须齐全且大小符合预期，标点模型则逐文件对照本仓库记录的 SHA-256 摘要。模型落到磁盘之后，
-听写与朗读在断网状态下也可用。
+模型文件从 HuggingFace 或 GitHub Releases 下载：你选中的语音识别模型、你选中的 TTS 模型、需要它
+的机器上那份约 285 MB 的标点模型，以及可选的流式预览模型 — 后者只在你于模型标签页按 `↵` 时下载，
+从不提前。下载可续传并在完成时校验：语音识别模型的文件必须齐全且大小符合预期，标点模型则逐文件
+对照本仓库记录的 SHA-256 摘要。模型落到磁盘之后，听写与朗读在断网状态下也可用。
 
 ### 留在本机的东西
 
