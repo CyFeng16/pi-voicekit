@@ -1,4 +1,5 @@
 import { describe, expect, mock, test } from "bun:test";
+import type { SinkResult } from "../extensions/voice/editor-sink";
 import {
 	classifyOutcome,
 	deliverOutcome,
@@ -32,7 +33,7 @@ function createDeps(overrides: Partial<DeliveryDeps> = {}): Deps {
 	const clean = mock((text: string) => text);
 	const punctuate = mock((text: string) => text);
 	const addToHistory = mock((_text: string) => {});
-	const insert = mock((_text: string) => {});
+	const insert = mock((text: string): SinkResult => ({ mode: "paste", written: text.length }));
 	const notify = mock((_message: string, _level: "info" | "warning" | "error") => {});
 	const deps: DeliveryDeps = { hasUI: true, clean, punctuate, addToHistory, insert, notify, ...overrides };
 	return { deps, clean, punctuate, addToHistory, insert, notify };
@@ -100,6 +101,18 @@ describe("classifyOutcome — precedence", () => {
 		expect(
 			classifyOutcome({ capturedBytes: 9000, finalText: "你好，世界。", finalHadSpeech: true, previewText: "你好" })
 		).toEqual({ kind: "final", text: "你好，世界。" });
+	});
+
+	test("a blank final text is never final: it falls back or reports a decode failure", () => {
+		// `final` must never carry an empty string into the editor or the history. `no-speech` still
+		// wins when the decode reported no speech at all (previous test).
+		expect(classifyOutcome({ capturedBytes: 9000, finalText: "", finalHadSpeech: true, previewText: "你好" })).toEqual({
+			kind: "unconfirmed",
+			text: "你好",
+		});
+		expect(
+			classifyOutcome({ capturedBytes: 9000, finalText: " \n\t ", finalHadSpeech: true, previewText: " \t " })
+		).toEqual({ kind: "empty", reason: "decode-failed" });
 	});
 });
 
@@ -173,6 +186,7 @@ describe("deliverOutcome — side effects", () => {
 			},
 			insert: (text: string) => {
 				order.push(`insert:${text}`);
+				return { mode: "paste", written: text.length };
 			},
 			notify: () => {
 				order.push("notify");
@@ -203,6 +217,69 @@ describe("deliverOutcome — side effects", () => {
 			expect(insert).not.toHaveBeenCalled();
 			onlyNotice(notify);
 		}
+	});
+
+	test("a blank final pass writes nothing at all", () => {
+		// The blank final is classified away from `final`, so neither the editor nor the history sees
+		// an empty string; a non-blank preview instead goes through the verbatim fallback.
+		const blank = classifyOutcome({ capturedBytes: 9000, finalText: "", finalHadSpeech: true, previewText: "" });
+		const empty = createDeps();
+		deliverOutcome(blank, null, empty.deps);
+		expect(empty.clean).not.toHaveBeenCalled();
+		expect(empty.punctuate).not.toHaveBeenCalled();
+		expect(empty.addToHistory).not.toHaveBeenCalled();
+		expect(empty.insert).not.toHaveBeenCalled();
+		onlyNotice(empty.notify);
+
+		const fallback = classifyOutcome({
+			capturedBytes: 9000,
+			finalText: "  ",
+			finalHadSpeech: true,
+			previewText: "你好",
+		});
+		const spies = createDeps();
+		deliverOutcome(fallback, null, spies.deps);
+		expect(spies.insert).toHaveBeenCalledWith("你好");
+		expect(spies.addToHistory).not.toHaveBeenCalled();
+	});
+});
+
+describe("deliverOutcome — what the editor reported", () => {
+	test("a fallback insert never claims the transcript was inserted", () => {
+		const { deps, addToHistory, notify } = createDeps({ insert: () => ({ mode: "fallback", written: 3 }) });
+		deliverOutcome({ kind: "final", text: "你好" }, null, deps);
+		// The text survives in the history, which is why this is a warning and not an error.
+		expect(addToHistory).toHaveBeenCalledWith("你好");
+		const [message, level] = onlyNotice(notify);
+		expect(message).not.toMatch(/inserted/i);
+		expect(message).toMatch(/could not be fully written/i);
+		expect(message).toContain("debug log");
+		expect(level).toBe("warning");
+	});
+
+	test("a fallback insert of unconfirmed text is an error: the preview was the only copy", () => {
+		const { deps, notify } = createDeps({ insert: () => ({ mode: "fallback", written: 0 }) });
+		deliverOutcome({ kind: "unconfirmed", text: "你好" }, "preview-worker-failed", deps);
+		const [message, level] = onlyNotice(notify);
+		expect(message).not.toMatch(/inserted/i);
+		expect(message).toMatch(/could not be fully written/i);
+		expect(message).toContain("debug log");
+		expect(message).toContain("live preview unavailable");
+		expect(level).toBe("error");
+	});
+
+	test("a recovered remainder keeps the success wording", () => {
+		// `remainder` means every character is in the buffer, however it got there.
+		const { deps, notify } = createDeps({ insert: () => ({ mode: "remainder", written: 2 }) });
+		deliverOutcome({ kind: "final", text: "你好" }, null, deps);
+		expect(onlyNotice(notify)).toEqual(["Transcript inserted.", "info"]);
+	});
+
+	test("a no-ui sink result is treated as nothing written", () => {
+		// Defensive: only reachable when the bound host disagrees with `deps.hasUI`.
+		const { deps, notify } = createDeps({ insert: () => ({ mode: "no-ui", written: 0 }) });
+		deliverOutcome({ kind: "final", text: "你好" }, null, deps);
+		expect(onlyNotice(notify)).toEqual(["Transcript ready, but no editor is available to receive it.", "warning"]);
 	});
 });
 
@@ -264,15 +341,35 @@ describe("deliverOutcome — the one notice", () => {
 				level: "error",
 			},
 			{
+				outcome: { kind: "empty", reason: "no-audio" },
+				degraded: "preview-worker-failed",
+				message: "Microphone captured no audio — check mic permissions (live preview unavailable).",
+				level: "error",
+			},
+			{
 				outcome: { kind: "empty", reason: "no-speech" },
 				degraded: null,
 				message: "Microphone captured silence — no speech detected.",
 				level: "warning",
 			},
 			{
+				outcome: { kind: "empty", reason: "no-speech" },
+				degraded: "preview-decode-failed",
+				message: "Microphone captured silence — no speech detected (live preview stalled).",
+				level: "warning",
+			},
+			{
 				outcome: { kind: "empty", reason: "decode-failed" },
 				degraded: null,
 				message: "The final transcription failed and produced no transcript; nothing was inserted.",
+				level: "error",
+			},
+			{
+				outcome: { kind: "empty", reason: "decode-failed" },
+				degraded: "preview-worker-failed",
+				message:
+					"The final transcription failed and produced no transcript; nothing was inserted" +
+					" (live preview unavailable).",
 				level: "error",
 			},
 		];
@@ -311,11 +408,13 @@ describe("deliverOutcome — the one notice", () => {
 		expect(message).not.toContain("some-future-reason");
 	});
 
-	test("an empty outcome notices only its own reason: the preview has no bearing on it", () => {
-		// Nothing was produced, so "the preview degraded too" would bury the evidence that matters.
+	test("an empty outcome folds the degradation into its own reason", () => {
+		// Nothing was produced, but the preview channel died anyway, and §5.5/§5.6 bind the folding
+		// without qualification: it stays one notice, with the reason first.
 		const { deps, notify } = createDeps();
 		deliverOutcome({ kind: "empty", reason: "no-speech" }, "preview-worker-failed", deps);
-		const [message] = onlyNotice(notify);
-		expect(message).toBe("Microphone captured silence — no speech detected.");
+		const [message, level] = onlyNotice(notify);
+		expect(message).toBe("Microphone captured silence — no speech detected (live preview unavailable).");
+		expect(level).toBe("warning");
 	});
 });
