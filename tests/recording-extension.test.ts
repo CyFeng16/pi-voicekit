@@ -203,6 +203,16 @@ for (const phase of ["capture", "finalizing"] as const) {
 			h.notices.length = 0;
 			await h.run("history");
 			expect(h.notices).toEqual(["No recording history yet."]);
+			// Only idle lets the real shortcut start a fresh capture; finalizing ignores it.
+			const passes = h.passes;
+			await h.toggle();
+			expect(h.captures).toHaveLength(2);
+			expect(h.passes).toBe(passes);
+			h.feed();
+			await h.run("stop");
+			expect(h.captures).toHaveLength(2);
+			expect(h.passes).toBe(passes + 1);
+			expect(h.writes).toEqual(["final"]);
 		} finally {
 			await h.dispose();
 		}
@@ -249,6 +259,13 @@ test("a second real start while finalizing cancels the first before capture repl
 		h.notices.length = 0;
 		await h.run("history");
 		expect(h.notices).toEqual(["No recording history yet."]);
+		// A stale completion must not set the newer recording to idle: stop must consume it.
+		h.feed();
+		await h.run("stop");
+		expect(h.captures).toHaveLength(2);
+		expect(h.passes).toBe(2);
+		expect(h.writes).toEqual(["final"]);
+		expect(h.sends).toEqual([]);
 	} finally {
 		await h.dispose();
 	}

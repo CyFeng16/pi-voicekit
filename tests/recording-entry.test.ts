@@ -83,6 +83,7 @@ for (const transition of ["installed", "enabled", "removed", "disabled"] as cons
 			const destroy = first.client.destroy;
 			first.client.destroy = async () => {
 				destroyed++;
+				h.events.push("destroy");
 				await destroy();
 			};
 			h.setInstalled(transition !== "removed");
@@ -91,7 +92,12 @@ for (const transition of ["installed", "enabled", "removed", "disabled"] as cons
 			expect(second.previewModelDir).toBe(activating ? "model" : null);
 			expect(h.start().client).toBe(second.client);
 			expect(destroyed).toBe(1);
-			expect(h.events).toEqual([`create:${activating ? null : "model"}`, `create:${activating ? "model" : null}`]);
+			expect(second.client).not.toBe(first.client);
+			expect(h.events).toEqual([
+				`create:${activating ? null : "model"}`,
+				"destroy",
+				`create:${activating ? "model" : null}`,
+			]);
 		} finally {
 			await h.dispose();
 		}
@@ -144,6 +150,9 @@ for (const rejected of [false, true]) {
 			};
 			h.config.previewEnabled = false;
 			const next = h.start();
+			expect(h.clients).toHaveLength(2);
+			expect(next.client).toBe(h.clients[1]!);
+			expect(next.client).not.toBe(first.client);
 			next.client.claim(String(next.generation), () => {});
 			expect(h.events).toEqual(["create:model", "create:null"]);
 			settle();
