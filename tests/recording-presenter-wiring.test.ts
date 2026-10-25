@@ -1,4 +1,5 @@
 import { startRecordingEntry } from "../extensions/voice/recording-entry";
+import { createPreviewRetirement } from "../extensions/voice/preview-retirement.ts";
 import { createRecordingController } from "../extensions/voice/recording-controller";
 import { expect, test } from "bun:test";
 import { ChildProcess } from "node:child_process";
@@ -49,10 +50,11 @@ for (const captureAvailable of [false, true]) {
 			const { recordingPresenter, createRecordingOwner, createPreviewClient, createPreviewSession,
 				startLocalSession, decideRecordingStartTimer, detectAudioCaptureTool, spawn, startRecordingEntry, createRecordingController } = ports;
 			const recordingController = createRecordingController({ debug() {} });
-			const retirePreviewClient = () => {};
+			const previewRetirement = ports.previewRetirement;
+			const { retirePreviewClient, finishPreview } = previewRetirement;
 			const config = { previewEnabled: false }, recordingStart = 0;
 			let activePreview = null, recordingOwner = null;
-			let previewClient = null, previewClientModelDir = null, previewFinish = null;
+			let previewClient = null, previewClientModelDir = null;
 			let activeSession = null, statusTimer = null;
 			const ctx = { hasUI: true, ui: { notify: recordingPresenter.notify } };
 			const voiceDebug = () => {}, resolvePreviewModelDir = () => null;
@@ -68,6 +70,7 @@ for (const captureAvailable of [false, true]) {
 		);
 		try {
 			const started = await run({
+				previewRetirement: createPreviewRetirement({ debug() {}, safeErrorText: String, setTimeout, clearTimeout }),
 				recordingPresenter: presenter,
 				startRecordingEntry,
 				createRecordingController,

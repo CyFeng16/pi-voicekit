@@ -116,6 +116,7 @@ import { classifyOutcome, deliverOutcome } from "./voice/dictation-outcome";
 import { insertTranscript } from "./voice/editor-sink";
 import type { VoiceState } from "./voice/recording-controller";
 import { startRecordingEntry } from "./voice/recording-entry";
+import { createPreviewRetirement } from "./voice/preview-retirement";
 import { createRecordingController } from "./voice/recording-controller";
 import { createRecordingPresenter } from "./voice/recording-presenter";
 
@@ -387,9 +388,6 @@ function abortSession(session: LocalSession | null): void {
 }
 
 // ─── Extension ───────────────────────────────────────────────────────────────
-
-const retiringPreviewClients = new Set<PreviewClient>();
-const previewRetirementTimers = new Map<PreviewClient, ReturnType<typeof setTimeout>>();
 
 export default function (pi: ExtensionAPI) {
 	let config = DEFAULT_CONFIG;
@@ -729,7 +727,8 @@ export default function (pi: ExtensionAPI) {
 	let recordingStartedAt = 0; // When recording actually started (for grace period)
 	let previewClient: PreviewClient | null = null;
 	let previewClientModelDir: string | null = null;
-	let previewFinish: Promise<void> | null = null;
+	const previewRetirement = createPreviewRetirement({ debug: voiceDebug, safeErrorText, setTimeout, clearTimeout });
+	const { retirePreviewClient, finishPreview } = previewRetirement;
 	let activePreview: PreviewSession | null = null;
 	let recordingOwner: ReturnType<typeof createRecordingOwner> | null = null;
 
@@ -874,8 +873,8 @@ export default function (pi: ExtensionAPI) {
 		});
 		previewClient = null;
 		previewClientModelDir = null;
-		previewFinish = null;
-		for (const client of retiringPreviewClients) destroyRetiringPreviewClient(client);
+		previewRetirement.finish = null;
+		previewRetirement.destroyRetiringClients();
 		// v7.1: cancel in-flight installs FIRST so their AbortControllers
 		// fire before we drop UI state. Without this, a session_shutdown
 		// during a download would leave the network/disk work running
@@ -1159,43 +1158,6 @@ export default function (pi: ExtensionAPI) {
 		}
 	}
 
-	function destroyRetiringPreviewClient(client: PreviewClient): void {
-		if (!retiringPreviewClients.delete(client)) return;
-		clearTimeout(previewRetirementTimers.get(client));
-		previewRetirementTimers.delete(client);
-		void client.destroy().catch((error) => {
-			voiceDebug("preview destroy failed", { error: safeErrorText(error) });
-		});
-	}
-
-	function retirePreviewClient(client: PreviewClient, drain: Promise<void> | null): void {
-		retiringPreviewClients.add(client);
-		if (!drain) {
-			destroyRetiringPreviewClient(client);
-			return;
-		}
-		// Allow the flush deadline to release its claim first, but never orphan a hung drain.
-		const timer = setTimeout(() => destroyRetiringPreviewClient(client), client.flushTimeoutMs + 250);
-		previewRetirementTimers.set(client, timer);
-		timer.unref?.();
-		void drain.then(
-			() => destroyRetiringPreviewClient(client),
-			() => destroyRetiringPreviewClient(client)
-		);
-	}
-
-	function finishPreview(preview: PreviewSession): Promise<void> {
-		// A stop owns only this recording's drain, never an older recording's pending finish.
-		const finishing = preview
-			.finish()
-			.catch((error) => voiceDebug("preview finish failed", { error: safeErrorText(error) }))
-			.finally(() => {
-				if (previewFinish === finishing) previewFinish = null;
-			});
-		previewFinish = finishing;
-		return finishing;
-	}
-
 	async function startRecording(): Promise<boolean> {
 		const {
 			generation,
@@ -1231,10 +1193,10 @@ export default function (pi: ExtensionAPI) {
 					previewClientModelDir = value;
 				},
 				get finish() {
-					return previewFinish;
+					return previewRetirement.finish;
 				},
 				set finish(value) {
-					previewFinish = value;
+					previewRetirement.finish = value;
 				},
 			},
 		});

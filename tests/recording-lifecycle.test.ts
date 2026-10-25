@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { EventEmitter } from "node:events";
 import { createRecordingController } from "../extensions/voice/recording-controller";
 import { startRecordingEntry } from "../extensions/voice/recording-entry";
+import { createPreviewRetirement } from "../extensions/voice/preview-retirement.ts";
 import { createRecordingOwner } from "../extensions/voice/preview-entrypoint";
 import { createPreviewClient } from "../extensions/voice/preview-worker-client";
 import { createPreviewSession } from "../extensions/voice/preview-session";
@@ -48,7 +49,9 @@ function harness() {
 		const cmdCtx = ctx, sub = "dictate", toggleShortcutLabel = "toggle";
 		let dictationMode = false, _startingRecording = false;
 		let activePreview = null, recordingOwner = null, activeSession = null, statusTimer = null;
-		let previewClient = null, previewClientModelDir = null, previewFinish = null;
+		let previewClient = null, previewClientModelDir = null;
+		const previewRetirement = ports.previewRetirement;
+		const { retirePreviewClient, finishPreview } = previewRetirement;
 		let recordingStart = 0, lastStopTime = 0, lastEscapeTime = 0;
 		const CORRUPTION_GUARD_MS = 50, SAMPLE_RATE = 16000, CHANNELS = 1;
 		const kittyReleaseDetected = false, spaceDownTime = null;
@@ -57,12 +60,12 @@ function harness() {
 		const clearRecordingAnimTimer = () => {}, clearWarmupWidget = () => {}, hideWidget = () => {};
 		const resetHoldState = () => {}, cancelDelayedStop = () => {}, abortActiveSpeak = () => {};
 		const playSound = () => {}, showRecordingWidget = () => {}, updateAudioLevel = () => {}, updateVoiceStatus = () => {};
-		const resolvePreviewModelDir = () => null, retirePreviewClient = client => { void client.destroy(); };
+		const resolvePreviewModelDir = () => null;
 		const detectAudioCaptureTool = () => ({ cmd: "fake", args: [], name: "fake" });
 		const finalModels = () => [], punctuateTranscript = text => text, addToHistory = text => history.push(text);
 		${slice("function abortSession(", "// ─── Extension")}
-		${slice("\tasync function startVoiceRecording():", "\tfunction destroyRetiringPreviewClient(")}
-		${slice("\tfunction finishPreview(", "\n\t// ── Tail recording:")}
+		${slice("\tasync function startVoiceRecording():", "\tasync function startRecording():")}
+		${slice("\tasync function startRecording():", "\n\t// ── Tail recording:")}
 		${slice("\tasync function stopVoiceRecording()", "\n\t// ─── Hold-to-Talk State Machine")}
 		return {
 		 start: startVoiceRecording, stop: stopVoiceRecording,
@@ -75,6 +78,7 @@ function harness() {
 	`)
 	);
 	const api = run({
+		previewRetirement: createPreviewRetirement({ debug() {}, safeErrorText: String, setTimeout, clearTimeout }),
 		recordingController: controller,
 		startRecordingEntry,
 		createRecordingOwner,

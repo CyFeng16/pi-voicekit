@@ -1,4 +1,5 @@
 import { startRecordingEntry } from "../extensions/voice/recording-entry";
+import { createPreviewRetirement } from "../extensions/voice/preview-retirement.ts";
 import { createRecordingController } from "../extensions/voice/recording-controller";
 import { recordingPreamble } from "./recording-entry-harness";
 import { expect, test } from "bun:test";
@@ -134,11 +135,11 @@ test("the session alone unmounts once and delivery preserves typing at the curso
 
 // Execute the entrypoint's closure wiring without starting a microphone or terminal host.
 const entrypointSource = readFileSync(new URL("../extensions/voice.ts", import.meta.url), "utf8");
-const production = { startRecordingEntry, createRecordingController };
+const production = { startRecordingEntry, createRecordingController, createPreviewRetirement };
 const transpiler = new Bun.Transpiler({ loader: "ts" });
 const retirementWiring = `
-	${entrypointSource.slice(entrypointSource.indexOf("const retiringPreviewClients ="), entrypointSource.indexOf("export default function"))}
-	${entrypointSource.slice(entrypointSource.indexOf("\tfunction destroyRetiringPreviewClient("), entrypointSource.indexOf("\tfunction finishPreview("))}
+	const previewRetirement = production.createPreviewRetirement({ debug: voiceDebug, safeErrorText, setTimeout, clearTimeout });
+	const { retirePreviewClient } = previewRetirement;
 `;
 
 for (const transition of ["installed", "enabled", "removed", "disabled"] as const) {
@@ -246,18 +247,13 @@ for (const superseded of [false, true]) {
 }
 
 test("repeated finishes retain the outstanding drain until the session releases", async () => {
-	const body = entrypointSource.slice(
-		entrypointSource.indexOf("\tfunction finishPreview("),
-		entrypointSource.indexOf("\tasync function startRecording():")
-	);
-	const harness = new Function(
-		transpiler.transformSync(`
-		let previewFinish = null;
-		const voiceDebug = () => {}, safeErrorText = String;
-		${body}
-		return { finishPreview, get pending() { return previewFinish; } };
-	`)
-	)();
+	const retirement = createPreviewRetirement({ debug() {}, safeErrorText: String, setTimeout, clearTimeout });
+	const harness = {
+		finishPreview: retirement.finishPreview,
+		get pending() {
+			return retirement.finish;
+		},
+	};
 	let settle!: () => void;
 	let releases = 0;
 	const session = createPreviewSession(
@@ -392,18 +388,9 @@ for (const rejectDrain of [false, true]) {
 }
 
 test("a previous hung drain never delays the current recording finish", async () => {
-	const body = entrypointSource.slice(
-		entrypointSource.indexOf("\tfunction finishPreview("),
-		entrypointSource.indexOf("\tasync function startRecording():")
-	);
-	const finish = new Function(
-		transpiler.transformSync(`
-		let previewFinish = new Promise(() => {});
-		const voiceDebug = () => {}, safeErrorText = String;
-		${body}
-		return finishPreview;
-	`)
-	)();
+	const retirement = createPreviewRetirement({ debug() {}, safeErrorText: String, setTimeout, clearTimeout });
+	retirement.finish = new Promise(() => {});
+	const finish = retirement.finishPreview;
 	let completed = false;
 	void finish({ finish: () => Promise.resolve() }).then(() => {
 		completed = true;
@@ -448,7 +435,7 @@ for (const outcome of ["hung", "settled", "cleanup"] as const) {
 			${retirementWiring}
 			${preamble} }
 			${cleanup} }
-			return { startRecording, voiceCleanup, get size() { return retiringPreviewClients.size; } };
+			return { startRecording, voiceCleanup, get size() { return previewRetirement.size; } };
 		`)
 		)(
 			production,
