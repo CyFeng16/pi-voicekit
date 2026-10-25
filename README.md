@@ -497,8 +497,9 @@ audio tunnel, a remote desktop session) and the player sends the speech there �
 tool](#setup-2-minutes) honours the same variable, so a remote microphone means your voice
 crosses that link before this extension ever sees it.
 
-That route is not a speech service this extension chose. If you need the stronger statement
-— no audio of any kind crossing any interface — keep playback local.
+That route is not a speech service this extension chose. If you need the audio kept on this
+machine, local playback is only half of it: capture honours the same variable, so both ends —
+the player and the microphone — have to stay local.
 
 Everything you send to the agent — typed, or dictated and then submitted — is text, and it
 goes to whatever model Pi is configured with. That is not an exception to the claim above:
