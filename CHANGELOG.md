@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Removed
+
+- **`autoSubmitOnSpeak` is gone.** A finished dictation is no longer sent to the agent automatically;
+  the transcript always lands in the editor, where `↵` sends it. The `/voice-autosubmit` command no
+  longer exists, and the General tab has four rows instead of five. A `settings.json` that still
+  carries the key keeps it until the next full save, which drops it — the stored value is not
+  migrated, and nothing reads it.
+- **The audio claim now has one exception instead of two.** System audio routing is the remaining exception
+  to the promise that no audio is uploaded to a remote speech service; the auto-submit exception went with
+  the feature. Text you send — typed, or dictated and then submitted — still goes to whatever model Pi is
+  configured with, which was never part of the audio claim.
+
+### Changed
+
+- **The configuration schema is now 6.** A file still at 5 keeps working and keeps its
+  `onboarding.completed`, and is rewritten at 6 — both `voice.version` and `onboarding.schemaVersion` —
+  on the next full save.
+
 ## [0.6.1] - 2026-10-24
 
 ### Fixed

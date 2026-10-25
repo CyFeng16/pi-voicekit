@@ -98,8 +98,8 @@ All configuration lives in one place: `/voice-settings`. Five tabs cover everyth
 
 ### General — model, language, scope, voice
 
-Set the local model, the dictation language, the scope (global or this project), the voice
-switch and auto-send. Every row is a keyboard shortcut away — `↵` changes, `← →` switches tab.
+Set the local model, the dictation language, the scope (global or this project) and the voice
+switch. Every row is a keyboard shortcut away — `↵` changes, `← →` switches tab.
 
 ### Models — browse, search, install
 
@@ -183,7 +183,6 @@ it did not, and the state of the model.
 | `/voice-speak-test`      | Speak a sample sentence                                  |
 | `/voice-speak-toggle`    | Enable / disable TTS                                     |
 | `/voice-speak-stop`      | Stop in-flight TTS playback                              |
-| `/voice-autosubmit`      | Toggle: STT text auto-sent to the agent (`on`/`off`)     |
 | `/voice-punctuation`     | Offline punctuation: status, model state, last decision  |
 | `/voice-hold-delay`      | Set hold-to-talk delay (200-3000 ms, default 700)        |
 | `/voice-speak-models`    | Browse / install TTS voice models                        |
@@ -414,12 +413,12 @@ live under `~/.pi/models`.
 ```json
 {
 	"voice": {
-		"version": 5,
+		"version": 6,
 		"enabled": true,
 		"language": "zh",
 		"localModel": "parakeet-v3",
 		"scope": "global",
-		"onboarding": { "completed": true, "schemaVersion": 5 }
+		"onboarding": { "completed": true, "schemaVersion": 6 }
 	}
 }
 ```
@@ -488,23 +487,22 @@ works on buffers in memory. There is no endpoint to configure, no key to paste, 
 to create.
 
 That is the guarantee the code keeps, and it is narrower than "nothing ever leaves the
-machine". Two configurations this README supports send data off it. Both are your own
-configuration, and the extension does not do either by itself:
+machine". One configuration this README supports sends data off it, and it is your own
+configuration rather than something the extension does by itself.
 
-1. **System audio routing.** Playback hands the synthesised WAV to the system player, and
-   that process inherits your environment. Point PulseAudio at another host
-   (`PULSE_SERVER`, an SSH audio tunnel, a remote desktop session) and the player sends the
-   speech there — the [audio tool](#setup-2-minutes) honours the same variable, so a
-   remote microphone means your voice crosses that link before this extension ever sees
-   it.
-2. **Auto-submit.** With `/voice-autosubmit` on, the finished transcript is sent to the
-   agent, which passes it to whatever model Pi is configured with. That is text rather
-   than audio, and it is off unless you turn it on — but it is a dictation leaving the
-   machine, and the claim above says nothing about it.
+**System audio routing.** Playback hands the synthesised WAV to the system player, and that
+process inherits your environment. Point PulseAudio at another host (`PULSE_SERVER`, an SSH
+audio tunnel, a remote desktop session) and the player sends the speech there — the [audio
+tool](#setup-2-minutes) honours the same variable, so a remote microphone means your voice
+crosses that link before this extension ever sees it.
 
-Neither path is a speech service this extension chose. If you need the stronger statement
-— no audio of any kind crossing any interface — keep playback local and leave auto-submit
-off.
+That route is not a speech service this extension chose. If you need the audio kept on this
+machine, local playback is only half of it: capture honours the same variable, so both ends —
+the player and the microphone — have to stay local.
+
+Everything you send to the agent — typed, or dictated and then submitted — is text, and it
+goes to whatever model Pi is configured with. That is not an exception to the claim above:
+the claim is about audio, and sending a message is the path every request takes.
 
 ### What the gate checks
 
@@ -536,7 +534,7 @@ model is on disk, dictation and speech work with the network down.
   to the local player (`afplay` on macOS, `paplay`/`aplay` on Linux, PowerShell's
   `SoundPlayer` on Windows), then deletes it. The player is local but it is a separate
   process that inherits your environment, which is why [system audio
-  routing](#privacy) is one of the two exceptions above instead of something this
+  routing](#privacy) is the one exception above instead of something this
   extension can promise about.
 - `/voice history` keeps this session's transcripts in memory only.
 - `PI_VOICE_DEBUG=1` appends diagnostics — including a 100-character transcript preview —

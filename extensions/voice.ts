@@ -1299,108 +1299,15 @@ export default function (pi: ExtensionAPI) {
 					// transcript is punctuated — the prefix is the user's own editor text.
 					const punctuatedText = punctuateTranscript(fullText);
 					const finalText = prefix + punctuatedText;
-					let editorWriteFailed = false;
 
-					// R24: the editor read/write is a UI call — a throw must leave
-					// `editorWriteFailed` true and still reach the history record and the tail.
+					// R24: the editor read/write is a UI call — a throw must still reach the
+					// history record and the tail.
 					try {
 						// No interim transcript was ever sent to the editor, so the finished text is the
 						// only write — this is the ONLY place the transcript arrives.
 						ctx.ui.setEditorText(finalText);
 					} catch (err) {
-						editorWriteFailed = true;
 						voiceDebug("editor write threw — continuing the completion", { error: String(err) });
-					}
-
-					// v7.1.1 — auto-submit on STT (config.autoSubmitOnSpeak).
-					// When enabled, the transcribed text is sent to the
-					// agent immediately instead of sitting in the editor
-					// waiting for [enter]. Defaults OFF; user toggles via
-					// /voice-autosubmit or settings panel.
-					// A failed editor write must not auto-submit: the transcript never reached the
-					// editor, so the user never saw the text that would be sent.
-					if (config.autoSubmitOnSpeak === true && finalText.trim().length > 0 && !editorWriteFailed) {
-						// v7.2.3 — if the agent is currently mid-turn
-						// (especially mid-retry), DON'T auto-submit.
-						// followUp queueing during a retry pile-up
-						// makes the agent look like it's "looping" —
-						// each queued message gets processed only
-						// after the broken turn finishes. Better UX:
-						// keep transcribed text in the editor, notify
-						// the user, and let them press [enter]
-						// manually when ready.
-						if (agentBusy) {
-							voiceDebug("autoSubmitOnSpeak: agent busy — leaving text in editor");
-							try {
-								ctx.ui.notify("Agent is busy — voice text held in editor. Press [↵] to send when ready.", "info");
-							} catch {
-								/* notify may fail silently */
-							}
-							// Skip dispatch but DON'T early-return —
-							// the rest of the onDone handler still
-							// needs to run state cleanup
-							// (resetHoldState / setVoiceState("idle")).
-						} else {
-							// `sendUserMessage` lives on the `pi` ExtensionAPI
-							// surface, NOT on `ctx`. Always triggers a turn.
-							// `deliverAs: "followUp"` queues mid-stream
-							// messages instead of throwing "Agent is already
-							// processing".
-							//
-							// v7.2.2 (godspeed architect finding) — only
-							// clear the editor AFTER send confirms. If
-							// send rejects synchronously OR returns a
-							// rejected Promise, the user's dictated text
-							// stays visible so they can re-send.
-							const send = (pi as any).sendUserMessage as ((text: string, opts?: any) => unknown) | undefined;
-							if (typeof send === "function") {
-								voiceDebug("autoSubmitOnSpeak: dispatching", { len: finalText.length });
-								// godspeed architect finding — only clear if the
-								// editor STILL contains exactly the dispatched
-								// transcript. If the user typed more chars or
-								// edited it while send was pending, leave their
-								// edits alone.
-								const dispatchedText = finalText;
-								const clearAfterSuccess = () => {
-									try {
-										const cur = ctx?.ui.getEditorText?.() ?? "";
-										if (cur === dispatchedText) {
-											ctx?.ui.setEditorText("");
-										}
-									} catch {
-										/* ui may be gone */
-									}
-									editorTextBeforeVoice = "";
-								};
-								try {
-									const r = send(finalText, { deliverAs: "followUp" });
-									if (r && typeof (r as Promise<unknown>).then === "function") {
-										(r as Promise<unknown>).then(clearAfterSuccess).catch((err) => {
-											voiceDebug("autoSubmitOnSpeak: sendUserMessage rejected", String(err));
-											// Editor stays populated — user can re-press [enter].
-										});
-									} else {
-										// Sync return (or undefined) — assume success.
-										clearAfterSuccess();
-									}
-								} catch (err) {
-									voiceDebug("autoSubmitOnSpeak: sendUserMessage threw sync", String(err));
-									// Editor stays populated.
-								}
-							} else {
-								voiceDebug("autoSubmitOnSpeak: pi.sendUserMessage not available on this Pi version");
-								try {
-									ctx.ui.notify(
-										"Auto-submit ON but unavailable on this Pi version (need pi.sendUserMessage). " +
-											"Press [enter] to send, or update Pi.",
-										"warning"
-									);
-								} catch (err) {
-									// R24: a failed warning must not skip the history record or the tail.
-									voiceDebug("auto-submit unavailable notify threw", { error: String(err) });
-								}
-							}
-						} // end else (agent not busy)
 					}
 
 					addToHistory(punctuatedText, parseFloat(elapsed), "hold");
@@ -2396,19 +2303,6 @@ export default function (pi: ExtensionAPI) {
 	let lastAutoSpeakAt = 0;
 	const AUTO_SPEAK_RATE_LIMIT_MS = 3000;
 
-	// v7.2.3 — track agent busy state so autoSubmit can skip dispatch
-	// when the agent is mid-turn (and especially mid-retry). Otherwise
-	// holding space during a "Retrying (n/3) in Xs..." cycle queues
-	// followUp messages that pile onto the failing turn — feels like
-	// the voice extension is "looping" because the agent never recovers.
-	let agentBusy = false;
-	pi.on("agent_start", async () => {
-		agentBusy = true;
-	});
-	pi.on("agent_end", async () => {
-		agentBusy = false;
-	});
-
 	// v7.2.1 — streaming auto-speak. Instead of waiting for `turn_end`
 	// (which only fires AFTER the full response is generated), subscribe
 	// to `message_update` and `message_end`:
@@ -3362,23 +3256,6 @@ export default function (pi: ExtensionAPI) {
 			(config as any).holdThresholdMs = ms;
 			saveConfig(config, config.scope === "project" ? "project" : "global", currentCwd, { loadedSource: configSource });
 			cmdCtx.ui.notify(`Hold delay set to ${ms}ms.`, "info");
-		},
-	});
-
-	// v7.1.1 — toggle auto-submit on STT (sends transcribed text
-	// directly to the agent instead of just placing it in the editor).
-	pi.registerCommand("voice-autosubmit", {
-		description: "Toggle auto-submit on STT — sends spoken text to the agent immediately",
-		handler: async (args, cmdCtx) => {
-			ctx = cmdCtx;
-			const trimmed = (args || "").trim().toLowerCase();
-			let next: boolean;
-			if (trimmed === "on") next = true;
-			else if (trimmed === "off") next = false;
-			else next = !(config.autoSubmitOnSpeak === true);
-			config.autoSubmitOnSpeak = next;
-			saveConfig(config, config.scope === "project" ? "project" : "global", currentCwd, { loadedSource: configSource });
-			cmdCtx.ui.notify(`Auto-submit on speak: ${next ? "ON" : "OFF"}`, "info");
 		},
 	});
 

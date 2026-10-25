@@ -821,6 +821,74 @@ describe("v5 config migration (the cloud backend fields are gone)", () => {
 	});
 });
 
+describe("v6 config migration (the auto-submit switch is gone)", () => {
+	test("the config schema version is 6", () => {
+		expect(VOICE_CONFIG_VERSION).toBe(6);
+	});
+
+	test("a config carrying a removed switch loads without it, whatever its type", () => {
+		const cwd = makeTempDir();
+		const agentDir = path.join(cwd, "agent-home");
+		writeSettings(agentDir, "settings.json", { enabled: true, autoSubmitOnSpeak: "yes" });
+
+		const result = loadConfigWithSource(cwd, { agentDir });
+
+		expect("autoSubmitOnSpeak" in (result.config as Record<string, unknown>)).toBe(false);
+	});
+
+	test("a full save drops the removed switch, keeps other settings, and keeps postProcess keys", () => {
+		const cwd = makeTempDir();
+		const agentDir = path.join(cwd, "agent-home");
+		writeSettings(agentDir, "settings.json", {
+			enabled: true,
+			localModel: "paraformer-zh",
+			ttsSpeed: 0.8,
+			autoSubmitOnSpeak: true,
+			postProcessEnabled: true,
+		});
+
+		const loaded = loadConfigWithSource(cwd, { agentDir });
+		saveConfig(loaded.config, "global", cwd, { agentDir, loadedSource: loaded.source });
+		const after = JSON.parse(fs.readFileSync(path.join(agentDir, "settings.json"), "utf8")).voice;
+
+		expect(Object.hasOwn(after, "autoSubmitOnSpeak")).toBe(false);
+		expect(after.localModel).toBe("paraformer-zh");
+		expect(after.ttsSpeed).toBe(0.8);
+		expect(after.postProcessEnabled).toBe(true);
+	});
+
+	test("an upgraded install keeps onboarding complete and stamps version 6 only on save", () => {
+		const cwd = makeTempDir();
+		const agentDir = path.join(cwd, "agent-home");
+		writeSettings(agentDir, "settings.json", { onboarding: { completed: true, schemaVersion: 5 } });
+
+		const loaded = loadConfigWithSource(cwd, { agentDir });
+
+		expect(loaded.config.onboarding.completed).toBe(true);
+		expect(loaded.config.onboarding.schemaVersion).toBe(5);
+		expect(needsOnboarding(loaded.config, loaded.source)).toBe(false);
+
+		saveConfig(loaded.config, "global", cwd, { agentDir, loadedSource: loaded.source });
+		const after = JSON.parse(fs.readFileSync(path.join(agentDir, "settings.json"), "utf8")).voice;
+		expect(after.onboarding.schemaVersion).toBe(VOICE_CONFIG_VERSION);
+	});
+
+	test("a project file's removed switch is not copied into the global block", () => {
+		const cwd = makeTempDir();
+		const agentDir = path.join(cwd, "agent-home");
+		writeSettings(agentDir, "settings.json", { onboarding: { completed: true } });
+		writeSettings(cwd, ".pi/settings.json", { scope: "project", autoSubmitOnSpeak: true });
+
+		const loaded = loadConfigWithSource(cwd, { agentDir });
+		expect(loaded.source).toBe("project");
+
+		saveConfig(loaded.config, "global", cwd, { agentDir, loadedSource: loaded.source });
+		const globalVoice = JSON.parse(fs.readFileSync(path.join(agentDir, "settings.json"), "utf8")).voice;
+
+		expect(Object.hasOwn(globalVoice, "autoSubmitOnSpeak")).toBe(false);
+	});
+});
+
 describe("agent directory (Pi's config-directory override)", () => {
 	// Pi derives this variable from its product name (PI_CODING_AGENT_DIR for `pi`), so a rebranded
 	// build uses a different one. The extension must ask Pi rather than reimplement the rule.
@@ -897,9 +965,10 @@ describe("scrubRetiredVoiceKeys (the retired credentials are erased on startup)"
 		// caller only ever displays it. It names the retired keys and the env var, and neither the
 		// secret value nor the host may reach the notice. It also has to carry the claim the product
 		// makes now: the first start of an upgrade is where a user is told what the extension promises,
-		// so the old absolute must not survive in the notice itself. Both exceptions the claim has are
-		// pinned, not only the first: a notice that drops one of them narrows the claim again exactly
-		// where the user reads it, and nothing else asserts this sentence.
+		// so the old absolute must not survive in the notice itself. The one exception the claim
+		// still has is pinned, and the retired one is pinned out: a notice that names a deleted
+		// command either advertises it or counts an exception that no longer exists, exactly where
+		// the user reads it, and nothing else asserts this sentence.
 		expect(result.message).toContain("deepgramApiKey");
 		expect(result.message).toContain("localEndpoint");
 		expect(result.message).toContain("DEEPGRAM_API_KEY");
@@ -907,7 +976,8 @@ describe("scrubRetiredVoiceKeys (the retired credentials are erased on startup)"
 		expect(result.message).toContain("~/.env.secrets");
 		expect(result.message).toContain("no audio is uploaded to a remote speech service");
 		expect(result.message).toMatch(/system audio routing/);
-		expect(result.message).toMatch(/\/voice-autosubmit/);
+		expect(result.message).toMatch(/one exception/);
+		expect(result.message).not.toMatch(/voice-autosubmit/);
 		expect(result.message).not.toMatch(/\baudio\s+(?:never|ever|does\s?n[o']t)\s+leave?s?\b/i);
 		expect(result.message).not.toContain("SECRET-0.5.x-key");
 		expect(result.message).not.toContain("10.0.0.5");
@@ -1637,6 +1707,17 @@ describe("session_start activation (the local model is the only path)", () => {
 		expect(session.widgetCalls).toEqual([]);
 		expect(session.statuses.filter(([, value]) => value === "MIC HOLD..." || value?.startsWith("REC "))).toEqual([]);
 		expect((globalThis as any).__piListen?.recording).not.toBe(true);
+	});
+
+	test("the General tab navigates over four rows, not five", async () => {
+		const session = await runSessionStart({ onboarding: { completed: true } });
+
+		let rows = -1;
+		await session.closePanel((panel) => {
+			rows = (panel as any).getRowCount("general");
+		});
+
+		expect(rows).toBe(4);
 	});
 
 	test("F1 opens help with no configured model", async () => {

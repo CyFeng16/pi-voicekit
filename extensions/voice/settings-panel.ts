@@ -440,18 +440,6 @@ export class VoiceSettingsPanel {
 				value: config.enabled ? this.success("Enabled") : this.error("Disabled"),
 				hint: "toggle",
 			},
-			{
-				// v7.1.3: STT auto-submit toggle. When ON, transcribed
-				// text is sent directly to the agent (turn triggered)
-				// instead of being placed in the editor for the user
-				// to press [enter].
-				label: "Auto-send",
-				value:
-					config.autoSubmitOnSpeak === true
-						? this.success("ON — STT speaks the message immediately")
-						: this.dim("OFF — STT fills the editor (press ↵ to send)"),
-				hint: "toggle",
-			},
 		];
 
 		// v7.2 — left-bar cursor + dim non-selected (HIG deference).
@@ -896,10 +884,6 @@ export class VoiceSettingsPanel {
 					config.enabled = !config.enabled;
 					this.save();
 					break;
-				case 4: // v7.1.3: Auto-send STT toggle
-					config.autoSubmitOnSpeak = !(config.autoSubmitOnSpeak === true);
-					this.save();
-					break;
 			}
 		} else if (tabId === "models") {
 			const model = this.getRowAt(this.row);
@@ -1324,7 +1308,7 @@ export class VoiceSettingsPanel {
 	private getRowCount(tabId: TabId): number {
 		switch (tabId) {
 			case "general":
-				return 5;
+				return 4;
 			case "models":
 				return this.modelSelectableIdx.length;
 			case "downloaded": {

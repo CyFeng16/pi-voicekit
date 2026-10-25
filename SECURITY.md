@@ -60,19 +60,20 @@ Recording, recognition, punctuation and speech synthesis run inside the Pi proce
 [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx); no audio is sent to a speech service anywhere.
 There is no endpoint to configure and no credential to store.
 
-Two supported configurations put data off the machine, both by the user's own choice and neither by
-the extension's design:
+One supported configuration puts data off the machine, by the user's own choice rather than by the
+extension's design.
 
-1. **System audio routing.** Playback hands the synthesised WAV to the system player, which inherits
-   the environment. With `PULSE_SERVER` (or an SSH/remote-desktop audio session) pointed at another
-   host, the player sends the speech there. Capture honours the same variable, so a remote microphone
-   means the voice crosses that link before this extension receives it.
-2. **Auto-submit.** `/voice-autosubmit` hands the finished transcript to Pi, which sends it to the
-   configured model. The payload is text rather than audio, and it is off by default — but a
-   dictation then leaves the machine, and the claim above does not cover it.
+**System audio routing.** Playback hands the synthesised WAV to the system player, which inherits the
+environment. With `PULSE_SERVER` (or an SSH/remote-desktop audio session) pointed at another host, the
+player sends the speech there. Capture honours the same variable, so a remote microphone means the
+voice crosses that link before this extension receives it.
 
-The claim is therefore about transmission to a speech service, not about every byte that can cross an
-interface: local playback writes a temp WAV and hands it to a system player (`afplay`, `paplay`/`aplay`,
+The claim is about audio, and the text a user sends is a separate path rather than a second exception:
+a transcript — typed, or dictated and then submitted with `↵` — leaves the editor as a message to Pi
+and goes to whichever model Pi is configured with, exactly like any other prompt.
+
+So the claim covers transmission to a speech service, not every byte that can cross an interface:
+local playback writes a temp WAV and hands it to a system player (`afplay`, `paplay`/`aplay`,
 PowerShell `SoundPlayer`) — a local subprocess that runs on the same host (`tts-playback.ts`).
 
 The enforceable half of the claim is [`tests/no-cloud-egress.test.ts`](tests/no-cloud-egress.test.ts):
