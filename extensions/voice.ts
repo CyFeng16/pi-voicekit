@@ -720,6 +720,7 @@ export default function (pi: ExtensionAPI) {
 	let recordingStartedAt = 0; // When recording actually started (for grace period)
 	let recordingGeneration = 0;
 	let previewClient: PreviewClient | null = null;
+	let previewClientModelDir: string | null = null;
 	let activePreview: PreviewSession | null = null;
 	let recordingOwner: ReturnType<typeof createRecordingOwner> | null = null;
 
@@ -1272,7 +1273,16 @@ export default function (pi: ExtensionAPI) {
 		const owner = createRecordingOwner(current);
 		recordingOwner = owner;
 		const recordingCtx = ctx;
-		previewClient ??= createPreviewClient({ previewModelDir: resolvePreviewModelDir(config.previewEnabled ?? true) });
+		const previewModelDir = resolvePreviewModelDir(config.previewEnabled ?? true);
+		if (previewClient && previewModelDir !== previewClientModelDir) {
+			// destroy() retires claims and terminates the worker synchronously.
+			void previewClient.destroy();
+			previewClient = null;
+		}
+		if (!previewClient) {
+			previewClient = createPreviewClient({ previewModelDir });
+			previewClientModelDir = previewModelDir;
+		}
 		let unsubscribe: (() => void) | undefined;
 		let dirty = false;
 		const channel = previewClient.claim(String(generation), (event) => {
@@ -2631,7 +2641,10 @@ export default function (pi: ExtensionAPI) {
 					return;
 				}
 				dictationMode = true;
-				const ok = await startVoiceRecording();
+				const starting = startVoiceRecording();
+				const generation = recordingGeneration;
+				const ok = await starting;
+				if (generation !== recordingGeneration) return;
 				if (ok) {
 					cmdCtx.ui.notify(
 						[
