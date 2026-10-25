@@ -1,3 +1,6 @@
+import { startRecordingEntry } from "../extensions/voice/recording-entry";
+import { createRecordingController } from "../extensions/voice/recording-controller";
+import { recordingPreamble } from "./recording-entry-harness";
 import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { createRecordingOwner, resolvePreviewModelDir } from "../extensions/voice/preview-entrypoint";
@@ -131,6 +134,7 @@ test("the session alone unmounts once and delivery preserves typing at the curso
 
 // Execute the entrypoint's closure wiring without starting a microphone or terminal host.
 const entrypointSource = readFileSync(new URL("../extensions/voice.ts", import.meta.url), "utf8");
+const production = { startRecordingEntry, createRecordingController };
 const transpiler = new Bun.Transpiler({ loader: "ts" });
 const retirementWiring = `
 	${entrypointSource.slice(entrypointSource.indexOf("const retiringPreviewClients ="), entrypointSource.indexOf("export default function"))}
@@ -143,20 +147,20 @@ for (const transition of ["installed", "enabled", "removed", "disabled"] as cons
 		const config = { previewEnabled: transition !== "enabled" };
 		const events: string[] = [];
 		let live = 0;
-		const preamble = entrypointSource.slice(
-			entrypointSource.indexOf("\tasync function startRecording():"),
-			entrypointSource.indexOf("\t\tlet unsubscribe:")
-		);
+		const preamble = recordingPreamble;
 		const makeStart = new Function(
+			"production",
 			"config",
 			"resolvePreviewModelDir",
 			"createPreviewClient",
 			"createRecordingOwner",
 			transpiler.transformSync(`
+				const { startRecordingEntry, createRecordingController } = production;
+				const recordingController = createRecordingController({ debug() {} });
 				let previewClient = null;
 				let previewClientModelDir: string | null = null;
 				let previewFinish: Promise<void> | null = null;
-				let recordingGeneration = 0, recordingOwner = null;
+				let recordingOwner = null;
 				const activePreview = null, ctx = null;
 				const voiceDebug = () => {}, setVoiceState = () => {}, safeErrorText = String;
 				${retirementWiring}
@@ -167,6 +171,7 @@ for (const transition of ["installed", "enabled", "removed", "disabled"] as cons
 			`)
 		);
 		const start = makeStart(
+			production,
 			config,
 			(enabled: boolean) =>
 				resolvePreviewModelDir(
@@ -214,20 +219,23 @@ for (const superseded of [false, true]) {
 			entrypointSource.indexOf("\t\t\t// /voice history")
 		);
 		const harness = new Function(
+			"production",
 			"pending",
 			"notices",
 			transpiler.transformSync(`
-			let recordingGeneration = 0, dictationMode = false;
+				const { startRecordingEntry, createRecordingController } = production;
+				const recordingController = createRecordingController({ debug() {} });
+			let dictationMode = false;
 			const config = { enabled: true }, sub = "dictate", toggleShortcutLabel = "toggle";
 			const cmdCtx = { ui: { notify: (text) => notices.push(text) } };
-			const startVoiceRecording = () => { recordingGeneration++; return pending; };
+			const startVoiceRecording = () => { recordingController.begin(); return pending; };
 			return {
 				run: async () => { ${body} },
-				supersede: () => recordingGeneration++,
+				supersede: () => recordingController.begin(),
 				get dictationMode() { return dictationMode; }
 			};
 		`)
-		)(pending, notices);
+		)(production, pending, notices);
 		const running = harness.run();
 		if (superseded) harness.supersede();
 		resolve(true);
@@ -284,16 +292,16 @@ test("repeated finishes retain the outstanding drain until the session releases"
 for (const duringStop of [false, true]) {
 	test(`cancelled A's ${duringStop ? "stop" : "maintenance"} drain cannot deliver A as B on the same directory`, async () => {
 		const workers: any[] = [];
-		const preamble = entrypointSource.slice(
-			entrypointSource.indexOf("\tasync function startRecording():"),
-			entrypointSource.indexOf("\t\tlet unsubscribe:")
-		);
+		const preamble = recordingPreamble;
 		const start = new Function(
+			"production",
 			"createPreviewClient",
 			"createRecordingOwner",
 			transpiler.transformSync(`
+				const { startRecordingEntry, createRecordingController } = production;
+				const recordingController = createRecordingController({ debug() {} });
 		let previewClient = null, previewClientModelDir = null, previewFinish = null;
-		let recordingGeneration = 0, recordingOwner = null;
+		let recordingOwner = null;
 		const activePreview = null, ctx = null, config = {};
 		const voiceDebug = () => {}, safeErrorText = String, setVoiceState = () => {};
 		const resolvePreviewModelDir = () => "same";
@@ -305,6 +313,7 @@ for (const duringStop of [false, true]) {
 		return startRecording;
 	`)
 		)(
+			production,
 			(options: any) =>
 				createPreviewClient({
 					...options,
@@ -346,15 +355,15 @@ for (const rejectDrain of [false, true]) {
 				else resolve();
 			};
 		});
-		const preamble = entrypointSource.slice(
-			entrypointSource.indexOf("\tasync function startRecording():"),
-			entrypointSource.indexOf("\t\tlet unsubscribe:")
-		);
+		const preamble = recordingPreamble;
 		const harness = new Function(
+			"production",
 			"pending",
 			"events",
 			"createRecordingOwner",
 			transpiler.transformSync(`
+				const { startRecordingEntry, createRecordingController } = production;
+				const recordingController = createRecordingController({ debug() {} });
 				let previewFinish = pending;
 				let previewClientModelDir = "old";
 				let previewClient = {
@@ -362,7 +371,7 @@ for (const rejectDrain of [false, true]) {
 					claim() { throw new Error("new claim touched old client"); },
 					destroy() { events.push("destroy"); return Promise.reject(new Error("destroy failed")); }
 				};
-				let recordingGeneration = 0, recordingOwner = null;
+				let recordingOwner = null;
 				const activePreview = null, ctx = null, config = {};
 				const voiceDebug = () => events.push("debug"), safeErrorText = String;
 				const setVoiceState = () => {}, resolvePreviewModelDir = () => "new";
@@ -373,7 +382,7 @@ for (const rejectDrain of [false, true]) {
 				}
 				return startRecording;
 			`)
-		)(pending, events, createRecordingOwner);
+		)(production, pending, events, createRecordingOwner);
 		await harness();
 		expect(events.filter((event) => event !== "debug")).toEqual(["new claim"]);
 		settle();
@@ -412,27 +421,27 @@ for (const outcome of ["hung", "settled", "cleanup"] as const) {
 		const pending = new Promise<void>((resolve) => {
 			settle = resolve;
 		});
-		const preamble = entrypointSource.slice(
-			entrypointSource.indexOf("\tasync function startRecording():"),
-			entrypointSource.indexOf("\t\tlet unsubscribe:")
-		);
+		const preamble = recordingPreamble;
 		const cleanup = entrypointSource.slice(
 			entrypointSource.indexOf("\tfunction voiceCleanup()"),
 			entrypointSource.indexOf("\t\t// v7.1: cancel in-flight installs FIRST")
 		);
 		const harness = new Function(
+			"production",
 			"pending",
 			"events",
 			"setTimeout",
 			"clearTimeout",
 			"createRecordingOwner",
 			transpiler.transformSync(`
+				const { startRecordingEntry, createRecordingController } = production;
+				const recordingController = createRecordingController({ debug() {} });
 			let previewFinish = pending, previewClientModelDir = "old";
 			let previewClient = {
 				flushTimeoutMs: 25,
 				destroy() { events.push("old destroy"); return Promise.resolve(); }
 			};
-			let activePreview = null, recordingOwner = null, recordingGeneration = 0;
+			let activePreview = null, recordingOwner = null;
 			const ctx = null, config = {}, voiceDebug = () => {}, safeErrorText = String;
 			const setVoiceState = () => {}, resolvePreviewModelDir = () => "new";
 			const createPreviewClient = () => ({ destroy() { events.push("live destroy"); return Promise.resolve(); } });
@@ -442,6 +451,7 @@ for (const outcome of ["hung", "settled", "cleanup"] as const) {
 			return { startRecording, voiceCleanup, get size() { return retiringPreviewClients.size; } };
 		`)
 		)(
+			production,
 			pending,
 			events,
 			(callback: () => void, delay: number) => {

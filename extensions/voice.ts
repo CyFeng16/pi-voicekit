@@ -115,6 +115,7 @@ import { createRecordingOwner, resolvePreviewModelDir } from "./voice/preview-en
 import { classifyOutcome, deliverOutcome } from "./voice/dictation-outcome";
 import { insertTranscript } from "./voice/editor-sink";
 import type { VoiceState } from "./voice/recording-controller";
+import { startRecordingEntry } from "./voice/recording-entry";
 import { createRecordingController } from "./voice/recording-controller";
 import { createRecordingPresenter } from "./voice/recording-presenter";
 
@@ -726,7 +727,6 @@ export default function (pi: ExtensionAPI) {
 	let lastStopTime = 0; // For Escape-to-clear-editor within 30s of recording
 	let lastEscapeTime = 0; // For double-escape to clear editor
 	let recordingStartedAt = 0; // When recording actually started (for grace period)
-	let recordingGeneration = 0;
 	let previewClient: PreviewClient | null = null;
 	let previewClientModelDir: string | null = null;
 	let previewFinish: Promise<void> | null = null;
@@ -868,7 +868,7 @@ export default function (pi: ExtensionAPI) {
 		recordingOwner?.cancel();
 		activePreview?.abort();
 		activePreview = null;
-		recordingGeneration++;
+		recordingController.begin();
 		void previewClient?.destroy().catch((error) => {
 			voiceDebug("preview destroy failed", { error: safeErrorText(error) });
 		});
@@ -951,7 +951,7 @@ export default function (pi: ExtensionAPI) {
 	function disarmDictation() {
 		recordingOwner?.cancel();
 		activePreview?.abort();
-		recordingGeneration++;
+		recordingController.begin();
 		if (activeSession) {
 			abortSession(activeSession);
 			activeSession = null;
@@ -1131,7 +1131,7 @@ export default function (pi: ExtensionAPI) {
 			if (recordingController.state === "finalizing" || recordingController.state === "recording") {
 				recordingOwner?.cancel();
 				activePreview?.abort();
-				const generation = ++recordingGeneration;
+				const generation = recordingController.begin();
 				abortSession(activeSession);
 				activeSession = null;
 				clearRecordingAnimTimer();
@@ -1140,7 +1140,7 @@ export default function (pi: ExtensionAPI) {
 				setVoiceState("idle");
 				// Brief pause to let resources release
 				await new Promise((r) => setTimeout(r, CORRUPTION_GUARD_MS));
-				if (generation !== recordingGeneration) {
+				if (!recordingController.owns(generation)) {
 					staleStart = true;
 					return false;
 				}
@@ -1197,32 +1197,50 @@ export default function (pi: ExtensionAPI) {
 	}
 
 	async function startRecording(): Promise<boolean> {
-		voiceDebug("startRecording called");
-		setVoiceState("recording");
-
-		activePreview?.abort();
-		const generation = ++recordingGeneration;
-		const current = () => generation === recordingGeneration;
-		const owner = createRecordingOwner(current);
-		recordingOwner = owner;
-		const recordingCtx = ctx;
-		const previewModelDir = resolvePreviewModelDir(config.previewEnabled ?? true);
-		const previousDrain = previewFinish ?? previewClient?.pendingDrain ?? null;
-		if (previewClient && (previewModelDir !== previewClientModelDir || previousDrain)) {
-			const oldClient = previewClient;
-			const previousFinish = previousDrain;
-			previewClient = null;
-			previewClientModelDir = null;
-			previewFinish = null;
-			retirePreviewClient(oldClient, previousFinish);
-		}
-		if (!previewClient) {
-			previewClient = createPreviewClient({ previewModelDir });
-			previewClientModelDir = previewModelDir;
-		}
+		const {
+			generation,
+			current,
+			owner,
+			recordingCtx,
+			client: recordingPreviewClient,
+		} = startRecordingEntry({
+			recordingController,
+			debug: voiceDebug,
+			setState: setVoiceState,
+			getConfig: () => config,
+			getContext: () => ctx,
+			abortPreview: () => activePreview?.abort(),
+			setOwner: (value) => {
+				recordingOwner = value;
+			},
+			resolvePreviewModelDir,
+			createPreviewClient,
+			createRecordingOwner,
+			retirePreviewClient,
+			preview: {
+				get client() {
+					return previewClient;
+				},
+				set client(value) {
+					previewClient = value;
+				},
+				get modelDir() {
+					return previewClientModelDir;
+				},
+				set modelDir(value) {
+					previewClientModelDir = value;
+				},
+				get finish() {
+					return previewFinish;
+				},
+				set finish(value) {
+					previewFinish = value;
+				},
+			},
+		});
 		let unsubscribe: (() => void) | undefined;
 		let dirty = false;
-		const channel = previewClient.claim(String(generation), (event) => {
+		const channel = recordingPreviewClient.claim(String(generation), (event) => {
 			if (!current()) return;
 			preview.handleEvent(event);
 			dirty = true;
@@ -2034,7 +2052,7 @@ export default function (pi: ExtensionAPI) {
 					}
 					recordingOwner?.cancel();
 					activePreview?.abort();
-					recordingGeneration++;
+					recordingController.begin();
 					resetHoldState();
 					playSound("error");
 					setVoiceState("idle");
@@ -2616,9 +2634,9 @@ export default function (pi: ExtensionAPI) {
 					return;
 				}
 				const starting = startVoiceRecording();
-				const generation = recordingGeneration;
+				const generation = recordingController.generation;
 				const ok = await starting;
-				if (generation !== recordingGeneration) return;
+				if (!recordingController.owns(generation)) return;
 				if (ok) {
 					dictationMode = true;
 					cmdCtx.ui.notify(

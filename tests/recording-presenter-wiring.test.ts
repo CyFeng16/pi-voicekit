@@ -1,3 +1,5 @@
+import { startRecordingEntry } from "../extensions/voice/recording-entry";
+import { createRecordingController } from "../extensions/voice/recording-controller";
 import { expect, test } from "bun:test";
 import { ChildProcess } from "node:child_process";
 import { readFileSync } from "node:fs";
@@ -45,14 +47,16 @@ for (const captureAvailable of [false, true]) {
 			"ports",
 			new Bun.Transpiler({ loader: "ts" }).transformSync(`
 			const { recordingPresenter, createRecordingOwner, createPreviewClient, createPreviewSession,
-				startLocalSession, decideRecordingStartTimer, detectAudioCaptureTool, spawn } = ports;
+				startLocalSession, decideRecordingStartTimer, detectAudioCaptureTool, spawn, startRecordingEntry, createRecordingController } = ports;
+			const recordingController = createRecordingController({ debug() {} });
+			const retirePreviewClient = () => {};
 			const config = { previewEnabled: false }, recordingStart = 0;
-			let activePreview = null, recordingGeneration = 0, recordingOwner = null;
+			let activePreview = null, recordingOwner = null;
 			let previewClient = null, previewClientModelDir = null, previewFinish = null;
-			let activeSession = null, statusTimer = null, voiceState = "idle";
+			let activeSession = null, statusTimer = null;
 			const ctx = { hasUI: true, ui: { notify: recordingPresenter.notify } };
 			const voiceDebug = () => {}, resolvePreviewModelDir = () => null;
-			const setVoiceState = state => { voiceState = state; recordingPresenter.setState(state); };
+			const setVoiceState = state => { recordingController.setState(state); recordingPresenter.setState(state); };
 			const clearRecordingAnimTimer = recordingPresenter.stopRecordingAnimation;
 			const clearWarmupWidget = recordingPresenter.stopWarmupAnimation;
 			const hideWidget = recordingPresenter.hideIndicator, playSound = recordingPresenter.playSound;
@@ -65,6 +69,8 @@ for (const captureAvailable of [false, true]) {
 		try {
 			const started = await run({
 				recordingPresenter: presenter,
+				startRecordingEntry,
+				createRecordingController,
 				createRecordingOwner,
 				createPreviewClient,
 				createPreviewSession,

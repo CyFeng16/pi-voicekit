@@ -21,7 +21,7 @@ export interface RecordingUiPort {
 }
 
 /**
- * State ownership only. Lifecycle ports (clock, config, UI, preview, final pass, capture) are
+ * State and generation ownership only. Lifecycle ports (clock, config, UI, preview, final pass, capture) are
  * injected when the controller really starts and stops recordings; today it needs the transition log.
  */
 export interface RecordingControllerDeps {
@@ -30,6 +30,9 @@ export interface RecordingControllerDeps {
 
 export interface RecordingController {
 	readonly state: VoiceState;
+	readonly generation: number;
+	begin(): number;
+	owns(generation: number): boolean;
 	setState(next: VoiceState): void;
 }
 
@@ -39,7 +42,17 @@ export interface RecordingController {
  */
 export function createRecordingController(deps: RecordingControllerDeps): RecordingController {
 	let state: VoiceState = "idle";
+	let generation = 0;
 	return {
+		get generation() {
+			return generation;
+		},
+		begin() {
+			return ++generation;
+		},
+		owns(candidate) {
+			return candidate === generation;
+		},
 		get state() {
 			return state;
 		},

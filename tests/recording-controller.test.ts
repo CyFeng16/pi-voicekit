@@ -1,6 +1,8 @@
 import { expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
 import { createRecordingController } from "../extensions/voice/recording-controller";
+import { startRecordingEntry, type RecordingEntryDeps } from "../extensions/voice/recording-entry";
+import { createRecordingOwner } from "../extensions/voice/preview-entrypoint";
+import { createPreviewClient } from "../extensions/voice/preview-worker-client";
 
 test("the controller owns the state and reports the value it was given", () => {
 	const transitions: string[] = [];
@@ -35,18 +37,43 @@ test("a repeated state is applied but not logged as a transition", () => {
 	expect(transitions).toEqual(["STATE: idle → recording"]);
 });
 
-test("every entrypoint state transition goes through the controller", () => {
-	// Temporary marker, not a behavioural test: the entrypoint exposes no seam that reaches the
-	// controller instance it builds, so assert the source shape the delegation requires. Task 7b
-	// replaces this with a behavioural assertion once the start/stop seam exists.
-	const source = readFileSync(new URL("../extensions/voice.ts", import.meta.url), "utf8");
-	const setVoiceStateBody = source.slice(
-		source.indexOf("\tfunction setVoiceState("),
-		source.indexOf("\n\t// ─── Cleanup helpers")
+test("generation increments on every start and stale continuations do nothing", async () => {
+	const controller = createRecordingController({ debug() {} });
+	const deps: RecordingEntryDeps<null> = {
+		recordingController: controller,
+		debug() {},
+		setState: (state) => controller.setState(state),
+		abortPreview() {},
+		setOwner() {},
+		getContext: () => null,
+		getConfig: () => ({ previewEnabled: false }),
+		resolvePreviewModelDir: () => null,
+		createRecordingOwner,
+		createPreviewClient,
+		retirePreviewClient() {
+			throw new Error("disabled preview should reuse its client");
+		},
+		preview: { client: null, modelDir: null, finish: null },
+	};
+	expect(controller.generation).toBe(0);
+	const first = startRecordingEntry(deps);
+	expect(first.generation).toBe(1);
+	expect(first.current()).toBe(true);
+	const second = startRecordingEntry(deps);
+	expect(second.generation).toBe(2);
+	expect(first.current()).toBe(false);
+	expect(second.current()).toBe(true);
+	await first.owner.stop(
+		async () => {
+			throw new Error("stale final pass");
+		},
+		async () => {
+			throw new Error("stale drain");
+		}
 	);
-
-	expect(setVoiceStateBody).toContain("recordingController.setState(newState)");
-	// The entrypoint keeps no state value of its own: nothing declares or assigns `voiceState`.
-	expect(source).not.toMatch(/\b(?:let|const|var)\s+voiceState\b/);
-	expect(source).not.toMatch(/[^.\w]voiceState\s*=(?!=)/);
+	expect(first.owner.deliver()).toBe(false);
+	expect(second.owner.deliver()).toBe(true);
+	await second.client.destroy();
+	const other = createRecordingController({ debug() {} });
+	expect(other.generation).toBe(0);
 });
