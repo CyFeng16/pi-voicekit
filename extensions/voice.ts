@@ -114,6 +114,8 @@ import { createPreviewPanel } from "./voice/preview-panel";
 import { createRecordingOwner, resolvePreviewModelDir } from "./voice/preview-entrypoint";
 import { classifyOutcome, deliverOutcome } from "./voice/dictation-outcome";
 import { insertTranscript } from "./voice/editor-sink";
+import type { VoiceState } from "./voice/recording-controller";
+import { createRecordingPresenter } from "./voice/recording-presenter";
 
 /** Adapter for the real event loop — lets GapTimer run under the real setTimeout. */
 const realTimerPort: TimerPort = {
@@ -132,7 +134,7 @@ const realTimerPort: TimerPort = {
  *   recording → idle  (on error)
  *   finalizing → idle  (on completion or timeout)
  */
-type VoiceState = "idle" | "warmup" | "recording" | "finalizing";
+// VoiceState is shared with the recording ports; ownership stays in this entrypoint.
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -735,7 +737,6 @@ export default function (pi: ExtensionAPI) {
 	let holdActivationTimer: ReturnType<typeof setTimeout> | null = null;
 	let spaceConsumed = false; // True once threshold passed and recording started
 	let releaseGapTimer: GapTimer | null = null; // gap-based release detection (see release-controller.ts)
-	let warmupWidgetTimer: ReturnType<typeof setInterval> | null = null;
 	let spacePressCount = 0; // Count of rapid space presses (for non-Kitty hold detection)
 	let lastSpacePressTime = 0; // Timestamp of last space press event
 	let holdConfirmed = false; // True once we've confirmed user is holding (not tapping)
@@ -843,28 +844,15 @@ export default function (pi: ExtensionAPI) {
 	}
 
 	function clearWarmupWidget() {
-		if (warmupWidgetTimer) {
-			clearInterval(warmupWidgetTimer);
-			warmupWidgetTimer = null;
-		}
+		recordingPresenter.stopWarmupAnimation();
 	}
 
 	function clearRecordingAnimTimer() {
-		if (_recWidgetAnimTimer) {
-			clearInterval(_recWidgetAnimTimer);
-			_recWidgetAnimTimer = null;
-		}
+		recordingPresenter.stopRecordingAnimation();
 	}
 
 	function hideWidget() {
-		if (!ctx?.hasUI) return;
-		// R24: hiding the widget is cosmetic — a UI throw here must not reject the
-		// completion callback before its write, its history record and its tail.
-		try {
-			ctx.ui.setWidget("voice-recording", undefined);
-		} catch (err) {
-			voiceDebug("hideWidget threw", { error: String(err) });
-		}
+		recordingPresenter.hideIndicator();
 	}
 
 	/** Reset all hold-to-talk state to idle. Call after any recording stop/error/cancel. */
@@ -1072,142 +1060,35 @@ export default function (pi: ExtensionAPI) {
 	}
 
 	// ─── Warmup Widget ──────────────────────────────────────────────────
+	// Presentation is injected; lifecycle, generation and preview ownership stay here.
+	const recordingPresenter = createRecordingPresenter({
+		registry: () => getOrInitVoiceUi().registry,
+		hasUI: () => !!ctx?.hasUI,
+		now: () => Date.now(),
+		getHoldThresholdMs,
+		getRecordingStart: () => recordingStart,
+		getAudioLevel: () => audioLevelSmoothed,
+		setWidget: (key, widget, opts) => ctx?.ui.setWidget(key, widget, opts),
+		schedule(frame, ms) {
+			const timer = setInterval(frame, ms);
+			return () => clearInterval(timer);
+		},
+		setState: setVoiceState,
+		notify: (message, level) => ctx?.ui.notify(message, level),
+		playSound,
+		debug: voiceDebug,
+	});
+
 	function showWarmupWidget() {
-		if (!ctx?.hasUI) return;
-
-		const startTime = Date.now();
-
-		const renderWarmup = () => {
-			if (!ctx?.hasUI) return;
-			const elapsed = Date.now() - startTime;
-			const progress = Math.min(elapsed / getHoldThresholdMs(), 1);
-
-			ctx.ui.setWidget(
-				"voice-recording",
-				(_tui, theme) => {
-					return {
-						invalidate() {},
-						render(width: number): string[] {
-							// v7.2 world-class — Same Floating Island chrome
-							// as the active recording widget, with the
-							// progress bar inside. Establishes visual
-							// continuity between warmup → recording (same
-							// island, content shifts, no jump).
-							const { island, auroraColor, titleBreathe } =
-								require("./voice/ui-aura") as typeof import("./voice/ui-aura");
-							const dim = (s: string) => theme.fg("dim", s);
-							const muted = (s: string) => theme.fg("muted", s);
-							const accent = (s: string) => theme.fg("accent", s);
-							const islandW = Math.max(36, Math.min(46, width - 2));
-
-							// Aurora gradient progress: ▰ filled / ▱ empty
-							// with truecolor across the filled portion.
-							const innerW = islandW - 2;
-							const fixedW = 3 /* " ○ " */ + 1; /* trail */
-							const meterCells = Math.max(12, innerW - fixedW);
-							const filled = Math.round(progress * meterCells);
-							let bar = "";
-							for (let i = 0; i < meterCells; i++) {
-								if (i < filled) {
-									// Color stop based on position along filled portion.
-									const t = filled === 0 ? 0 : i / Math.max(1, meterCells - 1);
-									bar += auroraColor(t) + "▰";
-								} else {
-									bar += dim("▱");
-								}
-							}
-							bar += "\x1b[0m";
-
-							const dot = progress < 1 ? muted("○") : accent("●");
-							const content = ` ${dot} ${bar} `;
-							// Breathing title — same aurora-cycle as recording widget
-							// so the warmup → recording transition feels seamless.
-							const titleStyled = titleBreathe(Date.now()) + "\x1b[1mVoice Mode\x1b[0m";
-							const footer = progress < 1 ? dim("hold to record") : accent("ready");
-							return island({ width: islandW, title: titleStyled, content, footer, dim });
-						},
-					};
-				},
-				{ placement: "belowEditor" }
-			);
-		};
-
-		renderWarmup();
-		warmupWidgetTimer = setInterval(renderWarmup, 90);
+		recordingPresenter.mountWarmupIndicator();
 	}
 
-	// ─── Recording Widget ───────────────────────────────────────────────
-	let _recWidgetAnimTimer: ReturnType<typeof setInterval> | null = null;
-
 	function showRecordingWidget() {
-		if (!ctx?.hasUI) return;
-
-		// Stop warmup animation if still running — seamless takeover,
-		// no gap between warmup and recording widgets (same widget ID).
-		clearWarmupWidget();
-
-		_recWidgetAnimTimer = setInterval(() => {
-			showRecordingWidgetFrame();
-		}, 150);
-
-		showRecordingWidgetFrame();
+		recordingPresenter.mountRecordingIndicator();
 	}
 
 	function showRecordingWidgetFrame() {
-		if (!ctx?.hasUI) return;
-
-		// Minimal recording indicator below editor
-		ctx.ui.setWidget(
-			"voice-recording",
-			(_tui, theme) => {
-				return {
-					invalidate() {},
-					render(width: number): string[] {
-						// v7.2 world-class — Floating Island + Liquid Braille +
-						// Aurora gradient + breathing title + activity chip
-						// + 300 ms fade-in transition from warmup.
-						const { island, titleBreathe, activityTag } =
-							require("./voice/ui-aura") as typeof import("./voice/ui-aura");
-						const now = Date.now();
-						const elapsed = (now - recordingStart) / 1000;
-						const mins = Math.floor(elapsed / 60);
-						const secs = elapsed % 60;
-						const timeStr = mins > 0 ? `${mins}:${String(Math.floor(secs)).padStart(2, "0")}` : `${secs.toFixed(1)}s`;
-						const dim = (s: string) => theme.fg("dim", s);
-						const muted = (s: string) => theme.fg("muted", s);
-						const accent = (s: string) => theme.fg("accent", s);
-
-						// Activity chip — one-glance "is sound coming in?"
-						const chip = activityTag(audioLevelSmoothed, dim);
-						const chipPlain = chip.replace(/\x1b\[[\d;]*[A-Za-z]/g, "");
-
-						// Compact 36-48 cols. Reserved cells:
-						//   " ● "(3) + wave + " · TIME "(timer+4) + "  CHIP "(chip+3) + " "(1)
-						const islandW = Math.max(36, Math.min(48, width - 2));
-						const innerW = islandW - 2;
-						const fixedW = 3 + (4 + timeStr.length) + (3 + chipPlain.length) + 1;
-						const waveCells = Math.max(8, innerW - fixedW);
-
-						// Fade-in over first 300 ms — wave amplitude
-						// scales 0→1 so the recording widget grows out
-						// of warmup rather than snapping in.
-						const sinceStart = Math.max(0, now - recordingStart);
-						const fade = Math.min(1, sinceStart / 300);
-
-						const dot = theme.fg("error", getRecordDot());
-						const wave = buildAuroraWave(audioLevelSmoothed * fade, waveCells);
-
-						// Breathing title — slow aurora-color cycle.
-						const titleStyled = titleBreathe(now) + "\x1b[1mVoice Input\x1b[0m";
-
-						const content = ` ${dot} ${wave} ${dim("·")} ${muted(timeStr)}  ${chip} `;
-						const footerStyled = `${dim("release")} ${accent("↑")}`;
-						return island({ width: islandW, title: titleStyled, content, footer: footerStyled, dim });
-					},
-				};
-			},
-			{ placement: "belowEditor" }
-		);
+		recordingPresenter.renderRecordingFrame();
 	}
 
 	// ─── Voice: Start / Stop ─────────────────────────────────────────────────
