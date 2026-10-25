@@ -30,6 +30,8 @@ interface FakeChannel extends PreviewChannel {
 	destroyed: number;
 	/** What the worker emits while the stop flush drains; the test sets this. */
 	onFlush: (() => void) | null;
+	/** When set, the stop flush waits for it, so a test can act inside the drain window. */
+	flushGate: Promise<void> | null;
 	/** Set to make the stop flush reject, as only a channel that broke its contract would. */
 	flushError: Error | null;
 }
@@ -42,6 +44,7 @@ function fakeChannel(recordingId = RECORDING): FakeChannel {
 		released: 0,
 		destroyed: 0,
 		onFlush: null,
+		flushGate: null,
 		flushError: null,
 		feed(chunk: Buffer): void {
 			channel.fed.push(chunk);
@@ -49,6 +52,7 @@ function fakeChannel(recordingId = RECORDING): FakeChannel {
 		async flush(reason: FlushReason): Promise<void> {
 			channel.flushes.push(reason);
 			channel.onFlush?.();
+			if (channel.flushGate !== null) await channel.flushGate;
 			if (channel.flushError !== null) throw channel.flushError;
 		},
 		release(): void {
@@ -270,5 +274,64 @@ describe("preview session — the end of the recording", () => {
 		session.handleEvent(partial(1, 2, "next"));
 		// The empty committed segment joins to nothing: no leading separator before the live tail.
 		expect(session.text).toBe("next");
+	});
+
+	test("an empty commit does not mount the panel", () => {
+		const channel = fakeChannel();
+		const host = fakeHost();
+		const session = createPreviewSession(channel, host);
+
+		// A degraded flush can commit nothing at all. A recording that never showed a word must not
+		// reserve the host's spacer line for an empty panel, so the mount waits for composer text.
+		session.handleEvent(commit(0, ""));
+		expect(session.text).toBe("");
+		expect(host.mounts).toBe(0);
+
+		// An empty partial is no better: the first event with words is what mounts it.
+		session.handleEvent(partial(1, 1, ""));
+		expect(host.mounts).toBe(0);
+		session.handleEvent(partial(1, 2, "好"));
+		expect(host.mounts).toBe(1);
+	});
+
+	test("abort during the stop drain unmounts at once and leaves the release to the drain", async () => {
+		const channel = fakeChannel();
+		const host = fakeHost();
+		const session = createPreviewSession(channel, host);
+		session.handleEvent(partial(0, 1, "你好"));
+
+		let settle!: () => void;
+		channel.flushGate = new Promise<void>((resolve) => {
+			settle = resolve;
+		});
+		const finished = session.finish();
+		expect(channel.flushes).toEqual(["stop"]);
+
+		// A slow or hung worker is exactly the window in which a user reaches for cancel: the panel
+		// must go away now, not when the bounded flush finally settles.
+		session.abort();
+		expect(host.unmounts).toBe(1);
+		// The drain still owns the claim; releasing a claim that is still flushing would hand it to the
+		// next recording mid-drain.
+		expect(channel.released).toBe(0);
+		expect(channel.destroyed).toBe(0);
+
+		// Events of a cancelled recording write nothing (§5.1: abort → dispose, no editor write).
+		session.handleEvent(commit(0, "你好"));
+		expect(session.text).toBe("你好");
+
+		settle();
+		await finished;
+		// Exactly one release, from the drain that owned it, and exactly one unmount.
+		expect(channel.released).toBe(1);
+		expect(channel.destroyed).toBe(0);
+		expect(host.unmounts).toBe(1);
+
+		// No second terminal: a later `finish()`/`abort()` changes nothing.
+		await session.finish();
+		session.abort();
+		expect(channel.flushes).toEqual(["stop"]);
+		expect(channel.released).toBe(1);
+		expect(host.unmounts).toBe(1);
 	});
 });

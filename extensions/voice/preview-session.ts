@@ -21,10 +21,12 @@
  *   (§5.5) — and the host is told once, so a worker that fails twice cannot produce two notices.
  *
  * The session is also the **only** owner of the panel's unmount. The panel is mounted on the first
- * event that can carry text (a degradation carries none, and an empty widget above the editor would
- * shift the layout for a recording that may never show a word) and unmounted exactly once, whichever
- * of `finish()` or `abort()` ends the recording. The entrypoint must not unmount it again, which is why
- * a second `finish()` and an `abort()` after the terminal are no-ops.
+ * event that puts text in the composer (a degradation or an empty commit carries none, and an empty
+ * widget above the editor would shift the layout for a recording that may never show a word) and
+ * unmounted exactly once, whichever of `finish()` or `abort()` ends the recording. Cancelling during a
+ * stop drain takes the panel away immediately, while the drain keeps the claim until it settles. The
+ * entrypoint must not unmount it again, which is why a second `finish()` and an `abort()` after the
+ * terminal are no-ops.
  *
  * Everything the host is asked to do is guarded, and `finish()` swallows a rejected flush: a TUI that
  * throws while mounting a widget, or a channel that breaks its own "never rejects" contract, must not
@@ -59,7 +61,7 @@ export interface PreviewSession {
 	handleEvent(event: PreviewEvent): void;
 	/** Best-effort bounded flush, unmount, then `release()`. Never rejects. */
 	finish(): Promise<void>;
-	/** Cancel: unmount, then `destroy()` when no audio was fed, else `release()`. */
+	/** Cancel: unmount now; then `destroy()` when no audio was fed, else `release()` (a pending `finish()` releases). */
 	abort(): void;
 }
 
@@ -79,17 +81,19 @@ export function createPreviewSession(channel: PreviewChannel, host: PreviewSessi
 
 	/** The gate is closed: no more events, no more audio, and the panel is gone. */
 	let closed = false;
-	/** `finish()` was entered. Its drain still owns the terminal path, so `abort()` must not race it. */
+	/** `finish()` was entered; its drain still owns the claim, so `abort()` must not release it. */
 	let finishing: Promise<void> | null = null;
 	let mounted = false;
 	/** Audio reached the channel, so an abort leaves a segment for the worker to drain. */
 	let fedAudio = false;
 	let degraded: DegradeReason | null = null;
-	/** The one degradation has already been reported; later ones are only kept out, not repeated. */
-	let degradedReported = false;
 
 	function mount(): void {
 		if (mounted) return;
+		// The panel mounts on the first event that puts text in the composer: an empty commit from a
+		// degraded flush, or an empty partial, must not reserve the host's spacer line for a recording
+		// that never showed a word.
+		if (composer.text === "") return;
 		// Marked before the call so a throwing host does not make every event retry the mount.
 		mounted = true;
 		quietly(() => host.mountPanel(() => composer.text));
@@ -111,9 +115,10 @@ export function createPreviewSession(channel: PreviewChannel, host: PreviewSessi
 	}
 
 	function degrade(reason: DegradeReason, detail: string | undefined): void {
-		if (degraded === null) degraded = reason;
-		if (degradedReported) return;
-		degradedReported = true;
+		// A recording is degraded or it is not: the first reason is the one the entrypoint folds into its
+		// single notice, and the host hears it once, not once per event.
+		if (degraded !== null) return;
+		degraded = reason;
 		quietly(() => host.onDegraded(reason, detail));
 	}
 
@@ -154,8 +159,8 @@ export function createPreviewSession(channel: PreviewChannel, host: PreviewSessi
 					mount();
 					return;
 				case "degraded":
-					// The spec's type makes the reason mandatory; the default keeps a malformed event from
-					// becoming invisible rather than pretending no degradation happened.
+					// `reason` is optional in `PreviewEvent`, so a malformed event defaults instead of silently
+					// pretending that no degradation happened.
 					degrade(event.reason ?? "preview-worker-failed", event.detail);
 					return;
 			}
@@ -180,10 +185,15 @@ export function createPreviewSession(channel: PreviewChannel, host: PreviewSessi
 		},
 
 		abort(): void {
-			// A stop already in flight owns the teardown; unmounting here would race its drain and release
-			// a claim it is still flushing.
-			if (closed || finishing !== null) return;
+			if (closed) return;
+			// The panel goes away as soon as the user cancels, even while a stop drain is still pending: that
+			// window (a slow or hung worker, bounded only by the channel's flush timeout) is exactly when a
+			// user reaches for cancel. Unmounting does not race the drain, and a cancelled recording writes
+			// nothing (§5.1), so the drain's commit is dropped by the closed gate.
 			close();
+			// A stop in flight still owns the claim: `release()` waits for the drain instead of handing a
+			// claim that is still flushing to the next recording.
+			if (finishing !== null) return;
 			if (fedAudio) {
 				// Audio reached the worker, so `release()` drains the abandoned segment with its own
 				// maintenance flush and keeps the worker warm for the next recording (§5.5).
