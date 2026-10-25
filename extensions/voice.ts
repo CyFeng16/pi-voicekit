@@ -129,7 +129,8 @@ const realTimerPort: TimerPort = {
  *   recording → idle  (on error)
  *   finalizing → idle  (on completion or timeout)
  */
-// VoiceState is shared with the recording ports; ownership stays in this entrypoint.
+// The controller owns state and generation; the lifecycle module executes the recording flow.
+// This entrypoint provides shared storage accessors and the command surface.
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 

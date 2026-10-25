@@ -4,7 +4,10 @@ import type { PreviewClient } from "./preview-worker-client.ts";
 
 type RecordingOwner = ReturnType<typeof createRecordingOwner>;
 
-/** Borrowed entrypoint storage; lifecycle ownership stays in the entrypoint until Task 8. */
+/**
+ * Borrow shared storage accessors from the entrypoint, which also provides the command surface.
+ * The controller owns state and generation; the lifecycle module executes the recording flow.
+ */
 export interface RecordingEntryDeps<Context> {
 	recordingController: RecordingController;
 	debug(message: string): void;

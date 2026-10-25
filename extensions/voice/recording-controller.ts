@@ -4,8 +4,6 @@ export type VoiceState = "idle" | "warmup" | "recording" | "finalizing";
 
 /** Rendering and delivery ports; editor insertion belongs to the composition, not the presenter. */
 export interface RecordingUiPort {
-	mountPanel(getText: () => string): void;
-	unmountPanel(): void;
 	mountRecordingIndicator(): void;
 	unmountRecordingIndicator(): void;
 	renderRecordingFrame(): void;

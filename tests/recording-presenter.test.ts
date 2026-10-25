@@ -113,20 +113,6 @@ test("same-key handover disposes the previous owner once without a visible clear
 	expect(f.writes).toHaveLength(count);
 });
 
-test("the preview panel mounts above the editor, reads live text and unmounts once", () => {
-	const f = fixture();
-	let text = "first";
-	f.presenter.mountPanel(() => text);
-	expect(f.writes[0]?.placement).toBe("aboveEditor");
-	expect(f.render("voice-preview")).toBe("first");
-	text = "second";
-	expect(f.render("voice-preview")).toBe("second");
-	f.presenter.unmountPanel();
-	f.presenter.unmountPanel();
-	expect(f.writes.filter((write) => write.empty)).toHaveLength(1);
-	expect(f.registry.size()).toBe(0);
-});
-
 test("state transitions never mount an indicator or an absent preview", () => {
 	const f = fixture();
 	for (const state of ["warmup", "recording", "finalizing", "idle"] as const) f.presenter.setState(state);
@@ -186,7 +172,6 @@ test("headless mounting makes no writes and schedules nothing", () => {
 	const f = fixture(false);
 	f.presenter.mountWarmupIndicator();
 	f.presenter.mountRecordingIndicator();
-	f.presenter.mountPanel(() => "text");
 	f.advance(1000);
 	expect(f.writes).toHaveLength(0);
 	expect(f.registry.size()).toBe(0);

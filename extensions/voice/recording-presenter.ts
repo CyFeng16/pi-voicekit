@@ -1,6 +1,6 @@
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import type { RecordingUiPort } from "./recording-controller.ts";
-import { createPreviewPanel, type PreviewPanel } from "./preview-panel.ts";
+import type { PreviewPanel } from "./preview-panel.ts";
 import { BaseDisposableWidget, type WidgetRegistry } from "./ui-widget-base.ts";
 
 export type WidgetFactory = (tui: { requestRender(): void }, theme: Pick<Theme, "fg">) => PreviewPanel;
@@ -31,8 +31,7 @@ export type RecordingPresenter = Omit<RecordingUiPort, "insert"> & {
 /** Owns visible widgets only; state transitions and preview lifecycle remain with the caller. */
 export function createRecordingPresenter(deps: PresenterDeps): RecordingPresenter {
 	let indicator: OwnedWidget | undefined;
-	let panel: OwnedWidget | undefined;
-	let handingOver = false;
+	let handingOverIndicator = false;
 	let warmupStart = 0;
 	let progress: number | undefined;
 	let audioLevel: number | undefined;
@@ -45,7 +44,7 @@ export function createRecordingPresenter(deps: PresenterDeps): RecordingPresente
 			private readonly cleanup: () => void
 		) {
 			super(deps.registry(), () => {
-				if (!handingOver && deps.hasUI()) clearSlot(key);
+				if (!handingOverIndicator && deps.hasUI()) clearSlot(key);
 			});
 		}
 		protected onDispose(): void {
@@ -73,11 +72,11 @@ export function createRecordingPresenter(deps: PresenterDeps): RecordingPresente
 			cleanup();
 			if (indicator === owner) indicator = undefined;
 		});
-		handingOver = true;
+		handingOverIndicator = true;
 		try {
 			deps.registry().register(owner);
 		} finally {
-			handingOver = false;
+			handingOverIndicator = false;
 		}
 		indicator = owner;
 	}
@@ -253,31 +252,6 @@ export function createRecordingPresenter(deps: PresenterDeps): RecordingPresente
 			if (indicator) indicator.dispose();
 			else clearSlot("voice-recording");
 		},
-		mountPanel(getText) {
-			if (!deps.hasUI()) return;
-			const owner = new OwnedWidget("voice-preview", () => {
-				if (panel === owner) panel = undefined;
-			});
-			handingOver = true;
-			try {
-				deps.registry().register(owner);
-			} finally {
-				handingOver = false;
-			}
-			panel = owner;
-			deps.setWidget(
-				"voice-preview",
-				(tui) => {
-					const component = createPreviewPanel(getText);
-					tui.requestRender();
-					return component;
-				},
-				{ placement: "aboveEditor" }
-			);
-		},
-		unmountPanel() {
-			panel?.dispose();
-		},
 		setState: deps.setState,
 		notify: deps.notify,
 		playSound: deps.playSound,
@@ -291,7 +265,6 @@ export function createRecordingPresenter(deps: PresenterDeps): RecordingPresente
 			stopWarmupAnimation();
 			stopRecordingAnimation();
 			indicator?.dispose();
-			panel?.dispose();
 		},
 	};
 }

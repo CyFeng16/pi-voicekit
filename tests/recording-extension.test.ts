@@ -7,8 +7,9 @@ import { EventEmitter } from "node:events";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import voiceExtension from "../extensions/voice";
 import * as local from "../extensions/voice/local";
+import * as previewWorker from "../extensions/voice/preview-worker-client";
 
-async function extensionHarness() {
+async function extensionHarness(previewEnabled = false) {
 	const home = mkdtempSync(join(os.tmpdir(), "voice-recording-extension-"));
 	const previousAgent = process.env.PI_CODING_AGENT_DIR;
 	process.env.PI_CODING_AGENT_DIR = join(home, "agent");
@@ -19,7 +20,7 @@ async function extensionHarness() {
 			voice: {
 				enabled: true,
 				localModel: "paraformer-zh",
-				previewEnabled: false,
+				previewEnabled,
 				punctuationEnabled: false,
 				punctuationNoticeShown: true,
 				audioFeedback: false,
@@ -184,6 +185,96 @@ test("session cleanup cancels an in-flight guarded start and delivers nothing", 
 		expect(h.sends).toEqual([]);
 	} finally {
 		await h.dispose();
+	}
+});
+
+test("session cleanup destroys live and retired preview clients, cancels retirement and ignores late drain", async () => {
+	const realCreate = previewWorker.createPreviewClient;
+	const realSetTimeout = globalThis.setTimeout;
+	const realClearTimeout = globalThis.clearTimeout;
+	const retirementTimers = new Set<ReturnType<typeof setTimeout>>();
+	const workers: Array<EventEmitter & { terminations: number }> = [];
+	const clients: previewWorker.PreviewClient[] = [];
+	const destroys: number[] = [];
+	const schedule = spyOn(globalThis, "setTimeout").mockImplementation(
+		Object.assign((...args: Parameters<typeof setTimeout>) => {
+			const timer = realSetTimeout(...args);
+			if (args[1] === 60_250) retirementTimers.add(timer);
+			return timer;
+		}, realSetTimeout)
+	);
+	const clear = spyOn(globalThis, "clearTimeout").mockImplementation((timer) => {
+		retirementTimers.delete(timer as ReturnType<typeof setTimeout>);
+		realClearTimeout(timer as ReturnType<typeof setTimeout>);
+	});
+	// Keep the client, entry, lifecycle and retirement real; replace only the model worker boundary.
+	const create = spyOn(previewWorker, "createPreviewClient").mockImplementation((options) => {
+		const index = clients.length;
+		const client = realCreate({
+			...options,
+			previewModelDir: "/test-preview-model",
+			flushTimeoutMs: 60_000,
+			spawnWorker: () => {
+				const worker = Object.assign(new EventEmitter(), {
+					terminations: 0,
+					postMessage() {},
+					terminate() {
+						worker.terminations++;
+					},
+				});
+				workers.push(worker);
+				return worker;
+			},
+		});
+		const destroy = client.destroy;
+		destroys.push(0);
+		client.destroy = () => {
+			destroys[index] = destroys[index]! + 1;
+			return destroy();
+		};
+		clients.push(client);
+		return client;
+	});
+	let h: Awaited<ReturnType<typeof extensionHarness>> | undefined;
+	try {
+		h = await extensionHarness(true);
+		await h.toggle();
+		h.feed();
+		workers[0]!.emit("message", { type: "ready" });
+		h.cancel();
+		const drain = clients[0]!.pendingDrain;
+		expect(drain).not.toBeNull();
+		let drained = false;
+		void drain!.then(() => {
+			drained = true;
+		});
+		await h.toggle();
+		h.feed();
+		workers[1]!.emit("message", { type: "ready" });
+		expect(clients).toHaveLength(2);
+		expect(drained).toBe(false);
+		expect(retirementTimers.size).toBe(1);
+		expect(destroys).toEqual([0, 0]);
+		const shutdown = h.shutdown();
+		expect(destroys).toEqual([1, 1]);
+		expect(retirementTimers.size).toBe(0);
+		await shutdown;
+		await drain;
+		workers[0]!.emit("message", { type: "flushed", requestId: 1 });
+		await h.shutdown();
+		expect(drained).toBe(true);
+		expect(destroys).toEqual([1, 1]);
+		expect(workers.map((worker) => worker.terminations)).toEqual([1, 1]);
+	} finally {
+		try {
+			await h?.dispose();
+			for (const client of clients) await client.destroy();
+			for (const timer of retirementTimers) realClearTimeout(timer);
+		} finally {
+			create.mockRestore();
+			clear.mockRestore();
+			schedule.mockRestore();
+		}
 	}
 });
 
