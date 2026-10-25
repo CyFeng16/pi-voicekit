@@ -76,7 +76,6 @@ import {
 	type VoiceConfig,
 	type VoiceSettingsScope,
 } from "./voice/config";
-import { finalizeOnboardingConfig } from "./voice/onboarding";
 import { finalPassClient } from "./voice/final-pass-client";
 import { makeWidgetRegistry, type WidgetRegistry } from "./voice/ui-widget-base";
 import { makeRenderTicker, type RenderTicker } from "./voice/ui-render-ticker";
@@ -90,13 +89,9 @@ import {
 	LOCAL_MODELS,
 	SAMPLE_RATE,
 	CHANNELS,
-	getLanguagesForLocalModel,
-	isLanguageSupportedByModel,
-	localLanguageDisplayName,
 	type LocalSession,
-	type LocalSessionResult,
 } from "./voice/local";
-import { shouldArmReleaseDetectOnRepeat, decideRecordingStartTimer } from "./voice/hold-to-talk";
+import { shouldArmReleaseDetectOnRepeat } from "./voice/hold-to-talk";
 import { GapTimer, type TimerPort } from "./voice/release-controller";
 import { audioToolOrder, type AudioToolName } from "./voice/audio-tool";
 import { isPunctuationModelReady, punctuationModelFilePath, punctuationModelPath } from "./voice/punctuation-model";
@@ -109,11 +104,13 @@ import {
 } from "./voice/punctuation";
 import { cleanTranscript, type CleanupStatus } from "./voice/transcript-cleanup";
 import { createPreviewClient, type PreviewClient } from "./voice/preview-worker-client";
-import { createPreviewSession, type PreviewSession } from "./voice/preview-session";
-import { createPreviewPanel } from "./voice/preview-panel";
+import { type PreviewSession } from "./voice/preview-session";
 import { createRecordingOwner, resolvePreviewModelDir } from "./voice/preview-entrypoint";
-import { classifyOutcome, deliverOutcome } from "./voice/dictation-outcome";
-import { insertTranscript } from "./voice/editor-sink";
+import type { VoiceState } from "./voice/recording-controller";
+import { createRecordingLifecycle } from "./voice/recording-lifecycle";
+import { createPreviewRetirement } from "./voice/preview-retirement";
+import { createRecordingController } from "./voice/recording-controller";
+import { createRecordingPresenter } from "./voice/recording-presenter";
 
 /** Adapter for the real event loop — lets GapTimer run under the real setTimeout. */
 const realTimerPort: TimerPort = {
@@ -132,7 +129,8 @@ const realTimerPort: TimerPort = {
  *   recording → idle  (on error)
  *   finalizing → idle  (on completion or timeout)
  */
-type VoiceState = "idle" | "warmup" | "recording" | "finalizing";
+// The controller owns state and generation; the lifecycle module executes the recording flow.
+// This entrypoint provides shared storage accessors and the command surface.
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -384,14 +382,12 @@ function abortSession(session: LocalSession | null): void {
 
 // ─── Extension ───────────────────────────────────────────────────────────────
 
-const retiringPreviewClients = new Set<PreviewClient>();
-const previewRetirementTimers = new Map<PreviewClient, ReturnType<typeof setTimeout>>();
-
 export default function (pi: ExtensionAPI) {
 	let config = DEFAULT_CONFIG;
 	let configSource: VoiceSettingsScope | "default" = "default";
 	let currentCwd = process.cwd();
-	let voiceState: VoiceState = "idle";
+	// The controller owns the state value; this closure only reacts to transitions.
+	const recordingController = createRecordingController({ debug: voiceDebug });
 	let ctx: ExtensionContext | null = null;
 	let recordingStart = 0;
 	let statusTimer: ReturnType<typeof setInterval> | null = null;
@@ -722,10 +718,10 @@ export default function (pi: ExtensionAPI) {
 	let lastStopTime = 0; // For Escape-to-clear-editor within 30s of recording
 	let lastEscapeTime = 0; // For double-escape to clear editor
 	let recordingStartedAt = 0; // When recording actually started (for grace period)
-	let recordingGeneration = 0;
 	let previewClient: PreviewClient | null = null;
 	let previewClientModelDir: string | null = null;
-	let previewFinish: Promise<void> | null = null;
+	const previewRetirement = createPreviewRetirement({ debug: voiceDebug, safeErrorText, setTimeout, clearTimeout });
+	const { retirePreviewClient, finishPreview } = previewRetirement;
 	let activePreview: PreviewSession | null = null;
 	let recordingOwner: ReturnType<typeof createRecordingOwner> | null = null;
 
@@ -735,7 +731,6 @@ export default function (pi: ExtensionAPI) {
 	let holdActivationTimer: ReturnType<typeof setTimeout> | null = null;
 	let spaceConsumed = false; // True once threshold passed and recording started
 	let releaseGapTimer: GapTimer | null = null; // gap-based release detection (see release-controller.ts)
-	let warmupWidgetTimer: ReturnType<typeof setInterval> | null = null;
 	let spacePressCount = 0; // Count of rapid space presses (for non-Kitty hold detection)
 	let lastSpacePressTime = 0; // Timestamp of last space press event
 	let holdConfirmed = false; // True once we've confirmed user is holding (not tapping)
@@ -790,7 +785,7 @@ export default function (pi: ExtensionAPI) {
 
 	function updateVoiceStatus() {
 		if (!ctx?.hasUI) return;
-		switch (voiceState) {
+		switch (recordingController.state) {
 			case "idle": {
 				if (!config.enabled) {
 					ctx.ui.setStatus("voice", undefined);
@@ -819,11 +814,7 @@ export default function (pi: ExtensionAPI) {
 	}
 
 	function setVoiceState(newState: VoiceState) {
-		const prev = voiceState;
-		voiceState = newState;
-		if (prev !== newState) {
-			voiceDebug(`STATE: ${prev} → ${newState}`);
-		}
+		recordingController.setState(newState);
 		const shared = ((globalThis as any).__piListen ??= {});
 		shared.recording = newState === "recording";
 		updateVoiceStatus();
@@ -843,28 +834,15 @@ export default function (pi: ExtensionAPI) {
 	}
 
 	function clearWarmupWidget() {
-		if (warmupWidgetTimer) {
-			clearInterval(warmupWidgetTimer);
-			warmupWidgetTimer = null;
-		}
+		recordingPresenter.stopWarmupAnimation();
 	}
 
 	function clearRecordingAnimTimer() {
-		if (_recWidgetAnimTimer) {
-			clearInterval(_recWidgetAnimTimer);
-			_recWidgetAnimTimer = null;
-		}
+		recordingPresenter.stopRecordingAnimation();
 	}
 
 	function hideWidget() {
-		if (!ctx?.hasUI) return;
-		// R24: hiding the widget is cosmetic — a UI throw here must not reject the
-		// completion callback before its write, its history record and its tail.
-		try {
-			ctx.ui.setWidget("voice-recording", undefined);
-		} catch (err) {
-			voiceDebug("hideWidget threw", { error: String(err) });
-		}
+		recordingPresenter.hideIndicator();
 	}
 
 	/** Reset all hold-to-talk state to idle. Call after any recording stop/error/cancel. */
@@ -882,14 +860,14 @@ export default function (pi: ExtensionAPI) {
 		recordingOwner?.cancel();
 		activePreview?.abort();
 		activePreview = null;
-		recordingGeneration++;
+		recordingController.begin();
 		void previewClient?.destroy().catch((error) => {
 			voiceDebug("preview destroy failed", { error: safeErrorText(error) });
 		});
 		previewClient = null;
 		previewClientModelDir = null;
-		previewFinish = null;
-		for (const client of retiringPreviewClients) destroyRetiringPreviewClient(client);
+		previewRetirement.finish = null;
+		previewRetirement.destroyRetiringClients();
 		// v7.1: cancel in-flight installs FIRST so their AbortControllers
 		// fire before we drop UI state. Without this, a session_shutdown
 		// during a download would leave the network/disk work running
@@ -965,7 +943,7 @@ export default function (pi: ExtensionAPI) {
 	function disarmDictation() {
 		recordingOwner?.cancel();
 		activePreview?.abort();
-		recordingGeneration++;
+		recordingController.begin();
 		if (activeSession) {
 			abortSession(activeSession);
 			activeSession = null;
@@ -987,227 +965,32 @@ export default function (pi: ExtensionAPI) {
 		setVoiceState("idle");
 	}
 
-	async function finalizeAndSaveSetup(
-		uiCtx: ExtensionContext | ExtensionCommandContext,
-		nextConfig: VoiceConfig,
-		selectedScope: VoiceSettingsScope,
-		summaryLines: string[],
-		source: "first-run" | "setup-command"
-	) {
-		// One capture path, so a saved setup is always usable: there is no key to check.
-		if (config.localModel !== nextConfig.localModel || config.language !== nextConfig.language) {
-			await finalPassClient.destroy();
-		}
-		config = finalizeOnboardingConfig(nextConfig, { validated: true, source });
-		configSource = selectedScope;
-		const savedPath = saveConfig(config, selectedScope, currentCwd, { loadedSource: configSource });
-		uiCtx.ui.notify(["Voice setup complete.", ...summaryLines, "", `Saved to ${savedPath}`].join("\n"), "info");
-	}
-
-	// ─── Warmup Widget ──────────────────────────────────────────────────────
-	// ─── Minimal Voice Indicators ──────────────────────────────────────
-
-	function getRecordDot(): string {
-		// v7.2 — soft pulse between full and dim. Two-state instead of
-		// three-state (cleaner, more like a breathing LED indicator
-		// than the v7.0 multi-glyph approach).
-		const phase = (Math.sin(Date.now() / 700) + 1) / 2;
-		return phase > 0.5 ? "●" : "○";
-	}
-
-	function buildMiniWave(level: number): string {
-		// Legacy block-bar wave — retained for compatibility with any
-		// caller that still uses it. New code should use buildAuroraWave.
-		const bars = "▁▂▃▄▅▆▇█";
-		const len = 12;
-		let out = "";
-		const t = Date.now() / 1000;
-		const energy = Math.pow(level, 0.7);
-		for (let i = 0; i < len; i++) {
-			const pos = i / len;
-			const wave1 = Math.sin(t * 4.5 + i * 0.9) * 0.35;
-			const wave2 = Math.sin(t * 7.2 + i * 1.4 + 2.0) * 0.15;
-			const center = 1.0 - Math.abs(pos - 0.5) * 1.2;
-			const base = 0.15 + energy * 0.85;
-			const value = Math.max(0, Math.min(1, (wave1 + wave2 + 0.5) * base * center));
-			const idx = Math.min(bars.length - 1, Math.round(value * (bars.length - 1)));
-			out += bars[idx];
-		}
-		return out;
-	}
-
-	/**
-	 * v7.2 world-class — Liquid Braille audio waveform with truecolor
-	 * Aurora gradient. Per Gemini design recommendation:
-	 *   - 8 effective vertical levels per CELL (4 dots × 2 columns) via
-	 *     braille — vs 8 levels per cell with block-bars.
-	 *   - 2 audio samples per cell width — 2× density of block-bar wave.
-	 *   - Per-cell color picks an aurora stop based on local peak;
-	 *     loud peaks "burn" into hot peach/red, soft tails stay cool
-	 *     lavender. RGB interpolated at runtime.
-	 * Output is `cells` cells wide rendered as a single string with
-	 * inline ANSI 24-bit escapes; ends with a reset. Caller-side
-	 * width math should use `cells` not the byte-length of the result.
-	 */
-	function buildAuroraWave(level: number, cells = 16): string {
-		// Generate 2*cells audio "samples" via multi-frequency sine
-		// + the live RMS energy. Same organic motion as the legacy
-		// wave but at higher density.
-		const samples = 2 * cells;
-		const t = Date.now() / 1000;
-		const energy = Math.pow(level, 0.7);
-		const arr: number[] = [];
-		for (let i = 0; i < samples; i++) {
-			const pos = i / samples;
-			const wave1 = Math.sin(t * 4.5 + i * 0.45) * 0.35;
-			const wave2 = Math.sin(t * 7.2 + i * 0.7 + 2.0) * 0.15;
-			const center = 1.0 - Math.abs(pos - 0.5) * 1.0;
-			const base = 0.1 + energy * 0.9;
-			const value = Math.max(0, Math.min(1, (wave1 + wave2 + 0.5) * base * center));
-			arr.push(value);
-		}
-		// Lazy-import to keep voice.ts hot path fast on cold start.
-		const { liquidBraille, auroraColor } = require("./voice/ui-aura") as typeof import("./voice/ui-aura");
-		return liquidBraille(arr, auroraColor);
-	}
-
 	// ─── Warmup Widget ──────────────────────────────────────────────────
+	// Presentation is injected; lifecycle, generation and preview ownership stay here.
+	const recordingPresenter = createRecordingPresenter({
+		registry: () => getOrInitVoiceUi().registry,
+		hasUI: () => !!ctx?.hasUI,
+		now: () => Date.now(),
+		getHoldThresholdMs,
+		getRecordingStart: () => recordingStart,
+		getAudioLevel: () => audioLevelSmoothed,
+		setWidget: (key, widget, opts) => ctx?.ui.setWidget(key, widget, opts),
+		schedule(frame, ms) {
+			const timer = setInterval(frame, ms);
+			return () => clearInterval(timer);
+		},
+		setState: setVoiceState,
+		notify: (message, level) => ctx?.ui.notify(message, level),
+		playSound,
+		debug: voiceDebug,
+	});
+
 	function showWarmupWidget() {
-		if (!ctx?.hasUI) return;
-
-		const startTime = Date.now();
-
-		const renderWarmup = () => {
-			if (!ctx?.hasUI) return;
-			const elapsed = Date.now() - startTime;
-			const progress = Math.min(elapsed / getHoldThresholdMs(), 1);
-
-			ctx.ui.setWidget(
-				"voice-recording",
-				(_tui, theme) => {
-					return {
-						invalidate() {},
-						render(width: number): string[] {
-							// v7.2 world-class — Same Floating Island chrome
-							// as the active recording widget, with the
-							// progress bar inside. Establishes visual
-							// continuity between warmup → recording (same
-							// island, content shifts, no jump).
-							const { island, auroraColor, titleBreathe } =
-								require("./voice/ui-aura") as typeof import("./voice/ui-aura");
-							const dim = (s: string) => theme.fg("dim", s);
-							const muted = (s: string) => theme.fg("muted", s);
-							const accent = (s: string) => theme.fg("accent", s);
-							const islandW = Math.max(36, Math.min(46, width - 2));
-
-							// Aurora gradient progress: ▰ filled / ▱ empty
-							// with truecolor across the filled portion.
-							const innerW = islandW - 2;
-							const fixedW = 3 /* " ○ " */ + 1; /* trail */
-							const meterCells = Math.max(12, innerW - fixedW);
-							const filled = Math.round(progress * meterCells);
-							let bar = "";
-							for (let i = 0; i < meterCells; i++) {
-								if (i < filled) {
-									// Color stop based on position along filled portion.
-									const t = filled === 0 ? 0 : i / Math.max(1, meterCells - 1);
-									bar += auroraColor(t) + "▰";
-								} else {
-									bar += dim("▱");
-								}
-							}
-							bar += "\x1b[0m";
-
-							const dot = progress < 1 ? muted("○") : accent("●");
-							const content = ` ${dot} ${bar} `;
-							// Breathing title — same aurora-cycle as recording widget
-							// so the warmup → recording transition feels seamless.
-							const titleStyled = titleBreathe(Date.now()) + "\x1b[1mVoice Mode\x1b[0m";
-							const footer = progress < 1 ? dim("hold to record") : accent("ready");
-							return island({ width: islandW, title: titleStyled, content, footer, dim });
-						},
-					};
-				},
-				{ placement: "belowEditor" }
-			);
-		};
-
-		renderWarmup();
-		warmupWidgetTimer = setInterval(renderWarmup, 90);
+		recordingPresenter.mountWarmupIndicator();
 	}
-
-	// ─── Recording Widget ───────────────────────────────────────────────
-	let _recWidgetAnimTimer: ReturnType<typeof setInterval> | null = null;
 
 	function showRecordingWidget() {
-		if (!ctx?.hasUI) return;
-
-		// Stop warmup animation if still running — seamless takeover,
-		// no gap between warmup and recording widgets (same widget ID).
-		clearWarmupWidget();
-
-		_recWidgetAnimTimer = setInterval(() => {
-			showRecordingWidgetFrame();
-		}, 150);
-
-		showRecordingWidgetFrame();
-	}
-
-	function showRecordingWidgetFrame() {
-		if (!ctx?.hasUI) return;
-
-		// Minimal recording indicator below editor
-		ctx.ui.setWidget(
-			"voice-recording",
-			(_tui, theme) => {
-				return {
-					invalidate() {},
-					render(width: number): string[] {
-						// v7.2 world-class — Floating Island + Liquid Braille +
-						// Aurora gradient + breathing title + activity chip
-						// + 300 ms fade-in transition from warmup.
-						const { island, titleBreathe, activityTag } =
-							require("./voice/ui-aura") as typeof import("./voice/ui-aura");
-						const now = Date.now();
-						const elapsed = (now - recordingStart) / 1000;
-						const mins = Math.floor(elapsed / 60);
-						const secs = elapsed % 60;
-						const timeStr = mins > 0 ? `${mins}:${String(Math.floor(secs)).padStart(2, "0")}` : `${secs.toFixed(1)}s`;
-						const dim = (s: string) => theme.fg("dim", s);
-						const muted = (s: string) => theme.fg("muted", s);
-						const accent = (s: string) => theme.fg("accent", s);
-
-						// Activity chip — one-glance "is sound coming in?"
-						const chip = activityTag(audioLevelSmoothed, dim);
-						const chipPlain = chip.replace(/\x1b\[[\d;]*[A-Za-z]/g, "");
-
-						// Compact 36-48 cols. Reserved cells:
-						//   " ● "(3) + wave + " · TIME "(timer+4) + "  CHIP "(chip+3) + " "(1)
-						const islandW = Math.max(36, Math.min(48, width - 2));
-						const innerW = islandW - 2;
-						const fixedW = 3 + (4 + timeStr.length) + (3 + chipPlain.length) + 1;
-						const waveCells = Math.max(8, innerW - fixedW);
-
-						// Fade-in over first 300 ms — wave amplitude
-						// scales 0→1 so the recording widget grows out
-						// of warmup rather than snapping in.
-						const sinceStart = Math.max(0, now - recordingStart);
-						const fade = Math.min(1, sinceStart / 300);
-
-						const dot = theme.fg("error", getRecordDot());
-						const wave = buildAuroraWave(audioLevelSmoothed * fade, waveCells);
-
-						// Breathing title — slow aurora-color cycle.
-						const titleStyled = titleBreathe(now) + "\x1b[1mVoice Input\x1b[0m";
-
-						const content = ` ${dot} ${wave} ${dim("·")} ${muted(timeStr)}  ${chip} `;
-						const footerStyled = `${dim("release")} ${accent("↑")}`;
-						return island({ width: islandW, title: titleStyled, content, footer: footerStyled, dim });
-					},
-				};
-			},
-			{ placement: "belowEditor" }
-		);
+		recordingPresenter.mountRecordingIndicator();
 	}
 
 	// ─── Voice: Start / Stop ─────────────────────────────────────────────────
@@ -1215,7 +998,11 @@ export default function (pi: ExtensionAPI) {
 	let _startingRecording = false; // Re-entrancy guard for startVoiceRecording
 
 	async function startVoiceRecording(): Promise<boolean> {
-		voiceDebug("startVoiceRecording called", { voiceState, hasUI: !!ctx?.hasUI, starting: _startingRecording });
+		voiceDebug("startVoiceRecording called", {
+			voiceState: recordingController.state,
+			hasUI: !!ctx?.hasUI,
+			starting: _startingRecording,
+		});
 		// A recording needs an explicit local model: `local.ts` substitutes DEFAULT_LOCAL_MODEL when
 		// `config.localModel` is unset, so any entry that starts without one downloads and runs a model
 		// the user never chose. Enforced HERE, at the shared entry, and not per entry point — the SPACE
@@ -1245,10 +1032,10 @@ export default function (pi: ExtensionAPI) {
 			// ── SESSION CORRUPTION GUARD ──
 			// If we're still finalizing from a previous recording, abort it first.
 			// This prevents the "slow connection overlaps new recording" bug.
-			if (voiceState === "finalizing" || voiceState === "recording") {
+			if (recordingController.state === "finalizing" || recordingController.state === "recording") {
 				recordingOwner?.cancel();
 				activePreview?.abort();
-				const generation = ++recordingGeneration;
+				const generation = recordingController.begin();
 				abortSession(activeSession);
 				activeSession = null;
 				clearRecordingAnimTimer();
@@ -1257,7 +1044,7 @@ export default function (pi: ExtensionAPI) {
 				setVoiceState("idle");
 				// Brief pause to let resources release
 				await new Promise((r) => setTimeout(r, CORRUPTION_GUARD_MS));
-				if (generation !== recordingGeneration) {
+				if (!recordingController.owns(generation)) {
 					staleStart = true;
 					return false;
 				}
@@ -1276,250 +1063,115 @@ export default function (pi: ExtensionAPI) {
 		}
 	}
 
-	function destroyRetiringPreviewClient(client: PreviewClient): void {
-		if (!retiringPreviewClients.delete(client)) return;
-		clearTimeout(previewRetirementTimers.get(client));
-		previewRetirementTimers.delete(client);
-		void client.destroy().catch((error) => {
-			voiceDebug("preview destroy failed", { error: safeErrorText(error) });
-		});
-	}
-
-	function retirePreviewClient(client: PreviewClient, drain: Promise<void> | null): void {
-		retiringPreviewClients.add(client);
-		if (!drain) {
-			destroyRetiringPreviewClient(client);
-			return;
-		}
-		// Allow the flush deadline to release its claim first, but never orphan a hung drain.
-		const timer = setTimeout(() => destroyRetiringPreviewClient(client), client.flushTimeoutMs + 250);
-		previewRetirementTimers.set(client, timer);
-		timer.unref?.();
-		void drain.then(
-			() => destroyRetiringPreviewClient(client),
-			() => destroyRetiringPreviewClient(client)
-		);
-	}
-
-	function finishPreview(preview: PreviewSession): Promise<void> {
-		// A stop owns only this recording's drain, never an older recording's pending finish.
-		const finishing = preview
-			.finish()
-			.catch((error) => voiceDebug("preview finish failed", { error: safeErrorText(error) }))
-			.finally(() => {
-				if (previewFinish === finishing) previewFinish = null;
-			});
-		previewFinish = finishing;
-		return finishing;
-	}
-
-	async function startRecording(): Promise<boolean> {
-		voiceDebug("startRecording called");
-		setVoiceState("recording");
-
-		activePreview?.abort();
-		const generation = ++recordingGeneration;
-		const current = () => generation === recordingGeneration;
-		const owner = createRecordingOwner(current);
-		recordingOwner = owner;
-		const recordingCtx = ctx;
-		const previewModelDir = resolvePreviewModelDir(config.previewEnabled ?? true);
-		const previousDrain = previewFinish ?? previewClient?.pendingDrain ?? null;
-		if (previewClient && (previewModelDir !== previewClientModelDir || previousDrain)) {
-			const oldClient = previewClient;
-			const previousFinish = previousDrain;
-			previewClient = null;
-			previewClientModelDir = null;
-			previewFinish = null;
-			retirePreviewClient(oldClient, previousFinish);
-		}
-		if (!previewClient) {
-			previewClient = createPreviewClient({ previewModelDir });
-			previewClientModelDir = previewModelDir;
-		}
-		let unsubscribe: (() => void) | undefined;
-		let dirty = false;
-		const channel = previewClient.claim(String(generation), (event) => {
-			if (!current()) return;
-			preview.handleEvent(event);
-			dirty = true;
-		});
-		const preview = createPreviewSession(channel, {
-			mountPanel: (getText) => {
-				if (!current() || !recordingCtx?.hasUI) return;
-				recordingCtx.ui.setWidget(
-					"voice-preview",
-					(tui) => {
-						const panel = createPreviewPanel(getText);
-						if (!current()) return panel;
-						tui.requestRender();
-						unsubscribe = getOrInitVoiceUi().ticker.subscribe({
-							tick: () => {
-								if (current() && dirty) {
-									dirty = false;
-									tui.requestRender();
-								}
-							},
-							label: "voice-preview",
-						});
-						return panel;
-					},
-					{ placement: "aboveEditor" }
-				);
+	const { startRecording, stopVoiceRecording } = createRecordingLifecycle({
+		state: {
+			get config() {
+				return config;
 			},
-			unmountPanel: () => {
-				unsubscribe?.();
-				if (current() && recordingCtx?.hasUI) recordingCtx.ui.setWidget("voice-preview", undefined);
+			get ctx() {
+				return ctx;
 			},
-			onDegraded: (reason) => voiceDebug("preview degraded", { reason }),
-		});
-		activePreview = preview;
-		const recordingCallbacks = {
-			onAudioChunk: (chunk: Buffer) => {
-				if (current() && (config.previewEnabled ?? true)) preview.feed(chunk);
+			get activeSession() {
+				return activeSession;
 			},
-			onDone: (result: LocalSessionResult, doneMeta: { capturedBytes: number }) => {
-				if (result.kind === "capture-failed") {
-					recordingCallbacks.onError(result.message);
-					return;
-				}
-				if (!owner.deliver()) return;
-				const previewText = preview.terminal();
-				activeSession = null;
-				clearRecordingAnimTimer();
-				if (statusTimer) {
-					clearInterval(statusTimer);
-					statusTimer = null;
-				}
-				lastStopTime = Date.now();
-
-				hideWidget();
-
-				// PCM duration excludes time spent waiting for the final pass.
-				const duration = doneMeta.capturedBytes / (SAMPLE_RATE * CHANNELS * 2);
-
-				try {
-					deliverOutcome(
-						classifyOutcome({
-							capturedBytes: doneMeta.capturedBytes,
-							finalText: result.kind === "ok" ? result.text : null,
-							finalHadSpeech: result.kind === "ok" && result.hadSpeech,
-							previewText,
-						}),
-						preview.degraded,
-						{
-							hasUI: Boolean(ctx?.hasUI),
-							// This existing stage owns cleanup plus punctuation and their diagnostics.
-							clean: (text) => text,
-							punctuate: punctuateTranscript,
-							addToHistory: (text) => addToHistory(text, duration, "hold"),
-							insert: (text) =>
-								insertTranscript(
-									{
-										hasUI: Boolean(ctx?.hasUI),
-										getEditorText: () => ctx!.ui.getEditorText(),
-										pasteToEditor: (value) => ctx!.ui.pasteToEditor(value),
-										setEditorText: (value) => ctx!.ui.setEditorText(value),
-										debug: voiceDebug,
-									},
-									text
-								),
-							notify: (message, level) => ctx?.ui.notify(message, level),
-						}
-					);
-				} catch (err) {
-					voiceDebug("outcome delivery threw", { error: String(err) });
-				} finally {
-					void finishPreview(preview);
-				}
-				playSound("stop");
-				// Full state reset on successful completion
-				resetHoldState();
-				// R24: the last call of the callback is a UI render via setVoiceState —
-				// swallow it so the float promise cannot reject after the tail.
-				try {
-					setVoiceState("idle");
-				} catch (err) {
-					voiceDebug("idle transition threw", { error: String(err) });
-				}
+			set activeSession(value) {
+				activeSession = value;
 			},
-			onError: (err: string) => {
-				if (!owner.deliver()) return;
-				preview.abort();
-				activeSession = null;
-				clearRecordingAnimTimer();
-				if (statusTimer) {
-					clearInterval(statusTimer);
-					statusTimer = null;
-				}
-				hideWidget();
-
-				// ── STOP THE LOOP ──
-				// On error, fully reset ALL hold state AND set a cooldown
-				// so incoming key-repeat events can't re-trigger activation.
-				resetHoldState({ cooldown: 5000 });
-				clearWarmupWidget();
-
-				ctx?.ui.notify(`Voice error: ${err}`, "error");
-				playSound("error");
-				setVoiceState("idle");
+			get activePreview() {
+				return activePreview;
 			},
-		};
-
-		// ── Start the local capture session ──
-		const audioTool = detectAudioCaptureTool();
-		if (!audioTool) {
-			recordingCallbacks.onError("No audio capture tool found. Install one of: sox, ffmpeg, or arecord (Linux)");
-			resetHoldState();
-			setVoiceState("idle");
-			return false;
-		}
-		const recProc = spawn(audioTool.cmd, audioTool.args, { stdio: ["pipe", "pipe", "pipe"] });
-		recProc.stderr?.on("data", (d: Buffer) => {
-			const msg = d.toString().trim();
-			if (msg.includes("buffer overrun") || msg.includes("Discarding") || msg.includes("Last message repeated")) return;
-			voiceDebug(`${audioTool.name} stderr:`, msg);
-		});
-		// Audio is buffered locally; transcription runs on stop.
-		const session = startLocalSession(recProc, recordingCallbacks);
-
-		// Feed audio level meter for waveform animation
-		recProc.stdout?.on("data", (chunk: Buffer) => {
-			if (current()) updateAudioLevel(chunk);
-		});
-
-		activeSession = session;
-
-		// Status timer for elapsed time
-		statusTimer = setInterval(() => {
-			if (current() && voiceState === "recording") {
-				updateVoiceStatus();
-				const elapsed = (Date.now() - recordingStart) / 1000;
-				// The recording budget is configurable (`voice.maxRecordingSeconds`, default 120 s).
-				if (elapsed >= (config.maxRecordingSeconds ?? 120)) {
-					stopVoiceRecording();
-				}
-			}
-		}, 1000);
-
-		showRecordingWidget();
-		playSound("start");
-
-		// #13: arm the gap-based release timer only once recording is ready
-		// (voiceState flipped to recording, success exit). Only hold sessions
-		// (spaceDownTime != null — the user is holding SPACE) and non-Kitty
-		// terminals arm: holding re-arms on each repeat, and release (repeat
-		// stream stops) is perceived within RELEASE_DETECT_RECORDING_MS, so a
-		// key-up inside the startup window also stops ~250ms later. Toggle/
-		// dictation have no repeat stream keeping the timer alive — arming
-		// would auto-stop recording ~250ms after start — so they must be
-		// excluded (spaceDownTime == null). Kitty relies on the real key-release
-		// event, so it stays clear.
-		if (decideRecordingStartTimer({ kittyReleaseDetected, isHold: spaceDownTime != null }) === "arm") {
-			resetReleaseDetect();
-		}
-		return true;
-	}
+			set activePreview(value) {
+				activePreview = value;
+			},
+			get recordingOwner() {
+				return recordingOwner;
+			},
+			set recordingOwner(value) {
+				recordingOwner = value;
+			},
+			get statusTimer() {
+				return statusTimer;
+			},
+			set statusTimer(value) {
+				statusTimer = value;
+			},
+			get lastStopTime() {
+				return lastStopTime;
+			},
+			set lastStopTime(value) {
+				lastStopTime = value;
+			},
+			get recordingStart() {
+				return recordingStart;
+			},
+			get kittyReleaseDetected() {
+				return kittyReleaseDetected;
+			},
+			get spaceDownTime() {
+				return spaceDownTime;
+			},
+		},
+		entry: {
+			recordingController,
+			debug: voiceDebug,
+			setState: setVoiceState,
+			getConfig: () => config,
+			getContext: () => ctx,
+			abortPreview: () => activePreview?.abort(),
+			setOwner: (value) => {
+				recordingOwner = value;
+			},
+			resolvePreviewModelDir,
+			createPreviewClient,
+			createRecordingOwner,
+			retirePreviewClient,
+			preview: {
+				get client() {
+					return previewClient;
+				},
+				set client(value) {
+					previewClient = value;
+				},
+				get modelDir() {
+					return previewClientModelDir;
+				},
+				set modelDir(value) {
+					previewClientModelDir = value;
+				},
+				get finish() {
+					return previewRetirement.finish;
+				},
+				set finish(value) {
+					previewRetirement.finish = value;
+				},
+			},
+		},
+		recordingController,
+		voiceDebug,
+		setVoiceState,
+		clearRecordingAnimTimer,
+		clearWarmupWidget,
+		hideWidget,
+		showRecordingWidget,
+		playSound,
+		resetHoldState,
+		cancelDelayedStop,
+		resetReleaseDetect,
+		updateAudioLevel,
+		updateVoiceStatus,
+		punctuateTranscript,
+		addToHistory,
+		finishPreview,
+		detectAudioCaptureTool,
+		spawn,
+		startLocalSession,
+		stopLocalSession,
+		finalModels,
+		setInterval,
+		clearInterval,
+		getOrInitVoiceUi,
+		now: Date.now,
+	});
 
 	// ── Tail recording: keep capturing for 1.5s after space release ──
 	function scheduleDelayedStop() {
@@ -1537,39 +1189,6 @@ export default function (pi: ExtensionAPI) {
 			clearTimeout(tailRecordingTimer);
 			tailRecordingTimer = null;
 			voiceDebug("cancelDelayedStop → tail recording timer cleared");
-		}
-	}
-
-	async function stopVoiceRecording() {
-		cancelDelayedStop(); // Safety: clear any pending delayed stop
-		voiceDebug("stopVoiceRecording called", { voiceState, hasActiveSession: !!activeSession });
-		if (voiceState !== "recording" || !ctx) return;
-		if (statusTimer) {
-			clearInterval(statusTimer);
-			statusTimer = null;
-		}
-
-		if (activeSession) {
-			setVoiceState("finalizing");
-			clearRecordingAnimTimer();
-			hideWidget();
-			// Show which model is transcribing + estimated time
-			const modelName =
-				finalModels().find((m) => m.id === (config.localModel || "whisper-small"))?.name ||
-				config.localModel ||
-				"local model";
-			ctx?.ui.notify(`Transcribing with ${modelName}…`, "info");
-			const session = activeSession;
-			const preview = activePreview;
-			await recordingOwner?.stop(
-				() => stopLocalSession(session, config),
-				() => (preview ? preview.drain() : Promise.resolve())
-			);
-		} else {
-			// No active session — shouldn't happen, but recover gracefully
-			voiceDebug("stopVoiceRecording: no active session, resetting to idle");
-			hideWidget();
-			setVoiceState("idle");
 		}
 	}
 
@@ -1604,7 +1223,7 @@ export default function (pi: ExtensionAPI) {
 	function onSpaceReleaseDetected() {
 		// GapTimer has already self-cleared (single-shot); nothing to reset here.
 		voiceDebug("onSpaceReleaseDetected", {
-			voiceState,
+			voiceState: recordingController.state,
 			holdConfirmed,
 			spaceConsumed,
 			spaceDownTime,
@@ -1614,7 +1233,7 @@ export default function (pi: ExtensionAPI) {
 
 		// If we never confirmed this was a hold (< REPEAT_CONFIRM_COUNT rapid presses),
 		// then it was a TAP → space already passed through naturally (not consumed)
-		if (!holdConfirmed && voiceState === "idle") {
+		if (!holdConfirmed && recordingController.state === "idle") {
 			resetHoldState();
 			clearWarmupWidget();
 			hideWidget();
@@ -1624,7 +1243,7 @@ export default function (pi: ExtensionAPI) {
 		}
 
 		// Released during warmup — cancel (user held but not long enough)
-		if (voiceState === "warmup") {
+		if (recordingController.state === "warmup") {
 			resetHoldState();
 			clearWarmupWidget();
 			hideWidget();
@@ -1641,7 +1260,7 @@ export default function (pi: ExtensionAPI) {
 		// Released during recording — but ONLY if grace period has passed.
 		// The grace period prevents the recording-start transition from being
 		// mistaken for a key release.
-		if (spaceConsumed && voiceState === "recording") {
+		if (spaceConsumed && recordingController.state === "recording") {
 			const timeSinceRecordingStart = Date.now() - recordingStartedAt;
 			voiceDebug("release detected during recording", { timeSinceRecordingStart, RECORDING_GRACE_MS });
 			if (timeSinceRecordingStart < RECORDING_GRACE_MS) {
@@ -1659,11 +1278,18 @@ export default function (pi: ExtensionAPI) {
 
 	function resetReleaseDetect() {
 		clearReleaseTimer();
-		if (voiceState === "warmup" || voiceState === "recording" || spaceDownTime || spaceConsumed || holdConfirmed) {
+		if (
+			recordingController.state === "warmup" ||
+			recordingController.state === "recording" ||
+			spaceDownTime ||
+			spaceConsumed ||
+			holdConfirmed
+		) {
 			// Use longer timeout during active recording — key repeats can be
 			// irregular when the system is under load (audio capture, etc.)
-			const timeout = voiceState === "recording" || spaceConsumed ? RELEASE_DETECT_RECORDING_MS : RELEASE_DETECT_MS;
-			voiceDebug("resetReleaseDetect", { timeout, voiceState, spaceConsumed });
+			const timeout =
+				recordingController.state === "recording" || spaceConsumed ? RELEASE_DETECT_RECORDING_MS : RELEASE_DETECT_MS;
+			voiceDebug("resetReleaseDetect", { timeout, voiceState: recordingController.state, spaceConsumed });
 			releaseGapTimer = new GapTimer(realTimerPort, { ms: timeout, onFire: onSpaceReleaseDetected });
 			releaseGapTimer.arm();
 		}
@@ -1743,7 +1369,7 @@ export default function (pi: ExtensionAPI) {
 				// is part of typing (e.g., "hello world"), not a voice activation.
 				// Only applies to NEW activations — don't interrupt active recording.
 				if (
-					voiceState === "idle" &&
+					recordingController.state === "idle" &&
 					!spaceConsumed &&
 					lastNonSpaceKeyTime > 0 &&
 					Date.now() - lastNonSpaceKeyTime < TYPING_COOLDOWN_MS
@@ -1754,7 +1380,7 @@ export default function (pi: ExtensionAPI) {
 				voiceDebug("SPACE event", {
 					isRelease: isKeyRelease(data),
 					isRepeat: isKeyRepeat(data),
-					voiceState,
+					voiceState: recordingController.state,
 					kittyReleaseDetected,
 					holdConfirmed,
 					spaceConsumed,
@@ -1771,7 +1397,7 @@ export default function (pi: ExtensionAPI) {
 					// Released during warmup → cancel
 					// If released very quickly (< 300ms), it was a tap → type a space
 					// If released after 300ms+, user was trying voice → show hint
-					if (voiceState === "warmup") {
+					if (recordingController.state === "warmup") {
 						const holdDuration = spaceDownTime ? Date.now() - spaceDownTime : 0;
 						resetHoldState();
 						clearWarmupWidget();
@@ -1789,14 +1415,14 @@ export default function (pi: ExtensionAPI) {
 
 					// Tap: released before warmup even started (shouldn't happen in
 					// Kitty path since we enter warmup on first press, but handle anyway)
-					if (spaceDownTime && !holdConfirmed && voiceState === "idle") {
+					if (spaceDownTime && !holdConfirmed && recordingController.state === "idle") {
 						resetHoldState();
 						if (ctx?.hasUI) ctx.ui.setEditorText((ctx.ui.getEditorText() || "") + " ");
 						return { consume: true };
 					}
 
 					// Released during recording → schedule delayed stop (tail recording)
-					if (spaceConsumed && voiceState === "recording") {
+					if (spaceConsumed && recordingController.state === "recording") {
 						resetHoldState();
 						scheduleDelayedStop();
 						return { consume: true };
@@ -1816,15 +1442,19 @@ export default function (pi: ExtensionAPI) {
 					// repeat events. Every repeat must re-arm the release-detect
 					// timer — recording start clears it, and if nothing re-arms it
 					// the release is never detected → hold-to-talk locks up forever.
-					if (shouldArmReleaseDetectOnRepeat({ voiceState, kittyReleaseDetected })) {
+					if (shouldArmReleaseDetectOnRepeat({ voiceState: recordingController.state, kittyReleaseDetected })) {
 						resetReleaseDetect();
 					}
 					// Already in recording/finalizing — consume (release timer kept alive above)
-					if (voiceState === "recording" || voiceState === "finalizing" || spaceConsumed) {
+					if (
+						recordingController.state === "recording" ||
+						recordingController.state === "finalizing" ||
+						spaceConsumed
+					) {
 						return { consume: true };
 					}
 					// Already in warmup — consume (hold timer is running)
-					if (voiceState === "warmup") {
+					if (recordingController.state === "warmup") {
 						return { consume: true };
 					}
 
@@ -1852,7 +1482,7 @@ export default function (pi: ExtensionAPI) {
 
 							holdActivationTimer = setTimeout(() => {
 								holdActivationTimer = null;
-								if (voiceState === "warmup") {
+								if (recordingController.state === "warmup") {
 									// Don't clearWarmupWidget() here — showRecordingWidget()
 									// seamlessly replaces it using the same widget ID.
 									spaceConsumed = true;
@@ -1912,12 +1542,12 @@ export default function (pi: ExtensionAPI) {
 				//    "release" when no press arrives within RELEASE_DETECT_MS.
 
 				// If finalizing → ignore
-				if (voiceState === "finalizing") {
+				if (recordingController.state === "finalizing") {
 					return { consume: true };
 				}
 
 				// If already recording → cancel any pending delayed stop and keep going
-				if (voiceState === "recording") {
+				if (recordingController.state === "recording") {
 					cancelDelayedStop(); // User re-pressed — they want to keep recording
 					spaceConsumed = true; // Re-arm hold state for the continued recording
 					spaceDownTime = Date.now();
@@ -1932,7 +1562,7 @@ export default function (pi: ExtensionAPI) {
 				}
 
 				// If already in warmup → consume
-				if (voiceState === "warmup") {
+				if (recordingController.state === "warmup") {
 					if (!kittyReleaseDetected) {
 						voiceDebug("SPACE during warmup → re-arm release detect");
 						resetReleaseDetect();
@@ -1942,7 +1572,7 @@ export default function (pi: ExtensionAPI) {
 
 				// If we've already consumed space for this hold → consume
 				// This handles the gap between holdActivationTimer firing and
-				// voiceState transitioning to "recording" (async gap)
+				// recordingController.state transitioning to "recording" (async gap)
 				if (spaceConsumed) {
 					if (!kittyReleaseDetected) {
 						voiceDebug("SPACE while spaceConsumed (async gap) → re-arm release detect");
@@ -1957,7 +1587,7 @@ export default function (pi: ExtensionAPI) {
 				if (kittyReleaseDetected) {
 					// First press → immediately enter warmup (release event
 					// will cancel if it was a tap)
-					if (voiceState === "idle") {
+					if (recordingController.state === "idle") {
 						spaceDownTime = Date.now();
 						spaceConsumed = false;
 						spacePressCount = 1;
@@ -1969,7 +1599,7 @@ export default function (pi: ExtensionAPI) {
 
 						holdActivationTimer = setTimeout(() => {
 							holdActivationTimer = null;
-							if (voiceState === "warmup") {
+							if (recordingController.state === "warmup") {
 								// Don't clearWarmupWidget() here — showRecordingWidget()
 								// seamlessly replaces it using the same widget ID.
 								spaceConsumed = true;
@@ -2024,7 +1654,7 @@ export default function (pi: ExtensionAPI) {
 
 							holdActivationTimer = setTimeout(() => {
 								holdActivationTimer = null;
-								if (voiceState === "warmup") {
+								if (recordingController.state === "warmup") {
 									// Don't clearWarmupWidget() here — showRecordingWidget()
 									// seamlessly replaces it using the same widget ID.
 									spaceConsumed = true;
@@ -2064,7 +1694,7 @@ export default function (pi: ExtensionAPI) {
 						return { consume: true };
 					} else {
 						// Gap too large → previous hold abandoned, new tap
-						const wasInWarmup = (voiceState as VoiceState) === "warmup";
+						const wasInWarmup = (recordingController.state as VoiceState) === "warmup";
 						resetHoldState();
 						clearWarmupWidget();
 						hideWidget();
@@ -2081,7 +1711,7 @@ export default function (pi: ExtensionAPI) {
 				// Do NOT consume — let it pass through to whatever UI is focused
 				// (editor, search box, picker, etc.). Only start consuming after
 				// we confirm it's a hold via REPEAT_CONFIRM_COUNT rapid presses.
-				if (voiceState === "idle") {
+				if (recordingController.state === "idle") {
 					spaceDownTime = Date.now();
 					spaceConsumed = false;
 					spacePressCount = 1;
@@ -2099,14 +1729,14 @@ export default function (pi: ExtensionAPI) {
 			}
 
 			// ── Any other key pressed → cancel potential hold ──
-			if (spaceDownTime && !holdConfirmed && voiceState === "idle") {
+			if (spaceDownTime && !holdConfirmed && recordingController.state === "idle") {
 				resetHoldState();
 				// No need to insert a space manually — the first space press was
 				// already allowed to pass through to the focused UI component.
 				return undefined;
 			}
 
-			if (voiceState === "warmup" && holdConfirmed && !spaceConsumed) {
+			if (recordingController.state === "warmup" && holdConfirmed && !spaceConsumed) {
 				clearWarmupWidget();
 				hideWidget();
 				resetHoldState();
@@ -2118,7 +1748,11 @@ export default function (pi: ExtensionAPI) {
 			// Skip release/repeat events — only act on actual presses
 			if (matchesKey(data, "escape") && !isKeyRelease(data) && !isKeyRepeat(data)) {
 				// During recording: cancel recording and clear transcript
-				if (voiceState === "recording" || voiceState === "warmup" || voiceState === "finalizing") {
+				if (
+					recordingController.state === "recording" ||
+					recordingController.state === "warmup" ||
+					recordingController.state === "finalizing"
+				) {
 					voiceDebug("Escape pressed → canceling voice");
 					if (activeSession) {
 						abortSession(activeSession);
@@ -2133,7 +1767,7 @@ export default function (pi: ExtensionAPI) {
 					}
 					recordingOwner?.cancel();
 					activePreview?.abort();
-					recordingGeneration++;
+					recordingController.begin();
 					resetHoldState();
 					playSound("error");
 					setVoiceState("idle");
@@ -2142,7 +1776,7 @@ export default function (pi: ExtensionAPI) {
 				}
 
 				// In idle: double-escape (two presses within 500ms) clears editor
-				if (voiceState === "idle") {
+				if (recordingController.state === "idle") {
 					const now = Date.now();
 					if (lastEscapeTime > 0 && now - lastEscapeTime < 500) {
 						if (ctx?.hasUI) {
@@ -2182,29 +1816,29 @@ export default function (pi: ExtensionAPI) {
 			if (dictationMode) {
 				// The configured toggle shortcut stops dictation mode
 				dictationMode = false;
-				if (voiceState === "recording") {
+				if (recordingController.state === "recording") {
 					await stopVoiceRecording();
 				}
 				handlerCtx.ui.notify("Dictation mode stopped.", "info");
 				return;
 			}
-			if (voiceState === "idle") {
+			if (recordingController.state === "idle") {
 				spaceConsumed = true;
 				const ok = await startVoiceRecording();
 				if (!ok) {
 					spaceConsumed = false;
 				}
-			} else if (voiceState === "recording") {
+			} else if (recordingController.state === "recording") {
 				resetHoldState();
 				await stopVoiceRecording();
-			} else if (voiceState === "warmup") {
+			} else if (recordingController.state === "warmup") {
 				// Cancel warmup
 				clearWarmupWidget();
 				hideWidget();
 				resetHoldState();
 				setVoiceState("idle");
 			}
-			// voiceState === "finalizing" → ignore (wait for transcript)
+			// recordingController.state === "finalizing" → ignore (wait for transcript)
 		},
 	});
 
@@ -2457,8 +2091,6 @@ export default function (pi: ExtensionAPI) {
 	}
 	const messageStreams = new Map<string, MessageStreamState>();
 
-	const SENTENCE_TERMINATORS = /[.!?](?=\s|$)|[\n]{1,}/g;
-
 	function extractAccumulatedText(message: any): string {
 		if (!message || !Array.isArray(message.content)) return "";
 		return (message.content as any[])
@@ -2502,7 +2134,12 @@ export default function (pi: ExtensionAPI) {
 	async function maybeSpeakNew(messageId: string, fullText: string, isFinal: boolean): Promise<void> {
 		if (!config.ttsEnabled || !config.ttsAutoSpeak) return;
 		// Don't speak while STT is hot — feedback loop hazard.
-		if (voiceState === "warmup" || voiceState === "recording" || voiceState === "finalizing") return;
+		if (
+			recordingController.state === "warmup" ||
+			recordingController.state === "recording" ||
+			recordingController.state === "finalizing"
+		)
+			return;
 		if (!fullText) return;
 
 		let state = messageStreams.get(messageId);
@@ -2613,7 +2250,12 @@ export default function (pi: ExtensionAPI) {
 		// state, the streaming path handled it — skip.
 		const state = messageStreams.get(id);
 		if (state) return;
-		if (voiceState === "warmup" || voiceState === "recording" || voiceState === "finalizing") return;
+		if (
+			recordingController.state === "warmup" ||
+			recordingController.state === "recording" ||
+			recordingController.state === "finalizing"
+		)
+			return;
 		const now = Date.now();
 		if (now - lastAutoSpeakAt < AUTO_SPEAK_RATE_LIMIT_MS) return;
 		const text = extractAccumulatedText(message).trim();
@@ -2674,14 +2316,14 @@ export default function (pi: ExtensionAPI) {
 			if (sub === "stop") {
 				if (dictationMode) {
 					dictationMode = false;
-					if (voiceState === "recording") {
+					if (recordingController.state === "recording") {
 						await stopVoiceRecording();
 					}
 					cmdCtx.ui.notify("Dictation mode stopped.", "info");
-				} else if (voiceState === "recording") {
+				} else if (recordingController.state === "recording") {
 					await stopVoiceRecording();
 					cmdCtx.ui.notify("Recording stopped and transcribed.", "info");
-				} else if (voiceState === "warmup") {
+				} else if (recordingController.state === "warmup") {
 					clearWarmupWidget();
 					hideWidget();
 					resetHoldState();
@@ -2705,9 +2347,9 @@ export default function (pi: ExtensionAPI) {
 					return;
 				}
 				const starting = startVoiceRecording();
-				const generation = recordingGeneration;
+				const generation = recordingController.generation;
 				const ok = await starting;
-				if (generation !== recordingGeneration) return;
+				if (!recordingController.owns(generation)) return;
 				if (ok) {
 					dictationMode = true;
 					cmdCtx.ui.notify(
@@ -2773,7 +2415,7 @@ export default function (pi: ExtensionAPI) {
 				lines.push(`    hold threshold:    ${getHoldThresholdMs()}ms`);
 				lines.push(`    toggle shortcut:   ${resolvedToggleShortcut}`);
 				lines.push(`    kitty protocol:    ${kittyReleaseDetected ? "detected" : "not detected"}`);
-				lines.push(`    state:             ${voiceState}`);
+				lines.push(`    state:             ${recordingController.state}`);
 
 				// Mic capture test using detected tool
 				if (tool) {
@@ -3010,9 +2652,7 @@ export default function (pi: ExtensionAPI) {
 		if (result?.type === "download" && result.modelId) {
 			const model = LOCAL_MODELS.find((m) => m.id === result.modelId);
 			if (model) {
-				const { checkDownloadPrereqs, createProgressTracker, verifyDownload, formatBytes } = await import(
-					"./voice/model-download"
-				);
+				const { checkDownloadPrereqs, createProgressTracker, verifyDownload } = await import("./voice/model-download");
 				const { initSherpa, isSherpaAvailable, getSherpaError } = await import("./voice/sherpa-engine");
 
 				// ── Step 1: Check sherpa-onnx dependency ──
@@ -3277,7 +2917,7 @@ export default function (pi: ExtensionAPI) {
 			cmdCtx.ui.notify("TTS is disabled. Enable in /voice-settings.", "warning");
 			return;
 		}
-		if (voiceState === "recording" || voiceState === "finalizing") {
+		if (recordingController.state === "recording" || recordingController.state === "finalizing") {
 			// Speaking while the mic is hot would feedback into STT.
 			cmdCtx.ui.notify("Cannot speak while recording. Stop recording first.", "warning");
 			return;

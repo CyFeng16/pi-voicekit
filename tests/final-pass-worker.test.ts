@@ -64,7 +64,7 @@ test("ready gates audio, requests serialize and the worker stays warm across rec
 
 for (const mode of ["failed", "error", "exit", "destroy"] as const) {
 	test(`${mode} rejects active and queued work and allows a fresh worker`, async () => {
-		const { client, workers } = harness(mode === "timeout" ? 10 : 1000);
+		const { client, workers } = harness(1000);
 		await client.rebind("sensevoice", "/missing", "en");
 		const results = Promise.allSettled([client.transcribe(pcm), client.transcribe(pcm)]);
 		const worker = workers[0]!;

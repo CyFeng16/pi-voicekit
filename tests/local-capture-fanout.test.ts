@@ -6,6 +6,7 @@ import {
 	startLocalSession,
 	stopLocalSession,
 	type LocalSession,
+	type LocalSessionCallbacks,
 	type LocalSessionResult,
 } from "../extensions/voice/local";
 import { DEFAULT_CONFIG, type VoiceConfig } from "../extensions/voice/config";
@@ -50,22 +51,22 @@ function audio(ms: number): Buffer {
 	return Buffer.alloc(32 * ms);
 }
 
+/** The `meta` half of the `onDone` terminal — taken from the callback, so it cannot drift. */
+type DoneMeta = Parameters<LocalSessionCallbacks["onDone"]>[1];
+
 /** Records every terminal callback a session delivered, in order. */
 function collectTerminals() {
-	const results: Array<{ result: LocalSessionResult; meta: { hadAudio: boolean } }> = [];
+	const results: Array<{ result: LocalSessionResult; meta: DoneMeta }> = [];
 	const errors: string[] = [];
-	return {
-		results,
-		errors,
-		callbacks: {
-			onDone: (result: LocalSessionResult, meta: { hadAudio: boolean }) => {
-				results.push({ result, meta });
-			},
-			onError: (err: string) => {
-				errors.push(err);
-			},
+	const callbacks: LocalSessionCallbacks = {
+		onDone(result, meta) {
+			results.push({ result, meta });
+		},
+		onError(err) {
+			errors.push(err);
 		},
 	};
+	return { results, errors, callbacks };
 }
 
 describe("onAudioChunk fan-out", () => {

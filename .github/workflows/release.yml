@@ -16,14 +16,11 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Verify tag matches package.json version
+      - name: Verify release contract
         run: |
           TAG="${GITHUB_REF#refs/tags/}"
-          VERSION="$(node -p "require('./package.json').version")"
-          if [ "${TAG#v}" != "$VERSION" ]; then
-            echo "::error::tag ${TAG} does not match package.json version ${VERSION}"
-            exit 1
-          fi
+          VERSION="${TAG#v}"
+          node scripts/release-check.mjs "$VERSION"
           echo "VERSION=$VERSION" >> "$GITHUB_ENV"
 
       - name: Setup Bun
@@ -32,8 +29,8 @@ jobs:
           bun-version: 1.3.11
 
       # Fails before anything is published: a release must be describable at the
-      # commit it points at. Step 4b (the compare link) is folded in here — it
-      # writes to the same file and adds no state of its own.
+      # commit it points at. The compare link (rule 4) is already enforced by
+      # "Verify release contract"; this step only appends it to the notes it writes.
       - name: Extract release notes from CHANGELOG.md
         run: |
           set -o pipefail
