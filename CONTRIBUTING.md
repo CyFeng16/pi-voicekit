@@ -144,22 +144,30 @@ Releases are tag-driven. Nothing is published from a workstation.
    section of `CHANGELOG.md`.
 2. **Cut the release in one commit** — `chore: release X.Y.Z`:
    - `package.json` → `version` (required),
-   - `package-lock.json` → both `version` fields (convention: keeps the two lockfiles
-     telling the same story; nothing gates it, since CI installs with Bun),
+   - `package-lock.json` → both `version` fields, so the two lockfiles keep telling the
+     same story even though CI installs with Bun,
    - move `[Unreleased]` into a new `## [X.Y.Z] - <YYYY-MM-DD>` section and leave
-     `[Unreleased]` empty for the next cycle,
+     `[Unreleased]` empty, above it, for the next cycle,
    - add that version's link definition at the bottom and repoint `[Unreleased]` at it
-     (`[Unreleased]: .../compare/vX.Y.Z...HEAD`) — cosmetic, and nothing checks it, which
-     is exactly why it belongs in this same commit.
+     (`[Unreleased]: .../compare/vX.Y.Z...HEAD`), which is exactly why it belongs in this
+     same commit.
+
+`bun run release:check` enforces all four rules as one unit, against the version in
+`package.json` or one passed as `vX.Y.Z`. `.github/workflows/release.yml` runs the same
+checker (`node scripts/release-check.mjs "$VERSION"`) before it sets up Bun, so a violated
+rule fails the release before anything reaches the registry. It reads the release contract,
+not the wording of the notes.
 3. **Push `main`, then the tag:** `git tag vX.Y.Z && git push origin vX.Y.Z`.
 4. **CI does the rest.** `.github/workflows/release.yml` publishes to npm (Trusted
    Publishing + provenance) and opens the GitHub Release: its body is the changelog
    section for that version plus a `**Full Changelog**` compare link, and its only
    extra asset is the packed npm tarball (GitHub adds the source archives itself).
 
-A release **fails before publishing** when the tagged commit has no `## [X.Y.Z]`
-section. That is deliberate: a release must be describable at the commit it points at,
-and the notes are the changelog — never a generated summary.
+A release **fails before publishing** when the release contract does not hold at the
+tagged commit: no `## [X.Y.Z]` section, a heading without its date, a lockfile version
+that lags, a compare link that points elsewhere. That is deliberate: a release must be
+describable at the commit it points at, and the notes are the changelog — never a
+generated summary.
 
 Never publish by hand. A locally published version carries no provenance and is not tied to its
 tag, and npm's unpublish policy is deliberately restrictive — in practice a published version is
@@ -171,7 +179,8 @@ The tag is already public, so never move or delete it: fix forward with the next
 
 | Symptom | What it means | What to do |
 | --- | --- | --- |
-| `Extract release notes` fails | The tagged commit has no `## [X.Y.Z]` section | Add the section, commit, and cut the next patch version |
+| `Verify release contract` fails | One of the four rules above does not hold at the tagged commit; the message names the file and field | Fix the files in a new commit, and cut the next patch version |
+| `Extract release notes` fails | The section the contract accepted cannot be rendered into notes | Read the message — the notes are the changelog, so fix the section and cut the next patch version |
 | `Publish to npm` fails | Nothing reached the registry | Fix the cause and re-run the workflow — the publish step skips a version that already exists |
 | `Verify the packed tarball` fails | The registry holds bytes you cannot reproduce from the tag | Treat the release as broken and investigate before doing anything else |
 | `Publish the GitHub Release` fails | npm already has the version; only the GitHub Release is missing | Re-run the workflow — the release step finishes a leftover draft, refills a missing tarball, refreshes the body, or skips a published release |

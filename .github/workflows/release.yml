@@ -29,8 +29,8 @@ jobs:
           bun-version: 1.3.11
 
       # Fails before anything is published: a release must be describable at the
-      # commit it points at. Step 4b (the compare link) is folded in here — it
-      # writes to the same file and adds no state of its own.
+      # commit it points at. The compare link (rule 4) is already enforced by
+      # "Verify release contract"; this step only appends it to the notes it writes.
       - name: Extract release notes from CHANGELOG.md
         run: |
           set -o pipefail
