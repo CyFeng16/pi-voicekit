@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Removed
+
+- **`autoSubmitOnSpeak` is gone.** A finished dictation is no longer sent to the agent automatically;
+  the transcript always lands in the editor, where `↵` sends it. The `/voice-autosubmit` command no
+  longer exists, and the General tab has four rows instead of five. A `settings.json` that still
+  carries the key keeps it until the next full save, which drops it — the stored value is not
+  migrated, and nothing reads it.
+- **The no-egress claim now has one exception instead of two.** System audio routing remains the only
+  documented way a user's own configuration can move data off the machine; the auto-submit exception
+  went with the feature.
+
 ## [0.6.1] - 2026-10-24
 
 ### Fixed

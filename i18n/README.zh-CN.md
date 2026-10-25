@@ -90,7 +90,7 @@ pi-voicekit 会自动检测你的音频工具。如果你已安装 sox 或 ffmpe
 
 ### 通用 — 模型、语言、作用域、语音
 
-设置本地模型、听写语言、作用域（全局或当前项目）、语音开关和自动发送。每一行都能用键盘
+设置本地模型、听写语言、作用域（全局或当前项目）和语音开关。每一行都能用键盘
 操作 — `↵` 修改，`← →` 切换标签页。
 
 ### 模型 — 浏览、搜索、安装
@@ -165,7 +165,6 @@ pi-voicekit 会自动检测你的音频工具。如果你已安装 sox 或 ffmpe
 | `/voice-speak-test`      | 朗读一句示例文本                              |
 | `/voice-speak-toggle`    | 启用 / 禁用 TTS                               |
 | `/voice-speak-stop`      | 停止正在播放的 TTS                            |
-| `/voice-autosubmit`      | 开关：转录文本自动发送给智能体（`on`/`off`）  |
 | `/voice-punctuation`     | 离线标点：状态、模型状态、最近一次决策        |
 | `/voice-hold-delay`      | 设置长按触发延迟（200-3000 毫秒，默认 700）   |
 | `/voice-speak-models`    | 浏览 / 安装 TTS 音色模型                      |
@@ -383,7 +382,7 @@ extensions/voice/sherpa-onnx-node.d.ts      可选原生模块的类型声明
 ```json
 {
 	"voice": {
-		"version": 5,
+		"version": 6,
 		"enabled": true,
 		"language": "zh",
 		"localModel": "parakeet-v3",

@@ -98,8 +98,8 @@ All configuration lives in one place: `/voice-settings`. Five tabs cover everyth
 
 ### General — model, language, scope, voice
 
-Set the local model, the dictation language, the scope (global or this project), the voice
-switch and auto-send. Every row is a keyboard shortcut away — `↵` changes, `← →` switches tab.
+Set the local model, the dictation language, the scope (global or this project) and the voice
+switch. Every row is a keyboard shortcut away — `↵` changes, `← →` switches tab.
 
 ### Models — browse, search, install
 
@@ -183,7 +183,6 @@ it did not, and the state of the model.
 | `/voice-speak-test`      | Speak a sample sentence                                  |
 | `/voice-speak-toggle`    | Enable / disable TTS                                     |
 | `/voice-speak-stop`      | Stop in-flight TTS playback                              |
-| `/voice-autosubmit`      | Toggle: STT text auto-sent to the agent (`on`/`off`)     |
 | `/voice-punctuation`     | Offline punctuation: status, model state, last decision  |
 | `/voice-hold-delay`      | Set hold-to-talk delay (200-3000 ms, default 700)        |
 | `/voice-speak-models`    | Browse / install TTS voice models                        |
@@ -414,7 +413,7 @@ live under `~/.pi/models`.
 ```json
 {
 	"voice": {
-		"version": 5,
+		"version": 6,
 		"enabled": true,
 		"language": "zh",
 		"localModel": "parakeet-v3",
