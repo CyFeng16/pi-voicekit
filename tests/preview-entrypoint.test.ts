@@ -128,6 +128,10 @@ test("the session alone unmounts once and delivery preserves typing at the curso
 // Execute the entrypoint's closure wiring without starting a microphone or terminal host.
 const entrypointSource = readFileSync(new URL("../extensions/voice.ts", import.meta.url), "utf8");
 const transpiler = new Bun.Transpiler({ loader: "ts" });
+const retirementWiring = `
+	${entrypointSource.slice(entrypointSource.indexOf("const retiringPreviewClients ="), entrypointSource.indexOf("export default function"))}
+	${entrypointSource.slice(entrypointSource.indexOf("\tfunction destroyRetiringPreviewClient("), entrypointSource.indexOf("\tfunction finishPreview("))}
+`;
 
 for (const transition of ["installed", "enabled", "removed", "disabled"] as const) {
 	test(`recording start refreshes preview availability when ${transition}`, async () => {
@@ -150,7 +154,8 @@ for (const transition of ["installed", "enabled", "removed", "disabled"] as cons
 				let previewFinish: Promise<void> | null = null;
 				let recordingGeneration = 0, recordingOwner = null;
 				const activePreview = null, ctx = null;
-				const voiceDebug = () => {}, setVoiceState = () => {};
+				const voiceDebug = () => {}, setVoiceState = () => {}, safeErrorText = String;
+				${retirementWiring}
 				${preamble}
 				return previewClient.claim(String(generation), () => {});
 				}
@@ -295,6 +300,7 @@ for (const rejectDrain of [false, true]) {
 				let previewFinish = pending;
 				let previewClientModelDir = "old";
 				let previewClient = {
+					flushTimeoutMs: 5000,
 					claim() { throw new Error("new claim touched old client"); },
 					destroy() { events.push("destroy"); return Promise.reject(new Error("destroy failed")); }
 				};
@@ -303,6 +309,7 @@ for (const rejectDrain of [false, true]) {
 				const voiceDebug = () => events.push("debug"), safeErrorText = String;
 				const setVoiceState = () => {}, resolvePreviewModelDir = () => "new";
 				const createPreviewClient = () => ({ claim() { events.push("new claim"); } });
+				${retirementWiring}
 				${preamble}
 				previewClient.claim(String(generation), () => {});
 				}
@@ -314,6 +321,102 @@ for (const rejectDrain of [false, true]) {
 		settle();
 		await new Promise((resolve) => setTimeout(resolve, 0));
 		expect(events.slice(-3)).toEqual(["settled", "destroy", "debug"]);
+	});
+}
+
+test("a previous hung drain never delays the current recording finish", async () => {
+	const body = entrypointSource.slice(
+		entrypointSource.indexOf("\tfunction finishPreview("),
+		entrypointSource.indexOf("\tasync function startRecording():")
+	);
+	const finish = new Function(
+		transpiler.transformSync(`
+		let previewFinish = new Promise(() => {});
+		const voiceDebug = () => {}, safeErrorText = String;
+		${body}
+		return finishPreview;
+	`)
+	)();
+	let completed = false;
+	void finish({ finish: () => Promise.resolve() }).then(() => {
+		completed = true;
+	});
+	await new Promise((resolve) => setTimeout(resolve, 0));
+	expect(completed).toBe(true);
+});
+
+for (const outcome of ["hung", "settled", "cleanup"] as const) {
+	test(`retiring preview client is bounded and timers are cleared: ${outcome}`, async () => {
+		const timers = new Map<object, () => void>();
+		const delays: number[] = [];
+		const events: string[] = [];
+		let settle!: () => void;
+		const pending = new Promise<void>((resolve) => {
+			settle = resolve;
+		});
+		const preamble = entrypointSource.slice(
+			entrypointSource.indexOf("\tasync function startRecording():"),
+			entrypointSource.indexOf("\t\tlet unsubscribe:")
+		);
+		const cleanup = entrypointSource.slice(
+			entrypointSource.indexOf("\tfunction voiceCleanup()"),
+			entrypointSource.indexOf("\t\t// v7.1: cancel in-flight installs FIRST")
+		);
+		const harness = new Function(
+			"pending",
+			"events",
+			"setTimeout",
+			"clearTimeout",
+			"createRecordingOwner",
+			transpiler.transformSync(`
+			let previewFinish = pending, previewClientModelDir = "old";
+			let previewClient = {
+				flushTimeoutMs: 25,
+				destroy() { events.push("old destroy"); return Promise.resolve(); }
+			};
+			let activePreview = null, recordingOwner = null, recordingGeneration = 0;
+			const ctx = null, config = {}, voiceDebug = () => {}, safeErrorText = String;
+			const setVoiceState = () => {}, resolvePreviewModelDir = () => "new";
+			const createPreviewClient = () => ({ destroy() { events.push("live destroy"); return Promise.resolve(); } });
+			${retirementWiring}
+			${preamble} }
+			${cleanup} }
+			return { startRecording, voiceCleanup, get size() { return retiringPreviewClients.size; } };
+		`)
+		)(
+			pending,
+			events,
+			(callback: () => void, delay: number) => {
+				const timer = { unref() {} };
+				timers.set(timer, callback);
+				delays.push(delay);
+				return timer;
+			},
+			(timer: object) => timers.delete(timer),
+			createRecordingOwner
+		);
+		await harness.startRecording();
+		const callbacks = [...timers.values()];
+		try {
+			expect(harness.size).toBe(1);
+			expect(delays).toHaveLength(1);
+			expect(delays[0]).toBeGreaterThan(25);
+			expect(delays[0]).toBeLessThanOrEqual(1025);
+			if (outcome === "hung") callbacks[0]!();
+			else if (outcome === "cleanup") harness.voiceCleanup();
+			else settle();
+			await new Promise((resolve) => setTimeout(resolve, 0));
+			expect(events).toEqual(outcome === "cleanup" ? ["live destroy", "old destroy"] : ["old destroy"]);
+			expect(harness.size).toBe(0);
+			expect(timers.size).toBe(0);
+			settle();
+			for (const callback of callbacks) callback();
+			await new Promise((resolve) => setTimeout(resolve, 0));
+			expect(events.filter((event) => event === "old destroy")).toHaveLength(1);
+		} finally {
+			harness.voiceCleanup();
+			settle();
+		}
 	});
 }
 

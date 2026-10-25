@@ -383,6 +383,9 @@ function abortSession(session: LocalSession | null): void {
 
 // ─── Extension ───────────────────────────────────────────────────────────────
 
+const retiringPreviewClients = new Set<PreviewClient>();
+const previewRetirementTimers = new Map<PreviewClient, ReturnType<typeof setTimeout>>();
+
 export default function (pi: ExtensionAPI) {
 	let config = DEFAULT_CONFIG;
 	let configSource: VoiceSettingsScope | "default" = "default";
@@ -885,6 +888,7 @@ export default function (pi: ExtensionAPI) {
 		previewClient = null;
 		previewClientModelDir = null;
 		previewFinish = null;
+		for (const client of retiringPreviewClients) destroyRetiringPreviewClient(client);
 		// v7.1: cancel in-flight installs FIRST so their AbortControllers
 		// fire before we drop UI state. Without this, a session_shutdown
 		// during a download would leave the network/disk work running
@@ -1268,10 +1272,35 @@ export default function (pi: ExtensionAPI) {
 		}
 	}
 
+	function destroyRetiringPreviewClient(client: PreviewClient): void {
+		if (!retiringPreviewClients.delete(client)) return;
+		clearTimeout(previewRetirementTimers.get(client));
+		previewRetirementTimers.delete(client);
+		void client.destroy().catch((error) => {
+			voiceDebug("preview destroy failed", { error: safeErrorText(error) });
+		});
+	}
+
+	function retirePreviewClient(client: PreviewClient, drain: Promise<void> | null): void {
+		retiringPreviewClients.add(client);
+		if (!drain) {
+			destroyRetiringPreviewClient(client);
+			return;
+		}
+		// Allow the flush deadline to release its claim first, but never orphan a hung drain.
+		const timer = setTimeout(() => destroyRetiringPreviewClient(client), client.flushTimeoutMs + 250);
+		previewRetirementTimers.set(client, timer);
+		timer.unref?.();
+		void drain.then(
+			() => destroyRetiringPreviewClient(client),
+			() => destroyRetiringPreviewClient(client)
+		);
+	}
+
 	function finishPreview(preview: PreviewSession): Promise<void> {
-		// Retain every outstanding drain for this client, without delaying final-pass delivery.
-		const finishing = Promise.all([previewFinish, preview.finish()])
-			.then(() => {})
+		// A stop owns only this recording's drain, never an older recording's pending finish.
+		const finishing = preview
+			.finish()
 			.catch((error) => voiceDebug("preview finish failed", { error: safeErrorText(error) }))
 			.finally(() => {
 				if (previewFinish === finishing) previewFinish = null;
@@ -1297,10 +1326,7 @@ export default function (pi: ExtensionAPI) {
 			previewClient = null;
 			previewClientModelDir = null;
 			previewFinish = null;
-			// Retire the shared reference now, but let its channel finish draining before destruction.
-			void (previousFinish ? previousFinish.finally(() => oldClient.destroy()) : oldClient.destroy()).catch((error) =>
-				voiceDebug("preview destroy failed", { error: safeErrorText(error) })
-			);
+			retirePreviewClient(oldClient, previousFinish);
 		}
 		if (!previewClient) {
 			previewClient = createPreviewClient({ previewModelDir });

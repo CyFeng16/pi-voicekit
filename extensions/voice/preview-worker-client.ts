@@ -82,6 +82,8 @@ export interface PreviewClientOptions {
 }
 
 export interface PreviewClient {
+	/** Effective flush deadline, also used to bound retirement by the extension. */
+	readonly flushTimeoutMs: number;
 	/** One claim per recording; the worker is created lazily on the first claim that actually feeds. */
 	claim(recordingId: string, onEvent: (event: PreviewEvent) => void): PreviewChannel;
 	/** Terminates the warm worker and settles every outstanding claim. Idempotent. */
@@ -575,7 +577,7 @@ export function createPreviewClient(options: PreviewClientOptions): PreviewClien
 		};
 	}
 
-	return { claim, destroy: destroyClient };
+	return { claim, destroy: destroyClient, flushTimeoutMs };
 }
 
 /** The response types the protocol defines; anything else is not this worker's and is ignored. */
