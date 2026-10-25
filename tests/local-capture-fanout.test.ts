@@ -97,6 +97,7 @@ describe("onAudioChunk fan-out", () => {
 
 		// Capture is not diverted into the preview: the final pass still owns every sample.
 		expect(session.audioChunks).toEqual([first, second]);
+		expect(session.capturedBytes).toBe(1280);
 		expect(session.hadAudioData).toBe(true);
 	});
 
@@ -156,7 +157,7 @@ describe("a final pass failure is a recording outcome", () => {
 			kind: "failed",
 			message: expect.stringContaining("Local transcription failed"),
 		});
-		expect(terminal.results[0]!.meta).toEqual({ hadAudio: true });
+		expect(terminal.results[0]!.meta).toEqual({ hadAudio: true, capturedBytes: 640 });
 	});
 
 	test("a stop that captured nothing settles ok with no speech", async () => {
@@ -170,7 +171,7 @@ describe("a final pass failure is a recording outcome", () => {
 		expect(terminal.results).toHaveLength(1);
 		expect(terminal.results[0]).toEqual({
 			result: { kind: "ok", text: "", hadSpeech: false },
-			meta: { hadAudio: false },
+			meta: { hadAudio: false, capturedBytes: 0 },
 		});
 	});
 
@@ -207,7 +208,7 @@ describe("an unexpected capture close terminates the recording", () => {
 			message: expect.stringContaining("Audio capture stopped unexpectedly"),
 		});
 		// The words captured before the crash are still accounted for.
-		expect(terminal.results[0]!.meta).toEqual({ hadAudio: true });
+		expect(terminal.results[0]!.meta).toEqual({ hadAudio: true, capturedBytes: 640 });
 		// Capture is stopped: later audio neither buffers nor reaches the preview.
 		const observed: Buffer[] = [];
 		session.onAudioChunk = (chunk) => observed.push(chunk);
@@ -300,7 +301,7 @@ describe("a stop keeps its own outcome", () => {
 		// The final pass ran over the buffered audio — it is the decode, not an empty recording.
 		expect(terminal.results[0]).toEqual({
 			result: { kind: "failed", message: expect.stringContaining("Local transcription failed") },
-			meta: { hadAudio: true },
+			meta: { hadAudio: true, capturedBytes: 640 },
 		});
 	});
 
@@ -326,7 +327,7 @@ describe("a stop keeps its own outcome", () => {
 		// second call telling the user "no speech" while the words were still being transcribed.
 		expect(terminal.results[0]).toEqual({
 			result: { kind: "failed", message: expect.stringContaining("Local transcription failed") },
-			meta: { hadAudio: true },
+			meta: { hadAudio: true, capturedBytes: 640 },
 		});
 	});
 });

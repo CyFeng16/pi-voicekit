@@ -1809,6 +1809,33 @@ describe("session_start activation (the local model is the only path)", () => {
 	});
 });
 
+describe("preview settings", () => {
+	test("defaults, type validation and both save paths preserve preview fields", () => {
+		const agentDir = makeTempDir();
+		const cwd = makeTempDir();
+		expect(loadConfigWithSource(cwd, { agentDir }).config.previewEnabled).toBe(true);
+		expect(loadConfigWithSource(cwd, { agentDir }).config.localPreviewModel).toBe(
+			"streaming-paraformer-bilingual-zh-en"
+		);
+		writeSettings(agentDir, "settings.json", { previewEnabled: "false", localPreviewModel: 42 });
+		expect(loadConfigWithSource(cwd, { agentDir }).config.previewEnabled).toBe(true);
+		expect(loadConfigWithSource(cwd, { agentDir }).config.localPreviewModel).toBe(
+			"streaming-paraformer-bilingual-zh-en"
+		);
+		saveConfig({ ...DEFAULT_CONFIG, previewEnabled: false, localPreviewModel: "custom" }, "global", cwd, { agentDir });
+		expect(loadConfigWithSource(cwd, { agentDir }).config.previewEnabled).toBe(false);
+		expect(loadConfigWithSource(cwd, { agentDir }).config.localPreviewModel).toBe("custom");
+		saveGlobalVoiceFields({ previewEnabled: true, localPreviewModel: "other" }, { agentDir });
+		expect(loadConfigWithSource(cwd, { agentDir }).config.localPreviewModel).toBe("other");
+		expect(loadConfigWithSource(cwd, { agentDir }).config.previewEnabled).toBe(true);
+		saveConfig({ ...DEFAULT_CONFIG, previewEnabled: false, localPreviewModel: "project" }, "project", cwd, {
+			agentDir,
+		});
+		expect(loadConfigWithSource(cwd, { agentDir }).config.previewEnabled).toBe(false);
+		expect(loadConfigWithSource(cwd, { agentDir }).config.localPreviewModel).toBe("project");
+	});
+});
+
 describe("maxRecordingSeconds (recording budget)", () => {
 	test("maxRecordingSeconds defaults to 120 and survives both save paths", () => {
 		const cwd = makeTempDir();

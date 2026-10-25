@@ -914,7 +914,7 @@ export type LocalSessionResult = { kind: "ok"; text: string; hadSpeech: boolean 
  * that do not pipeline segments or preview audio keep today's transcript-only behaviour.
  */
 export interface LocalSessionCallbacks {
-	onDone: (result: LocalSessionResult, meta: { hadAudio: boolean }) => void;
+	onDone: (result: LocalSessionResult, meta: { hadAudio: boolean; capturedBytes: number }) => void;
 	/** Genuine capture/programming errors, never a recording outcome (see `LocalSessionResult`). */
 	onError: (err: string) => void;
 	/**
@@ -936,11 +936,12 @@ export interface LocalSession {
 	/** No longer accepting audio: settled, or aborted. */
 	closed: boolean;
 	hadAudioData: boolean;
+	capturedBytes: number;
 	/** A stop or abort has begun: a child close or error from now on is expected, and that stop owns the outcome (spec §5.1). */
 	stopping: boolean;
 	/** A terminal result or error has been delivered; every later settle is dropped. */
 	settled: boolean;
-	onDone: (result: LocalSessionResult, meta: { hadAudio: boolean }) => void;
+	onDone: LocalSessionCallbacks["onDone"];
 	onError: (err: string) => void;
 	/** Optional per-segment observer; forwarded to the in-process recogniser on stop. */
 	onSegment?: (text: string, index: number) => void;
@@ -965,7 +966,7 @@ function settle(session: LocalSession, result: LocalSessionResult, meta: { hadAu
 	if (session.settled) return;
 	session.settled = true;
 	session.closed = true;
-	session.onDone(result, meta);
+	session.onDone(result, { ...meta, capturedBytes: session.capturedBytes });
 }
 
 /** Deliver the session's one terminal capture error — not a recording outcome, so never a result. */
@@ -996,6 +997,7 @@ export function startLocalSession(recProcess: ChildProcess, callbacks: LocalSess
 		audioChunks: [],
 		closed: false,
 		hadAudioData: false,
+		capturedBytes: 0,
 		stopping: false,
 		settled: false,
 		onDone: callbacks.onDone,
@@ -1020,6 +1022,7 @@ export function startLocalSession(recProcess: ChildProcess, callbacks: LocalSess
 		}
 		session.hadAudioData = true;
 		session.audioChunks.push(chunk);
+		session.capturedBytes += chunk.length;
 	});
 
 	recProcess.stderr?.on("data", (d: Buffer) => {
