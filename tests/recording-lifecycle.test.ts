@@ -1,19 +1,16 @@
 import { expect, test } from "bun:test";
+import { createRecordingLifecycle } from "../extensions/voice/recording-lifecycle";
+import { lifecycleAdapter } from "./recording-lifecycle-adapter";
 import { readFileSync } from "node:fs";
 import { EventEmitter } from "node:events";
 import { createRecordingController } from "../extensions/voice/recording-controller";
-import { startRecordingEntry } from "../extensions/voice/recording-entry";
 import { createPreviewRetirement } from "../extensions/voice/preview-retirement.ts";
 import { createRecordingOwner } from "../extensions/voice/preview-entrypoint";
 import { createPreviewClient } from "../extensions/voice/preview-worker-client";
-import { createPreviewSession } from "../extensions/voice/preview-session";
 import { abortLocalSession, startLocalSession, stopLocalSession } from "../extensions/voice/local";
 import { DEFAULT_CONFIG } from "../extensions/voice/config";
-import { decideRecordingStartTimer } from "../extensions/voice/hold-to-talk";
-import { classifyOutcome, deliverOutcome } from "../extensions/voice/dictation-outcome";
-import { insertTranscript } from "../extensions/voice/editor-sink";
 
-// Task 8 must replace these remaining lifecycle slices with imported lifecycle functions.
+// Only command/hold/cleanup slices remain for Task 9. Capture and delivery run the imported lifecycle.
 // Only external capture, final transcription, timers and UI are faked; ordering runs production code.
 const source = readFileSync(new URL("../extensions/voice.ts", import.meta.url), "utf8");
 const slice = (from: string, to: string) => {
@@ -41,9 +38,9 @@ function harness() {
 	const run = new Function(
 		"ports",
 		new Bun.Transpiler({ loader: "ts" }).transformSync(`
-		const { recordingController, startRecordingEntry, createRecordingOwner, createPreviewClient,
-		 createPreviewSession, startLocalSession, stopLocalSession, abortLocalSession, decideRecordingStartTimer,
-		 classifyOutcome, deliverOutcome, insertTranscript, config, spawn, setTimeout, writes, history, notices, events } = ports;
+		const { createRecordingLifecycle, recordingController, createRecordingOwner, createPreviewClient,
+		 startLocalSession, stopLocalSession, abortLocalSession,
+		 config, spawn, setTimeout, writes, history, notices, events } = ports;
 		const ctx = { hasUI: true, ui: { notify: text => notices.push(text), getEditorText: () => "",
 		 pasteToEditor: text => writes.push(text), setEditorText: () => { throw new Error("replacement"); } } };
 		const cmdCtx = ctx, sub = "dictate", toggleShortcutLabel = "toggle";
@@ -53,7 +50,7 @@ function harness() {
 		const previewRetirement = ports.previewRetirement;
 		const { retirePreviewClient, finishPreview } = previewRetirement;
 		let recordingStart = 0, lastStopTime = 0, lastEscapeTime = 0;
-		const CORRUPTION_GUARD_MS = 50, SAMPLE_RATE = 16000, CHANNELS = 1;
+		const CORRUPTION_GUARD_MS = 50;
 		const kittyReleaseDetected = false, spaceDownTime = null;
 		const voiceDebug = () => {}, safeErrorText = String;
 		const setVoiceState = state => recordingController.setState(state);
@@ -64,9 +61,8 @@ function harness() {
 		const detectAudioCaptureTool = () => ({ cmd: "fake", args: [], name: "fake" });
 		const finalModels = () => [], punctuateTranscript = text => text, addToHistory = text => history.push(text);
 		${slice("function abortSession(", "// ─── Extension")}
-		${slice("\tasync function startVoiceRecording():", "\tasync function startRecording():")}
-		${slice("\tasync function startRecording():", "\n\t// ── Tail recording:")}
-		${slice("\tasync function stopVoiceRecording()", "\n\t// ─── Hold-to-Talk State Machine")}
+		${slice("\tasync function startVoiceRecording():", "\tconst { startRecording, stopVoiceRecording } =")}
+		${lifecycleAdapter}
 		return {
 		 start: startVoiceRecording, stop: stopVoiceRecording,
 		 dictate: async () => { ${slice('\t\t\tif (sub === "dictate")', "\t\t\t// /voice history")} },
@@ -78,18 +74,13 @@ function harness() {
 	`)
 	);
 	const api = run({
+		createRecordingLifecycle,
 		previewRetirement: createPreviewRetirement({ debug() {}, safeErrorText: String, setTimeout, clearTimeout }),
 		recordingController: controller,
-		startRecordingEntry,
 		createRecordingOwner,
 		createPreviewClient,
-		createPreviewSession,
 		startLocalSession,
 		abortLocalSession,
-		decideRecordingStartTimer,
-		classifyOutcome,
-		deliverOutcome,
-		insertTranscript,
 		config: { ...DEFAULT_CONFIG, enabled: true, previewEnabled: false, localModel: "test" },
 		writes,
 		history,

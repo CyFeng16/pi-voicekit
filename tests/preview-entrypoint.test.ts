@@ -10,8 +10,6 @@ import { classifyOutcome, deliverOutcome } from "../extensions/voice/dictation-o
 import { insertTranscript } from "../extensions/voice/editor-sink";
 import { createPreviewClient } from "../extensions/voice/preview-worker-client";
 import { EventEmitter } from "node:events";
-import { startLocalSession, stopLocalSession } from "../extensions/voice/local";
-import { DEFAULT_CONFIG } from "../extensions/voice/config";
 
 test("the preview model directory is resolved only when installed and enabled", () => {
 	const urls: Record<string, string>[] = [];
@@ -473,113 +471,6 @@ for (const outcome of ["hung", "settled", "cleanup"] as const) {
 			settle();
 		}
 	});
-}
-
-for (const captureFailure of [false, true]) {
-	test(
-		captureFailure
-			? "unexpected capture close writes neither editor nor history"
-			: "final delivery unmounts before insertion and rejects late partials",
-		async () => {
-			let mounted = false;
-			let unmounts = 0;
-			const fed: Buffer[] = [];
-			const preview = createPreviewSession(
-				{
-					recordingId: "r",
-					feed: (chunk) => fed.push(chunk),
-					flush: () => new Promise(() => {}),
-					release() {},
-					destroy: async () => {},
-				},
-				{
-					mountPanel() {
-						mounted = true;
-					},
-					unmountPanel() {
-						mounted = false;
-						unmounts++;
-					},
-					onDegraded() {},
-				}
-			);
-			preview.handleEvent({ kind: "partial", recordingId: "r", segmentId: 0, revision: 1, text: "preview" });
-			const writes: string[] = [],
-				history: string[] = [],
-				notices: string[] = [];
-			const ctx = {
-				hasUI: true,
-				ui: {
-					getEditorText: () => "",
-					pasteToEditor(text: string) {
-						if (!captureFailure) expect(mounted).toBe(false);
-						writes.push(text);
-					},
-					setEditorText() {
-						throw new Error("replacement");
-					},
-					notify: (text: string) => notices.push(text),
-				},
-			};
-			const body = entrypointSource.slice(
-				entrypointSource.indexOf("\t\tconst recordingCallbacks = {"),
-				entrypointSource.indexOf("\n\t\t// ── Start the local capture session")
-			);
-			const callbacks = new Function(
-				"preview",
-				"ctx",
-				"owner",
-				"deliverOutcome",
-				"classifyOutcome",
-				"insertTranscript",
-				"history",
-				transpiler.transformSync(`
-			const current = () => true, config = {}, SAMPLE_RATE = 16000, CHANNELS = 1;
-			let activeSession = null, statusTimer = null, lastStopTime = 0;
-			const clearRecordingAnimTimer = () => {}, hideWidget = () => {}, playSound = () => {}, resetHoldState = () => {};
-			const setVoiceState = () => {}, clearWarmupWidget = () => {}, voiceDebug = () => {};
-			const punctuateTranscript = text => text, addToHistory = text => history.push(text);
-			const finishPreview = session => session.finish();
-			${body}
-			return recordingCallbacks;
-		`)
-			)(
-				preview,
-				ctx,
-				createRecordingOwner(() => true),
-				deliverOutcome,
-				classifyOutcome,
-				insertTranscript,
-				history
-			);
-			const proc = Object.assign(new EventEmitter(), {
-				stdout: new EventEmitter(),
-				stderr: new EventEmitter(),
-				kill() {},
-			});
-			const session = startLocalSession(proc as any, callbacks);
-			const first = Buffer.from([1, 0]),
-				tail = Buffer.from([2, 0]);
-			proc.stdout.emit("data", first);
-			if (captureFailure) proc.emit("close", 1, null);
-			else {
-				const stopping = stopLocalSession(session, DEFAULT_CONFIG, async () => ({ text: "final", hadSpeech: true }));
-				void preview.drain();
-				proc.stdout.emit("data", tail);
-				await stopping;
-				expect(fed).toEqual([first, tail]);
-			}
-			expect(writes).toEqual(captureFailure ? [] : ["final"]);
-			expect(history).toEqual(captureFailure ? [] : ["final"]);
-			expect(notices).toHaveLength(1);
-			if (captureFailure) expect(notices[0]).toContain("Voice error: Audio capture stopped unexpectedly");
-			expect(mounted).toBe(false);
-			expect(unmounts).toBe(1);
-			preview.handleEvent({ kind: "partial", recordingId: "r", segmentId: 0, revision: 2, text: "late" });
-			expect(preview.text).toBe("preview");
-			expect(mounted).toBe(false);
-		}
-	);
 }
 
 test("stale generations cannot stop or deliver", async () => {
