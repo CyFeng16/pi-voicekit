@@ -127,8 +127,6 @@ type VoiceState = "idle" | "warmup" | "recording" | "finalizing";
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
-const MAX_RECORDING_SECS = 120;
-
 // Hold-to-talk timing — Apple-style deliberate hold detection
 // The goal: typing normally should NEVER accidentally trigger voice.
 // Only a clearly intentional long press activates it.
@@ -1373,7 +1371,8 @@ export default function (pi: ExtensionAPI) {
 			if (voiceState === "recording") {
 				updateVoiceStatus();
 				const elapsed = (Date.now() - recordingStart) / 1000;
-				if (elapsed >= MAX_RECORDING_SECS) {
+				// The recording budget is configurable (`voice.maxRecordingSeconds`, default 120 s).
+				if (elapsed >= (config.maxRecordingSeconds ?? 120)) {
 					stopVoiceRecording();
 				}
 			}
