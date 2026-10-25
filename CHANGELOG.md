@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **A live streaming preview while you dictate.** While you record, the words now appear in a
+  six-line panel above the editor, scrolled to the newest line, with no header and no status text.
+  The panel is display-only: the final transcript still comes from your offline model, and nothing is
+  written to the editor until you release. It is on by default (`previewEnabled`) and silent when its
+  model is missing — no prompt, no error, no degradation notice.
+- **The preview model is a new, optional catalogue entry.** A bilingual Chinese–English streaming
+  Paraformer (226 MB, Hugging Face) sits in its own **Preview (streaming)** group in the Models tab.
+  It is download-only: pressing `↵` downloads it and never makes it the active model, it is never
+  fetched on first use, and it can never be selected as the final transcription model.
+- **Both recognisers now run off the main thread.** The preview and the final pass each have a worker
+  (`local-preview-worker.ts` and `final-pass-worker.ts`) and the models are constructed inside them,
+  so a recording no longer stalls the terminal while a recogniser loads. Both workers stay warm
+  between recordings: the final-pass worker is invalidated when the model, the model directory or
+  the language changes, and the preview worker is replaced when the preview model's directory does.
+- **Three optional settings, schema still 6.** `previewEnabled` (default `true`),
+  `localPreviewModel` (default the streaming entry) and `maxRecordingSeconds` (default `120`, the
+  recording budget that used to be a fixed constant). All three are ordinary `settings.json` fields
+  with no row in the panel.
+
+### Changed
+
+- **A finished dictation is inserted at the cursor instead of being appended at the end of the
+  buffer.** The text goes in as chunks small enough for the editor to take whole — below the host's
+  10-line / 1 000-character paste threshold — so a long dictation is no longer at risk of being
+  replaced by a `[paste #N]` placeholder. History records the transcript as before, and nothing is
+  sent automatically.
+
 ## [0.6.3] - 2026-10-25
 
 ### Security

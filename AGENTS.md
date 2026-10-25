@@ -26,6 +26,9 @@ This file is the rule of record for agents and humans — there is deliberately 
   Markdown is intentionally not gated — hand-format docs.
 - History hygiene: one commit = one logical change; keep diffs minimal and
   unrelated edits out.
+- Worker entries: every module reachable from a worker entry must use explicit `.ts` value imports and
+  erasable-only TypeScript, because a worker loads through the runtime resolver, not a bundler.
+  `tests/worker-import-graph.test.ts` gates the import half.
 
 ## Releases
 

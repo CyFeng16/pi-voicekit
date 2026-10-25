@@ -1808,3 +1808,78 @@ describe("session_start activation (the local model is the only path)", () => {
 		expect(JSON.parse(fs.readFileSync(session.settingsPath, "utf8")).voice.localModel).toBe("parakeet-v3");
 	});
 });
+
+describe("preview settings", () => {
+	test("defaults, type validation and both save paths preserve preview fields", () => {
+		const agentDir = makeTempDir();
+		const cwd = makeTempDir();
+		expect(loadConfigWithSource(cwd, { agentDir }).config.previewEnabled).toBe(true);
+		expect(loadConfigWithSource(cwd, { agentDir }).config.localPreviewModel).toBe(
+			"streaming-paraformer-bilingual-zh-en"
+		);
+		writeSettings(agentDir, "settings.json", { previewEnabled: "false", localPreviewModel: 42 });
+		expect(loadConfigWithSource(cwd, { agentDir }).config.previewEnabled).toBe(true);
+		expect(loadConfigWithSource(cwd, { agentDir }).config.localPreviewModel).toBe(
+			"streaming-paraformer-bilingual-zh-en"
+		);
+		saveConfig({ ...DEFAULT_CONFIG, previewEnabled: false, localPreviewModel: "custom" }, "global", cwd, { agentDir });
+		expect(loadConfigWithSource(cwd, { agentDir }).config.previewEnabled).toBe(false);
+		expect(loadConfigWithSource(cwd, { agentDir }).config.localPreviewModel).toBe("custom");
+		saveGlobalVoiceFields({ previewEnabled: true, localPreviewModel: "other" }, { agentDir });
+		expect(loadConfigWithSource(cwd, { agentDir }).config.localPreviewModel).toBe("other");
+		expect(loadConfigWithSource(cwd, { agentDir }).config.previewEnabled).toBe(true);
+		saveConfig({ ...DEFAULT_CONFIG, previewEnabled: false, localPreviewModel: "project" }, "project", cwd, {
+			agentDir,
+		});
+		expect(loadConfigWithSource(cwd, { agentDir }).config.previewEnabled).toBe(false);
+		expect(loadConfigWithSource(cwd, { agentDir }).config.localPreviewModel).toBe("project");
+	});
+});
+
+describe("maxRecordingSeconds (recording budget)", () => {
+	test("maxRecordingSeconds defaults to 120 and survives both save paths", () => {
+		const cwd = makeTempDir();
+		const agentDir = path.join(cwd, "agent-home");
+
+		expect(DEFAULT_CONFIG.maxRecordingSeconds).toBe(120);
+
+		// parse round-trip with an explicit override
+		writeSettings(agentDir, "settings.json", { version: VOICE_CONFIG_VERSION, maxRecordingSeconds: 300 });
+		expect(loadConfigWithSource(cwd, { agentDir }).config.maxRecordingSeconds).toBe(300);
+
+		// a full save renders the field, so it survives a reload
+		fs.rmSync(agentDir, { recursive: true, force: true });
+		saveConfig({ ...DEFAULT_CONFIG, scope: "global", maxRecordingSeconds: 300 }, "global", cwd, { agentDir });
+		expect(loadConfigWithSource(cwd, { agentDir }).config.maxRecordingSeconds).toBe(300);
+
+		// the field-scoped global writer merges the key it is given
+		const scopedAgentDir = path.join(cwd, "scoped-agent-home");
+		saveGlobalVoiceFields({ maxRecordingSeconds: 300 }, { agentDir: scopedAgentDir });
+		expect(loadConfigWithSource(cwd, { agentDir: scopedAgentDir }).config.maxRecordingSeconds).toBe(300);
+
+		// a field-scoped save that does not name it must not create it
+		const otherAgentDir = path.join(cwd, "other-agent-home");
+		saveGlobalVoiceFields({ punctuationNoticeShown: true }, { agentDir: otherAgentDir });
+		const saved = JSON.parse(fs.readFileSync(path.join(otherAgentDir, "settings.json"), "utf8")) as {
+			voice: Record<string, unknown>;
+		};
+		expect(saved.voice.maxRecordingSeconds).toBeUndefined();
+		expect(Object.keys(saved.voice).sort()).toEqual(["punctuationNoticeShown", "version"]);
+	});
+
+	test("rejects a non-positive or non-finite budget and falls back to 120", () => {
+		const cwd = makeTempDir();
+		const agentDir = path.join(cwd, "agent-home");
+		const settingsPath = path.join(agentDir, "settings.json");
+
+		for (const invalid of [0, -5, "300", null, true]) {
+			writeSettings(agentDir, "settings.json", { maxRecordingSeconds: invalid });
+			expect(loadConfigWithSource(cwd, { agentDir }).config.maxRecordingSeconds).toBe(120);
+		}
+
+		// `JSON.parse` turns an overflowing literal into Infinity, which is not a usable budget.
+		fs.mkdirSync(agentDir, { recursive: true });
+		fs.writeFileSync(settingsPath, '{"voice":{"maxRecordingSeconds":1e400}}');
+		expect(loadConfigWithSource(cwd, { agentDir }).config.maxRecordingSeconds).toBe(120);
+	});
+});

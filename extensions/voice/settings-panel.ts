@@ -21,9 +21,16 @@
 import { matchesKey, Key, truncateToWidth } from "@earendil-works/pi-tui";
 import type { Theme, ThemeColor } from "@earendil-works/pi-coding-agent";
 import { DEFAULT_TTS_LOCAL_MODEL, type VoiceConfig, type VoiceSettingsScope } from "./config";
-import { LOCAL_MODELS, getLanguagesForLocalModel, type LocalModelInfo } from "./local";
+import { LOCAL_MODELS, finalModels, getLanguagesForLocalModel, previewModel, type LocalModelInfo } from "./local";
 import type { DeviceProfile, ModelFitness } from "./device";
-import { getFreeDiskSpace, formatBytes, getModelsDir, scanHandyModels, importHandyModel } from "./model-download";
+import {
+	getFreeDiskSpace,
+	formatBytes,
+	getModelsDir,
+	scanHandyModels,
+	importHandyModel,
+	isModelDownloaded,
+} from "./model-download";
 import {
 	TTS_LOCAL_MODELS as TTS_LOCAL_MODELS_REF,
 	isTtsModelInstalled as TTS_INSTALLED_CHECK_REF,
@@ -91,6 +98,11 @@ export interface PanelDeps {
 	 * a real Pi session.
 	 */
 	theme?: Theme;
+	/**
+	 * Optional. True when `model`'s files are present on disk. Defaults to `isModelDownloaded` over the
+	 * model's `files` map; tests inject a predicate so they never depend on the developer's model dir.
+	 */
+	isModelInstalled?: (model: LocalModelInfo) => boolean;
 }
 
 interface ModelRow extends LocalModelInfo {
@@ -98,9 +110,18 @@ interface ModelRow extends LocalModelInfo {
 }
 
 /**
- * Visual grouping of LOCAL_MODELS in the Models tab. Each group has a
- * heading and the list under it preserves catalog order for stable display.
- * "Top picks" is computed dynamically from device fitness — see groupModels().
+ * Display name for any catalogue entry by id, including entries that may never be activated
+ * (the streaming preview model, when its directory shows up in the Downloaded list).
+ */
+function catalogueName(id: string): string | undefined {
+	return LOCAL_MODELS.find((model) => model.id === id)?.name;
+}
+
+/**
+ * Visual grouping of the Models tab. Each group has a heading and the list
+ * under it preserves catalog order for stable display. "Top picks" is
+ * computed dynamically from device fitness — see groupModels(). The final
+ * models come from `finalModels()`; the preview entry has its own group.
  */
 interface ModelGroup {
 	heading: string;
@@ -115,12 +136,13 @@ interface ModelGroup {
 // ─── Panel ────────────────────────────────────────────────────────────────────
 
 /**
- * True when `id` names a recogniser the panel may activate. The Downloaded tab lists every
- * directory under `~/.pi/models` — the punctuation model and the Silero VAD model among them —
- * and activation writes `config.localModel`, so only catalogue entries may pass (spec §4.2).
+ * True when `id` names a recogniser the panel may activate as the final model. The Downloaded tab
+ * lists every directory under `~/.pi/models` — the punctuation model, the Silero VAD model and the
+ * streaming preview model among them — and activation writes `config.localModel`, so only
+ * `finalModels()` entries may pass (spec §4.2, §6.1).
  */
 export function isRecogniserModelId(id: string): boolean {
-	return LOCAL_MODELS.some((model) => model.id === id);
+	return finalModels().some((model) => model.id === id);
 }
 
 export class VoiceSettingsPanel {
@@ -515,17 +537,24 @@ export class VoiceSettingsPanel {
 			const isSelected = i === selectedFlatIdx;
 			const isCurrent = m.id === currentId;
 			const isDl = downloadedMap.has(m.id);
+			const isPreview = m.role === "preview";
 
 			const prefix = isSelected ? `${this.accent(ICON.cursorBar)}  ` : `   `;
 			const name = (isSelected ? this.accent(m.name) : m.name).padEnd(nameW + (isSelected ? 0 : 0));
 			const namePad = m.name.length < nameW ? " ".repeat(nameW - m.name.length) : "";
 			const size = this.dim(m.size.padStart(8));
 			const langHint = this.dim(formatLangHint(m).padEnd(13));
-			const status = isCurrent
-				? this.success("active")
-				: isDl
-					? this.success("ready")
-					: this.dim(formatFitness(m.fitness));
+			// The preview row reports installation state, never "active": it is download-only, so
+			// "active" would claim a role the entry cannot hold.
+			const status = isPreview
+				? this.isInstalled(m)
+					? this.success("installed")
+					: this.warning("not installed")
+				: isCurrent
+					? this.success("active")
+					: isDl
+						? this.success("ready")
+						: this.dim(formatFitness(m.fitness));
 
 			lines.push(
 				`${prefix}${isSelected ? this.accent(m.name) + namePad : m.name + namePad} ${size}  ${langHint} ${status}`
@@ -549,11 +578,17 @@ export class VoiceSettingsPanel {
 
 		lines.push("");
 		const selectedRow = this.getRowAt(this.row);
-		const enterHint = selectedRow
-			? downloadedMap.has(selectedRow.id)
-				? "activate"
-				: `download (${selectedRow.size}) + activate`
-			: "select";
+		let enterHint: string;
+		if (!selectedRow) {
+			enterHint = "select";
+		} else if (selectedRow.role === "preview") {
+			// Download-only: ↵ never activates the streaming entry as the final model.
+			enterHint = this.isInstalled(selectedRow)
+				? "installed — preview only"
+				: `download (${selectedRow.size}) — preview only`;
+		} else {
+			enterHint = downloadedMap.has(selectedRow.id) ? "activate" : `download (${selectedRow.size}) + activate`;
+		}
 		lines.push(this.dim(`  ↵ ${enterHint}  ←→/Tab tabs  ↑↓ navigate  esc close`));
 		return lines;
 	}
@@ -587,10 +622,13 @@ export class VoiceSettingsPanel {
 					const isSelected = i === this.row;
 					const isCurrent = d.id === currentId;
 					const isDeletePending = d.id === this.deletePendingId;
+					const isPreview = d.id === previewModel().id;
 					const prefix = isSelected ? `${this.accent(ICON.cursorBar)}  ` : `   `;
 					const name = isSelected ? this.accent(d.name) : d.name;
 					const size = this.dim(` — ${d.sizeMB} MB`);
-					const status = isCurrent ? this.success(" active") : "";
+					// The preview directory is listed (it lives in the model dir) but belongs to the preview
+					// slot: it can never be the active final model, so it never renders "active".
+					const status = isPreview ? this.dim(" preview only") : isCurrent ? this.success(" active") : "";
 					const deleteBadge = isDeletePending ? "  " + this.warning("press x again to delete") : "";
 					lines.push(`${prefix}${name}${size}${status}${deleteBadge}`);
 				}
@@ -762,7 +800,7 @@ export class VoiceSettingsPanel {
 		// Disk space — show "fits largest model" computation so users can
 		// gauge whether a download is feasible without checking model sizes.
 		const freeSpace = getFreeDiskSpace(getModelsDir());
-		const largest = LOCAL_MODELS.reduce((a, b) => (a.sizeBytes > b.sizeBytes ? a : b));
+		const largest = finalModels().reduce((a, b) => (a.sizeBytes > b.sizeBytes ? a : b));
 		const fitsLargest = freeSpace !== null && freeSpace >= largest.sizeBytes;
 		const diskLabel = freeSpace !== null ? formatBytes(freeSpace) + " free" : "unknown";
 		const diskWarn = freeSpace !== null && freeSpace < 500 * 1024 * 1024; // <500MB
@@ -887,6 +925,14 @@ export class VoiceSettingsPanel {
 			}
 		} else if (tabId === "models") {
 			const model = this.getRowAt(this.row);
+			if (model && model.role === "preview") {
+				// The preview row is download-only. ↵ here must never write `config.localModel`: a
+				// streaming model cannot produce the authoritative transcript. When the files are
+				// missing the panel closes with the download action, and the entrypoint runs the
+				// existing pre-checks + progress + verification around `ensureModelDownloaded`.
+				if (!this.isInstalled(model)) this.onClose?.({ type: "download", modelId: model.id });
+				return;
+			}
 			if (model) {
 				this.activateModel(model.id);
 				const downloaded = new Set(this.p.getDownloadedModels().map((d) => d.id));
@@ -899,6 +945,8 @@ export class VoiceSettingsPanel {
 			const dl = this.getDownloaded();
 			if (this.row < dl.length) {
 				const item = dl[this.row];
+				// `activateModel` refuses non-final ids, so the preview directory stays in the preview
+				// slot: it is listed here because it lives in the model dir, not because it is selectable.
 				if (item) this.activateModel(item.id);
 			} else {
 				const handyNotImported = scanHandyModels().filter((h) => !h.imported);
@@ -1334,14 +1382,34 @@ export class VoiceSettingsPanel {
 	 * Build the grouped model view: top picks (recommended for current device)
 	 * first, then by family/language. Search filters all groups together;
 	 * empty groups are dropped so the user never sees an orphaned heading.
+	 *
+	 * The final-model groups come from `finalModels()` — the streaming preview entry must never be a
+	 * final choice — and the preview entry gets its own download-only group at the end.
 	 */
 	private rebuildModels(): void {
-		const enriched: ModelRow[] = LOCAL_MODELS.map((m) => ({
+		const enriched: ModelRow[] = finalModels().map((m) => ({
 			...m,
 			fitness: this.p.getModelFitness(m, this.p.device) as ModelFitness,
 		}));
-		this.modelGroups = groupModels(enriched);
+		const preview = previewModel();
+		this.modelGroups = [
+			...groupModels(enriched),
+			{
+				heading: "Preview (streaming)",
+				subtitle: "live draft while you speak · download only, never the final model",
+				rows: [{ ...preview, fitness: this.p.getModelFitness(preview, this.p.device) as ModelFitness }],
+			},
+		];
 		this.refreshModelView();
+	}
+
+	/** Whether the model's files are on disk — the injection seam for tests. */
+	private isInstalled(model: LocalModelInfo): boolean {
+		// `isModelDownloaded` reads file names from the URL map (`fileNameFromUrl`), so it needs
+		// `downloadUrls`, not the bare `files` names.
+		return this.p.isModelInstalled
+			? this.p.isModelInstalled(model)
+			: isModelDownloaded(model.id, model.sherpaModel.downloadUrls);
 	}
 
 	/** Apply the search query and rebuild the flat row list. */
@@ -1381,7 +1449,7 @@ export class VoiceSettingsPanel {
 		const currentId = this.p.config.localModel || "parakeet-v3";
 		return this.p.getDownloadedModels().map((d) => ({
 			...d,
-			name: LOCAL_MODELS.find((m) => m.id === d.id)?.name || d.id,
+			name: catalogueName(d.id) || d.id,
 			isCurrent: d.id === currentId,
 		}));
 	}

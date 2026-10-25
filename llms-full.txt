@@ -16,7 +16,8 @@ real one, so this file carries only what is stable and points at the rest.
 - **License:** MIT
 - **Type:** Pi coding agent extension (`pi-package`), TypeScript, Bun toolchain
 - **Positioning:** local-only since 0.6.0 — every cloud backend removed from the code
-- **STT:** 21 offline models, recognised in process by sherpa-onnx (batch, not streaming)
+- **STT:** 21 offline models, recognised by sherpa-onnx inside a worker thread (the final pass is
+  batch; the optional preview model streams a display-only draft and never the final transcript)
 - **TTS:** 20 offline models (Kitten, Kokoro, Piper), synthesised in process
 - **Punctuation:** in-process `punct-ct-transformer-zh-en`, marks-only, Chinese only
 - **Languages:** Chinese, English and mixed Chinese–English (supported and validated); every other language in the catalogue is unvalidated

@@ -12,8 +12,8 @@
 </p>
 
 **Voice in and voice out for [Pi](https://github.com/earendil-works/pi-coding-agent).**
-Hold-to-talk dictation with 21 offline models, plus speech that reads the agent's replies
-aloud. Recognition, punctuation and synthesis all run in process on
+Hold-to-talk dictation with 21 offline models and a live preview above the editor, plus speech
+that reads the agent's replies aloud. Recognition, punctuation and synthesis all run in process on
 [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx): there is no key, no endpoint and no
 account to set up, and no audio is uploaded to a remote speech service.
 
@@ -94,7 +94,10 @@ When both are in place, hold `SPACE` and dictate.
 
 ## Settings Panel
 
-All configuration lives in one place: `/voice-settings`. Five tabs cover everything you need.
+Everyday configuration lives in one place: `/voice-settings`. Its five tabs are General, Models,
+Downloaded, Speak and Device. A few optional fields have no row of their own and are set in
+`settings.json` instead — the preview's three are listed under
+[Streaming preview](#streaming-preview).
 
 ### General — model, language, scope, voice
 
@@ -103,18 +106,26 @@ switch. Every row is a keyboard shortcut away — `↵` changes, `← →` switc
 
 ### Models — browse, search, install
 
-<img src="https://raw.githubusercontent.com/CyFeng16/pi-voicekit/main/assets/screenshots/settings-models.png" alt="Models tab — browse 21 models with accuracy/speed ratings" width="600" />
+<img src="https://raw.githubusercontent.com/CyFeng16/pi-voicekit/main/assets/screenshots/settings-models.png" alt="Models tab — browse 22 models with accuracy/speed ratings" width="600" />
 
-Browse 21 models from Parakeet, Whisper, Moonshine, SenseVoice, GigaAM, Paraformer, and Qwen3. Each model shows accuracy and speed ratings (●●●●○/●●●●○), fitness badges, and download status. Fuzzy search to find models fast. Press Enter to activate and download.
+Browse 22 models from Parakeet, Whisper, Moonshine, SenseVoice, GigaAM, Paraformer, and Qwen3. Each model shows accuracy and speed ratings (●●●●○/●●●●○), fitness badges, and download status. Fuzzy search to find models fast. Press Enter to activate and download. The preview entry is the one exception: Enter downloads it when it is missing, and it can never be activated.
+
+One of the 22 sits in its own **Preview (streaming)** group: a Chinese–English streaming Paraformer
+(226 MB) that is download-only and can never become the final model. Install it and, while you
+record, the words appear in a six-line panel above the editor, scrolled to the newest line.
+The final transcript still comes from your offline model — the preview never writes the editor.
+With the preview model not installed the preview adds nothing: no panel, no download, no prompt,
+no notice. `previewEnabled` (a `settings.json` field, on by default) turns the panel off without
+deleting the model.
 
 > Screenshots were captured on a v7.0 build: the panel now has five tabs (Speak was added)
-> and the catalogue has grown to 21 models.
+> and the catalogue has grown to 22 models.
 
 ### Downloaded — manage installed models
 
 <img src="https://raw.githubusercontent.com/CyFeng16/pi-voicekit/main/assets/screenshots/settings-downloaded.png" alt="Downloaded tab — manage installed models, activate or delete" width="600" />
 
-See what's installed, total disk usage, and which model is active. Press Enter to activate, `x` to delete. Models from [Handy](https://github.com/cjpais/handy) are auto-detected and can be imported without re-downloading.
+See what's installed, total disk usage, and which model is active. Press Enter to activate, `x` to delete. The preview model appears here too, marked `preview only`; Enter does not activate it. Models from [Handy](https://github.com/cjpais/handy) are auto-detected and can be imported without re-downloading.
 
 ### Speak — TTS models and voices
 
@@ -166,10 +177,12 @@ it did not, and the state of the model.
 
 1. **Hold SPACE** — a countdown shows how long is left. Audio capture starts when the threshold is
    reached, so begin speaking then: anything said during the countdown is not recorded
-2. **Keep holding** — audio streams into a memory buffer
+2. **Keep holding** — audio streams into a memory buffer, and a live preview above the editor shows
+   the words as the streaming model recognises them (only when the preview model is installed)
 3. **Release SPACE** — recording continues for 1.5s (tail recording) to catch your last word, then finalizes
-4. The active local model transcribes the buffer in process (2–10 seconds), the transcript is
-   cleaned and punctuated, and the text lands in the editor ready to send
+4. The active local model transcribes the buffer on a worker thread (2–10 seconds), the transcript is
+   cleaned and punctuated, and the text is inserted at the cursor in chunks small enough for the
+   editor to take whole, ready to send
 
 ### Commands
 
@@ -241,8 +254,10 @@ the language you want is missing.
 
 ## Local Models
 
-21 models across 7 families. Sorted by quality — best models first. Only Chinese and English are
-validated; every other language listed below is out of scope — see [Language scope](#language-scope).
+21 offline models across 7 families, plus the streaming preview entry described above. The tables
+here cover the offline ones, the only models that can produce the final transcript. Sorted by
+quality — best models first. Only Chinese and English are validated; every other language listed
+below is out of scope — see [Language scope](#language-scope).
 
 ### Top picks
 
@@ -275,19 +290,21 @@ supported scope.
 ### How local models work
 
 ```
-Hold SPACE → audio captured to memory buffer
+Hold SPACE → audio captured to memory buffer (plus the live preview, when installed)
                 ↓
-Release SPACE → buffer sent to sherpa-onnx (in-process)
+Release SPACE → buffer sent to sherpa-onnx inside a worker thread
                 ↓
          ONNX inference on CPU (2–10 seconds)
                 ↓
-         Final transcript inserted into editor
+         Final transcript inserted at the cursor
 ```
 
-Dictation is batch, not streaming: the transcript appears when you finish speaking, a few
-seconds later. Models download automatically on first use — resumable, verified after
-completion, and deduplicated (no double-downloads). The settings panel shows real-time
-download progress with speed and ETA.
+Dictation is batch, not streaming: the final transcript appears when you finish speaking, a few
+seconds later — the live preview above the editor is a separate streaming model and never becomes
+the text that is inserted. Models download automatically on first use — resumable, verified after
+completion, and deduplicated (no double-downloads). The streaming preview model is the exception:
+it is fetched only when you press `↵` on its row in the Models tab, never on first use. The settings
+panel shows real-time download progress with speed and ETA.
 
 Models from [Handy](https://github.com/cjpais/handy) (`~/Library/Application Support/com.pais.handy/models/`) are auto-detected and can be imported via symlink (zero disk duplication).
 
@@ -322,9 +339,10 @@ this README.
 | Feature                          | Description                                                                              |
 | -------------------------------- | ---------------------------------------------------------------------------------------- |
 | **Local-only**                   | One path: in-process recognition and speech. No endpoint, no key, no account — see [Privacy](#privacy) |
-| **21 local models**             | Parakeet, Whisper, Moonshine, SenseVoice, GigaAM, Paraformer, Qwen3 — with accuracy/speed ratings |
+| **22 local models**              | 21 offline recognisers plus one streaming preview model — Parakeet, Whisper, Moonshine, SenseVoice, GigaAM, Paraformer, Qwen3 — with accuracy/speed ratings |
+| **Live streaming preview**       | Words appear above the editor while you record, scrolled to the newest line. The preview model is optional (226 MB), download-only, silent when absent, and never produces the final transcript |
 | **Offline speech**               | 20 local TTS models (Kitten, Kokoro, Piper) read the agent's replies through the system player |
-| **Unified settings panel**       | One overlay panel for all configuration — `/voice-settings`                              |
+| **Unified settings panel**       | One overlay panel for everyday configuration — `/voice-settings`. Optional fields without a row live in `settings.json` — the preview's three are listed under [Streaming preview](#streaming-preview) |
 | **Device-aware recommendations** | Scores models against your hardware. Only best-in-class models get [recommended].        |
 | **Enterprise download pipeline** | Pre-checks (disk, network, permissions), live progress with speed/ETA, post-verification |
 | **Handy integration**            | Auto-detects models from Handy app, imports via symlink                                  |
@@ -352,13 +370,25 @@ extensions/voice/hold-to-talk.ts            Hold detection, Kitty and non-Kitty 
 extensions/voice/release-controller.ts      Recording lifecycle, release handling
 
 # speech-to-text
-extensions/voice/local.ts                   Model catalog (21 models), in-process transcription
+extensions/voice/local.ts                   Model catalog (22 models), in-process transcription
 extensions/voice/sherpa-engine.ts           sherpa-onnx bindings — recognizer lifecycle, inference
 extensions/voice/sherpa-loader.ts           Lazy native module loading
 extensions/voice/model-download.ts          Download manager — resume, progress, verification, Handy import
 extensions/voice/device.ts                  Device profiling — RAM, GPU, CPU, container detection
 extensions/voice/transcript-cleanup.ts      Filler removal and spoken-numeral restoration
 extensions/voice/transcript-join.ts         Segment stitching — CJK-aware, no space inside a sentence
+
+# live preview and workers
+extensions/voice/preview-entrypoint.ts      One preview session and one final pass per recording
+extensions/voice/preview-session.ts         Preview session — events, text, degradation, display lifetime
+extensions/voice/preview-stream.ts          Streaming segmentation — endpoint and 60 s segment cap
+extensions/voice/preview-worker-client.ts   Preview worker client — claims, partials, flushes, retirement
+extensions/voice/local-preview-worker.ts    Preview worker entry — streaming recogniser off the main thread
+extensions/voice/final-pass-client.ts       Final-pass worker client — timeouts, reuse, invalidation
+extensions/voice/final-pass-worker.ts       Final-pass worker entry — offline recogniser off the main thread
+extensions/voice/transcript-composer.ts     Committed prefix plus the mutable partial tail
+extensions/voice/preview-panel.ts           Live draft widget — six rows, tail visible, no header
+extensions/voice/editor-sink.ts             Cursor insertion in chunks the editor takes whole
 
 # offline punctuation
 extensions/voice/punctuation.ts             Offline punctuation — marks-only splice, fail-open step
@@ -427,6 +457,22 @@ A file carried over from 0.5.x may still hold the retired speech-backend fields;
 start erases them and says so — see [Privacy](#privacy).
 
 Hold-to-talk delay defaults to **700 ms** (`/voice-hold-delay` accepts 200–3000 ms).
+
+### Streaming preview
+
+Three ordinary optional fields: an explicit project value wins, then the global one, then the
+default. All three are `settings.json` fields — the panel has no rows for them.
+
+| Setting               | Default                                | Notes                                                                                          |
+| --------------------- | -------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| `previewEnabled`      | `true`                                 | Mount the live preview while recording. `false` also keeps the preview worker from starting.   |
+| `localPreviewModel`   | `streaming-paraformer-bilingual-zh-en` | The streaming catalogue entry. It is never usable as the final model.                          |
+| `maxRecordingSeconds` | `120`                                  | Budget for one recording, in seconds — a positive finite number.                               |
+
+The recording budget and the preview's 60 s segment cap are separate limits: the cap ends a
+recognition segment early, it does not stop the recording. The preview model lives in
+`~/.pi/models/streaming-paraformer-bilingual-zh-en/` and appears in the Downloaded tab like any
+other download, marked `preview only`; pressing Enter does not activate it.
 
 ### Punctuation
 
@@ -518,12 +564,12 @@ network client — which is why this is a test you can read, not a promise in pr
 
 ### The one outbound step this extension takes
 
-Model files are downloaded once, on first use, from HuggingFace or GitHub releases: the
-speech models you pick, the TTS models you pick, and the ~285 MB punctuation model on a
-machine that needs it. Downloads are resumable and checked when they finish: the speech
-model files must all be present at their expected sizes, and the punctuation model is
-verified file by file against the SHA-256 digests recorded in this repository. After a
-model is on disk, dictation and speech work with the network down.
+Model files are downloaded from HuggingFace or GitHub releases: the speech models you pick, the
+TTS models you pick, the ~285 MB punctuation model on a machine that needs it, and the optional
+streaming preview model when you press `↵` on its row — never before. Downloads are resumable and
+checked when they finish: the speech model files must all be present at their expected sizes, and
+the punctuation model is verified file by file against the SHA-256 digests recorded in this
+repository. After a model is on disk, dictation and speech work with the network down.
 
 ### What stays on the machine
 

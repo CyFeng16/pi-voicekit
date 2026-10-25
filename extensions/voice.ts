@@ -77,6 +77,7 @@ import {
 	type VoiceSettingsScope,
 } from "./voice/config";
 import { finalizeOnboardingConfig } from "./voice/onboarding";
+import { finalPassClient } from "./voice/final-pass-client";
 import { makeWidgetRegistry, type WidgetRegistry } from "./voice/ui-widget-base";
 import { makeRenderTicker, type RenderTicker } from "./voice/ui-render-ticker";
 import { TtsInstallProgressWidget } from "./voice/tts-install-progress";
@@ -85,6 +86,7 @@ import {
 	startLocalSession,
 	stopLocalSession,
 	abortLocalSession,
+	finalModels,
 	LOCAL_MODELS,
 	SAMPLE_RATE,
 	CHANNELS,
@@ -92,6 +94,7 @@ import {
 	isLanguageSupportedByModel,
 	localLanguageDisplayName,
 	type LocalSession,
+	type LocalSessionResult,
 } from "./voice/local";
 import { shouldArmReleaseDetectOnRepeat, decideRecordingStartTimer } from "./voice/hold-to-talk";
 import { GapTimer, type TimerPort } from "./voice/release-controller";
@@ -105,6 +108,12 @@ import {
 	type PunctuationGate,
 } from "./voice/punctuation";
 import { cleanTranscript, type CleanupStatus } from "./voice/transcript-cleanup";
+import { createPreviewClient, type PreviewClient } from "./voice/preview-worker-client";
+import { createPreviewSession, type PreviewSession } from "./voice/preview-session";
+import { createPreviewPanel } from "./voice/preview-panel";
+import { createRecordingOwner, resolvePreviewModelDir } from "./voice/preview-entrypoint";
+import { classifyOutcome, deliverOutcome } from "./voice/dictation-outcome";
+import { insertTranscript } from "./voice/editor-sink";
 
 /** Adapter for the real event loop — lets GapTimer run under the real setTimeout. */
 const realTimerPort: TimerPort = {
@@ -126,8 +135,6 @@ const realTimerPort: TimerPort = {
 type VoiceState = "idle" | "warmup" | "recording" | "finalizing";
 
 // ─── Constants ───────────────────────────────────────────────────────────────
-
-const MAX_RECORDING_SECS = 120;
 
 // Hold-to-talk timing — Apple-style deliberate hold detection
 // The goal: typing normally should NEVER accidentally trigger voice.
@@ -376,6 +383,9 @@ function abortSession(session: LocalSession | null): void {
 }
 
 // ─── Extension ───────────────────────────────────────────────────────────────
+
+const retiringPreviewClients = new Set<PreviewClient>();
+const previewRetirementTimers = new Map<PreviewClient, ReturnType<typeof setTimeout>>();
 
 export default function (pi: ExtensionAPI) {
 	let config = DEFAULT_CONFIG;
@@ -712,7 +722,12 @@ export default function (pi: ExtensionAPI) {
 	let lastStopTime = 0; // For Escape-to-clear-editor within 30s of recording
 	let lastEscapeTime = 0; // For double-escape to clear editor
 	let recordingStartedAt = 0; // When recording actually started (for grace period)
-	let editorTextBeforeVoice = ""; // Snapshot of editor text before recording started
+	let recordingGeneration = 0;
+	let previewClient: PreviewClient | null = null;
+	let previewClientModelDir: string | null = null;
+	let previewFinish: Promise<void> | null = null;
+	let activePreview: PreviewSession | null = null;
+	let recordingOwner: ReturnType<typeof createRecordingOwner> | null = null;
 
 	// Hold-to-talk state
 	let kittyReleaseDetected = false;
@@ -864,6 +879,17 @@ export default function (pi: ExtensionAPI) {
 	}
 
 	function voiceCleanup() {
+		recordingOwner?.cancel();
+		activePreview?.abort();
+		activePreview = null;
+		recordingGeneration++;
+		void previewClient?.destroy().catch((error) => {
+			voiceDebug("preview destroy failed", { error: safeErrorText(error) });
+		});
+		previewClient = null;
+		previewClientModelDir = null;
+		previewFinish = null;
+		for (const client of retiringPreviewClients) destroyRetiringPreviewClient(client);
 		// v7.1: cancel in-flight installs FIRST so their AbortControllers
 		// fire before we drop UI state. Without this, a session_shutdown
 		// during a download would leave the network/disk work running
@@ -917,7 +943,6 @@ export default function (pi: ExtensionAPI) {
 		lastSpacePressTime = 0;
 		lastNonSpaceKeyTime = 0;
 		errorCooldownUntil = 0;
-		editorTextBeforeVoice = "";
 		dictationMode = false;
 		recordingStart = 0;
 		recordingStartedAt = 0;
@@ -938,6 +963,9 @@ export default function (pi: ExtensionAPI) {
 	 * reason is not "dictation is no longer armed".
 	 */
 	function disarmDictation() {
+		recordingOwner?.cancel();
+		activePreview?.abort();
+		recordingGeneration++;
 		if (activeSession) {
 			abortSession(activeSession);
 			activeSession = null;
@@ -956,7 +984,6 @@ export default function (pi: ExtensionAPI) {
 		audioLevelSmoothed = 0;
 		recordingStart = 0;
 		recordingStartedAt = 0;
-		editorTextBeforeVoice = "";
 		setVoiceState("idle");
 	}
 
@@ -968,6 +995,9 @@ export default function (pi: ExtensionAPI) {
 		source: "first-run" | "setup-command"
 	) {
 		// One capture path, so a saved setup is always usable: there is no key to check.
+		if (config.localModel !== nextConfig.localModel || config.language !== nextConfig.language) {
+			await finalPassClient.destroy();
+		}
 		config = finalizeOnboardingConfig(nextConfig, { validated: true, source });
 		configSource = selectedScope;
 		const savedPath = saveConfig(config, selectedScope, currentCwd, { loadedSource: configSource });
@@ -1209,12 +1239,16 @@ export default function (pi: ExtensionAPI) {
 		_startingRecording = true;
 
 		abortActiveSpeak();
+		let staleStart = false;
 
 		try {
 			// ── SESSION CORRUPTION GUARD ──
 			// If we're still finalizing from a previous recording, abort it first.
 			// This prevents the "slow connection overlaps new recording" bug.
 			if (voiceState === "finalizing" || voiceState === "recording") {
+				recordingOwner?.cancel();
+				activePreview?.abort();
+				const generation = ++recordingGeneration;
 				abortSession(activeSession);
 				activeSession = null;
 				clearRecordingAnimTimer();
@@ -1223,6 +1257,10 @@ export default function (pi: ExtensionAPI) {
 				setVoiceState("idle");
 				// Brief pause to let resources release
 				await new Promise((r) => setTimeout(r, CORRUPTION_GUARD_MS));
+				if (generation !== recordingGeneration) {
+					staleStart = true;
+					return false;
+				}
 			}
 
 			// ── STALE TRANSCRIPT CLEANUP ──
@@ -1232,23 +1270,121 @@ export default function (pi: ExtensionAPI) {
 
 			recordingStart = Date.now();
 
-			// Snapshot editor text before voice overwrites it with live transcript
-			editorTextBeforeVoice = ctx?.hasUI ? ctx.ui.getEditorText() || "" : "";
-
 			return startRecording();
 		} finally {
-			_startingRecording = false;
+			if (!staleStart) _startingRecording = false;
 		}
+	}
+
+	function destroyRetiringPreviewClient(client: PreviewClient): void {
+		if (!retiringPreviewClients.delete(client)) return;
+		clearTimeout(previewRetirementTimers.get(client));
+		previewRetirementTimers.delete(client);
+		void client.destroy().catch((error) => {
+			voiceDebug("preview destroy failed", { error: safeErrorText(error) });
+		});
+	}
+
+	function retirePreviewClient(client: PreviewClient, drain: Promise<void> | null): void {
+		retiringPreviewClients.add(client);
+		if (!drain) {
+			destroyRetiringPreviewClient(client);
+			return;
+		}
+		// Allow the flush deadline to release its claim first, but never orphan a hung drain.
+		const timer = setTimeout(() => destroyRetiringPreviewClient(client), client.flushTimeoutMs + 250);
+		previewRetirementTimers.set(client, timer);
+		timer.unref?.();
+		void drain.then(
+			() => destroyRetiringPreviewClient(client),
+			() => destroyRetiringPreviewClient(client)
+		);
+	}
+
+	function finishPreview(preview: PreviewSession): Promise<void> {
+		// A stop owns only this recording's drain, never an older recording's pending finish.
+		const finishing = preview
+			.finish()
+			.catch((error) => voiceDebug("preview finish failed", { error: safeErrorText(error) }))
+			.finally(() => {
+				if (previewFinish === finishing) previewFinish = null;
+			});
+		previewFinish = finishing;
+		return finishing;
 	}
 
 	async function startRecording(): Promise<boolean> {
 		voiceDebug("startRecording called");
 		setVoiceState("recording");
 
-		// ── Callbacks for the active recording session ──
+		activePreview?.abort();
+		const generation = ++recordingGeneration;
+		const current = () => generation === recordingGeneration;
+		const owner = createRecordingOwner(current);
+		recordingOwner = owner;
+		const recordingCtx = ctx;
+		const previewModelDir = resolvePreviewModelDir(config.previewEnabled ?? true);
+		const previousDrain = previewFinish ?? previewClient?.pendingDrain ?? null;
+		if (previewClient && (previewModelDir !== previewClientModelDir || previousDrain)) {
+			const oldClient = previewClient;
+			const previousFinish = previousDrain;
+			previewClient = null;
+			previewClientModelDir = null;
+			previewFinish = null;
+			retirePreviewClient(oldClient, previousFinish);
+		}
+		if (!previewClient) {
+			previewClient = createPreviewClient({ previewModelDir });
+			previewClientModelDir = previewModelDir;
+		}
+		let unsubscribe: (() => void) | undefined;
+		let dirty = false;
+		const channel = previewClient.claim(String(generation), (event) => {
+			if (!current()) return;
+			preview.handleEvent(event);
+			dirty = true;
+		});
+		const preview = createPreviewSession(channel, {
+			mountPanel: (getText) => {
+				if (!current() || !recordingCtx?.hasUI) return;
+				recordingCtx.ui.setWidget(
+					"voice-preview",
+					(tui) => {
+						const panel = createPreviewPanel(getText);
+						if (!current()) return panel;
+						tui.requestRender();
+						unsubscribe = getOrInitVoiceUi().ticker.subscribe({
+							tick: () => {
+								if (current() && dirty) {
+									dirty = false;
+									tui.requestRender();
+								}
+							},
+							label: "voice-preview",
+						});
+						return panel;
+					},
+					{ placement: "aboveEditor" }
+				);
+			},
+			unmountPanel: () => {
+				unsubscribe?.();
+				if (current() && recordingCtx?.hasUI) recordingCtx.ui.setWidget("voice-preview", undefined);
+			},
+			onDegraded: (reason) => voiceDebug("preview degraded", { reason }),
+		});
+		activePreview = preview;
 		const recordingCallbacks = {
-			onDone: async (fullText: string, meta: { hadAudio: boolean; hadSpeech: boolean }) => {
-				voiceDebug("onDone callback", { fullText: fullText.slice(0, 100), meta, voiceState, spaceConsumed });
+			onAudioChunk: (chunk: Buffer) => {
+				if (current() && (config.previewEnabled ?? true)) preview.feed(chunk);
+			},
+			onDone: (result: LocalSessionResult, doneMeta: { capturedBytes: number }) => {
+				if (result.kind === "capture-failed") {
+					recordingCallbacks.onError(result.message);
+					return;
+				}
+				if (!owner.deliver()) return;
+				const previewText = preview.terminal();
 				activeSession = null;
 				clearRecordingAnimTimer();
 				if (statusTimer) {
@@ -1257,60 +1393,44 @@ export default function (pi: ExtensionAPI) {
 				}
 				lastStopTime = Date.now();
 
-				if (!fullText.trim()) {
-					// ── DISTINGUISH SILENCE VS NO SPEECH ──
-					hideWidget();
-					playSound("error");
-					// Full state reset on empty result
-					resetHoldState({ cooldown: 3000 });
-					try {
-						if (!meta.hadAudio) {
-							ctx?.ui.notify("Microphone captured no audio. Check mic permissions.", "error");
-						} else if (!meta.hadSpeech) {
-							ctx?.ui.notify("Microphone captured silence — no speech detected.", "warning");
-						} else {
-							ctx?.ui.notify("No speech detected.", "warning");
-						}
-					} catch (err) {
-						// R24: a failed notification must never skip the idle transition.
-						voiceDebug("no-speech notify threw", { error: String(err) });
-					}
-					// R24: the transition renders the status bar — keep it non-fatal too.
-					try {
-						setVoiceState("idle");
-					} catch (err) {
-						voiceDebug("idle transition threw", { error: String(err) });
-					}
-					return;
-				}
-
 				hideWidget();
 
-				// R23: the recorded duration is the recording length, not the processing time.
-				const elapsed = ((Date.now() - recordingStart) / 1000).toFixed(1);
+				// PCM duration excludes time spent waiting for the final pass.
+				const duration = doneMeta.capturedBytes / (SAMPLE_RATE * CHANNELS * 2);
 
-				if (ctx?.hasUI) {
-					const prefix = editorTextBeforeVoice ? editorTextBeforeVoice + " " : "";
-					// Offline punctuation (spec §4.3–§4.6): one synchronous, marks-only step over the
-					// transcript that is about to be written. It decides from the text alone, never waits
-					// for a download or a load, and leaves the text unchanged when the punctuation step
-					// fails — the transcript itself was already cleaned before this call, so a failure
-					// here returns the cleaned but unpunctuated text, never the raw one. Only the
-					// transcript is punctuated — the prefix is the user's own editor text.
-					const punctuatedText = punctuateTranscript(fullText);
-					const finalText = prefix + punctuatedText;
-
-					// R24: the editor read/write is a UI call — a throw must still reach the
-					// history record and the tail.
-					try {
-						// No interim transcript was ever sent to the editor, so the finished text is the
-						// only write — this is the ONLY place the transcript arrives.
-						ctx.ui.setEditorText(finalText);
-					} catch (err) {
-						voiceDebug("editor write threw — continuing the completion", { error: String(err) });
-					}
-
-					addToHistory(punctuatedText, parseFloat(elapsed), "hold");
+				try {
+					deliverOutcome(
+						classifyOutcome({
+							capturedBytes: doneMeta.capturedBytes,
+							finalText: result.kind === "ok" ? result.text : null,
+							finalHadSpeech: result.kind === "ok" && result.hadSpeech,
+							previewText,
+						}),
+						preview.degraded,
+						{
+							hasUI: Boolean(ctx?.hasUI),
+							// This existing stage owns cleanup plus punctuation and their diagnostics.
+							clean: (text) => text,
+							punctuate: punctuateTranscript,
+							addToHistory: (text) => addToHistory(text, duration, "hold"),
+							insert: (text) =>
+								insertTranscript(
+									{
+										hasUI: Boolean(ctx?.hasUI),
+										getEditorText: () => ctx!.ui.getEditorText(),
+										pasteToEditor: (value) => ctx!.ui.pasteToEditor(value),
+										setEditorText: (value) => ctx!.ui.setEditorText(value),
+										debug: voiceDebug,
+									},
+									text
+								),
+							notify: (message, level) => ctx?.ui.notify(message, level),
+						}
+					);
+				} catch (err) {
+					voiceDebug("outcome delivery threw", { error: String(err) });
+				} finally {
+					void finishPreview(preview);
 				}
 				playSound("stop");
 				// Full state reset on successful completion
@@ -1324,6 +1444,8 @@ export default function (pi: ExtensionAPI) {
 				}
 			},
 			onError: (err: string) => {
+				if (!owner.deliver()) return;
+				preview.abort();
 				activeSession = null;
 				clearRecordingAnimTimer();
 				if (statusTimer) {
@@ -1363,17 +1485,18 @@ export default function (pi: ExtensionAPI) {
 
 		// Feed audio level meter for waveform animation
 		recProc.stdout?.on("data", (chunk: Buffer) => {
-			updateAudioLevel(chunk);
+			if (current()) updateAudioLevel(chunk);
 		});
 
 		activeSession = session;
 
 		// Status timer for elapsed time
 		statusTimer = setInterval(() => {
-			if (voiceState === "recording") {
+			if (current() && voiceState === "recording") {
 				updateVoiceStatus();
 				const elapsed = (Date.now() - recordingStart) / 1000;
-				if (elapsed >= MAX_RECORDING_SECS) {
+				// The recording budget is configurable (`voice.maxRecordingSeconds`, default 120 s).
+				if (elapsed >= (config.maxRecordingSeconds ?? 120)) {
 					stopVoiceRecording();
 				}
 			}
@@ -1432,11 +1555,16 @@ export default function (pi: ExtensionAPI) {
 			hideWidget();
 			// Show which model is transcribing + estimated time
 			const modelName =
-				LOCAL_MODELS.find((m) => m.id === (config.localModel || "whisper-small"))?.name ||
+				finalModels().find((m) => m.id === (config.localModel || "whisper-small"))?.name ||
 				config.localModel ||
 				"local model";
 			ctx?.ui.notify(`Transcribing with ${modelName}…`, "info");
-			await stopLocalSession(activeSession, config);
+			const session = activeSession;
+			const preview = activePreview;
+			await recordingOwner?.stop(
+				() => stopLocalSession(session, config),
+				() => (preview ? preview.drain() : Promise.resolve())
+			);
 		} else {
 			// No active session — shouldn't happen, but recover gracefully
 			voiceDebug("stopVoiceRecording: no active session, resetting to idle");
@@ -2003,10 +2131,9 @@ export default function (pi: ExtensionAPI) {
 						clearInterval(statusTimer);
 						statusTimer = null;
 					}
-					// Restore editor text to what it was before recording — but only while the
-					// extension still owns the editor. With no pass pending, the live interim text
-					// is cleared.
-					if (ctx?.hasUI) ctx.ui.setEditorText(editorTextBeforeVoice);
+					recordingOwner?.cancel();
+					activePreview?.abort();
+					recordingGeneration++;
 					resetHoldState();
 					playSound("error");
 					setVoiceState("idle");
@@ -2107,6 +2234,9 @@ export default function (pi: ExtensionAPI) {
 		ctx = startCtx;
 		currentCwd = startCtx.cwd;
 		const loaded = loadConfigWithSource(startCtx.cwd);
+		if (config.localModel !== loaded.config.localModel || config.language !== loaded.config.language) {
+			void finalPassClient.destroy();
+		}
 		config = loaded.config;
 		configSource = loaded.source;
 		// `/voice-punctuation status` reports the last decision of *this* session (spec §4.6).
@@ -2273,6 +2403,7 @@ export default function (pi: ExtensionAPI) {
 		// only ever fired on quit), so we treat undefined the same as "quit".
 		const reason = (event as { reason?: string } | undefined)?.reason;
 		if (reason === "quit" || reason === undefined) {
+			await finalPassClient.destroy();
 			try {
 				const { clearRecognizerCache } = await import("./voice/sherpa-engine");
 				clearRecognizerCache();
@@ -2573,10 +2704,12 @@ export default function (pi: ExtensionAPI) {
 					cmdCtx.ui.notify("Already in dictation mode. /voice stop to end.", "info");
 					return;
 				}
-				dictationMode = true;
-				editorTextBeforeVoice = ctx?.hasUI ? ctx.ui.getEditorText() || "" : "";
-				const ok = await startVoiceRecording();
+				const starting = startVoiceRecording();
+				const generation = recordingGeneration;
+				const ok = await starting;
+				if (generation !== recordingGeneration) return;
 				if (ok) {
+					dictationMode = true;
 					cmdCtx.ui.notify(
 						[
 							"🎤 Continuous dictation mode active.",
@@ -2817,6 +2950,7 @@ export default function (pi: ExtensionAPI) {
 			saveConfig: (cfg: VoiceConfig, scope: VoiceSettingsScope, cwd: string) =>
 				saveConfig(cfg, scope, cwd, { loadedSource: configSource }),
 			clearRecognizerCache: () => {
+				void finalPassClient.destroy();
 				try {
 					clearRecognizerCache();
 				} catch {}

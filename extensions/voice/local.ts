@@ -9,18 +9,47 @@
  *   - k2-fsa/sherpa-onnx GitHub releases (asr-models tag)
  */
 
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
 import type { ChildProcess } from "node:child_process";
 import type { VoiceConfig } from "./config";
+
+// Debug logging — set PI_VOICE_DEBUG=1 to enable (same convention as the other voice modules).
+const VOICE_DEBUG = !!process.env.PI_VOICE_DEBUG;
+const VOICE_LOG_FILE = path.join(os.tmpdir(), "pi-voice-debug.log");
+
+function debug(...args: unknown[]) {
+	if (!VOICE_DEBUG) return;
+	const ts = new Date().toISOString().split("T")[1];
+	const line = `[voice-local ${ts}] ${args.map((a) => (typeof a === "object" ? JSON.stringify(a) : String(a))).join(" ")}\n`;
+	try {
+		fs.appendFileSync(VOICE_LOG_FILE, line);
+	} catch {
+		/* best-effort */
+	}
+}
 
 // ─── Model catalog ───────────────────────────────────────────────────────────
 
 export interface SherpaModelConfig {
+	/**
+	 * Decoding mode. `"online"` marks a streaming recogniser, which may only feed the display
+	 * preview and never the authoritative pass. Absent means `"offline"`.
+	 */
+	mode?: "offline" | "online";
 	/** Recognizer type for sherpa-onnx */
 	type: "whisper" | "moonshine" | "sense_voice" | "nemo_ctc" | "transducer" | "paraformer" | "qwen3_asr";
 	/** Map of role → filename within model directory */
 	files: Record<string, string>;
 	/** Map of role → download URL (HuggingFace or GitHub releases) */
 	downloadUrls: Record<string, string>;
+	/** Endpointing rules for online models — silence in seconds, utterance length in samples. */
+	endpointing?: {
+		enableEndpoint: true;
+		rule2MinTrailingSilence: number;
+		rule3MinUtteranceLength: number;
+	};
 }
 
 export interface LocalModelInfo {
@@ -53,6 +82,11 @@ export interface LocalModelInfo {
 	tier: "edge" | "standard" | "heavy";
 	/** Preferred model — best-in-class for its language/use case. Only these get [recommended]. */
 	preferred?: boolean;
+	/**
+	 * Which selection slot the entry may fill. `"preview"` entries are download-only: they render in
+	 * the Models tab but can never become `config.localModel`. Absent means `"final"`.
+	 */
+	role?: "final" | "preview";
 	/** Accuracy rating 1-5 (5 = best). Based on published WER benchmarks. */
 	accuracy: 1 | 2 | 3 | 4 | 5;
 	/** Speed rating 1-5 (5 = fastest). Based on real-time factor and latency benchmarks. */
@@ -73,6 +107,9 @@ function hf1(repo: string, file: string): string {
 function hf2(repo: string, file: string): string {
 	return `${HF2}/${repo}/resolve/main/${file}`;
 }
+
+/** The single streaming entry: preview-only, and the only online model in the catalogue. */
+export const PREVIEW_MODEL_ID = "streaming-paraformer-bilingual-zh-en";
 
 /**
  * Model catalog — verified against actual HuggingFace repos and file listings.
@@ -603,9 +640,63 @@ export const LOCAL_MODELS: LocalModelInfo[] = [
 			},
 		},
 	},
+	// ═══════════════════════════════════════════════════════════════════════
+	// PREVIEW ONLY — streaming model for the on-screen draft, never the final pass
+	// ═══════════════════════════════════════════════════════════════════════
+	{
+		id: PREVIEW_MODEL_ID,
+		name: "Streaming Paraformer (bilingual zh-en)",
+		size: "226 MB",
+		sizeBytes: 237_202_501,
+		runtimeRamMB: 300,
+		notes:
+			"Streaming preview only — never selectable as the final model. Live draft while you speak; the final text still comes from your offline model.",
+		langSupport: "bilingual-zh-en",
+		tier: "edge",
+		role: "preview",
+		accuracy: 4,
+		speed: 5,
+		sherpaModel: {
+			mode: "online",
+			type: "paraformer",
+			files: {
+				encoder: "encoder.int8.onnx",
+				decoder: "decoder.int8.onnx",
+				tokens: "tokens.txt",
+			},
+			downloadUrls: {
+				encoder: hf1("sherpa-onnx-streaming-paraformer-bilingual-zh-en", "encoder.int8.onnx"),
+				decoder: hf1("sherpa-onnx-streaming-paraformer-bilingual-zh-en", "decoder.int8.onnx"),
+				tokens: hf1("sherpa-onnx-streaming-paraformer-bilingual-zh-en", "tokens.txt"),
+			},
+			endpointing: {
+				enableEndpoint: true,
+				rule2MinTrailingSilence: 1.2,
+				rule3MinUtteranceLength: 600,
+			},
+		},
+	},
 ];
 
 export const DEFAULT_LOCAL_MODEL = "parakeet-v3";
+
+// ─── Role selectors ──────────────────────────────────────────────────────────
+
+/**
+ * Catalogue entries that may produce the authoritative transcript (anything not marked
+ * `role: "preview"`). Every final-model consumer — pickers, auto-recommendation, the
+ * post-delete fallback — must select through this instead of filtering inline.
+ */
+export function finalModels(): LocalModelInfo[] {
+	return LOCAL_MODELS.filter((model) => (model.role ?? "final") === "final");
+}
+
+/** The streaming entry that may only feed the display preview. */
+export function previewModel(): LocalModelInfo {
+	const model = LOCAL_MODELS.find((entry) => entry.id === PREVIEW_MODEL_ID);
+	if (!model) throw new Error(`Preview model ${PREVIEW_MODEL_ID} is missing from LOCAL_MODELS`);
+	return model;
+}
 
 // ─── Language support per model family ───────────────────────────────────────
 // Whisper uses simple ISO 639-1 codes (no regional variants like "en-AU").
@@ -810,28 +901,56 @@ export function localLanguageDisplayName(code: string): string {
 // ─── Local session type ──────────────────────────────────────────────────────
 
 /**
- * Callbacks a local recording session accepts. `onSegment` is optional, so callers that do
- * not pipeline recogniser segments keep today's transcript-only behaviour.
+ * One recording's outcome. A final pass that cannot finish is a *recording outcome* — the speech
+ * happened and the user may already have seen it — so it travels through `onDone` as `failed` and
+ * never through `onError`: only a failed result can become "unconfirmed" downstream, where the
+ * preview's words are kept and the missing authoritative text is reported. `onError` stays reserved
+ * for capture and programming errors, which have no transcript to keep.
+ */
+export type LocalSessionResult =
+	| { kind: "ok"; text: string; hadSpeech: boolean }
+	| { kind: "failed"; message: string }
+	| { kind: "capture-failed"; message: string };
+
+/**
+ * Callbacks a local recording session accepts. `onSegment` and `onAudioChunk` are optional, so callers
+ * that do not pipeline segments or preview audio keep today's transcript-only behaviour.
  */
 export interface LocalSessionCallbacks {
-	onDone: (fullText: string, meta: { hadAudio: boolean; hadSpeech: boolean }) => void;
+	onDone: (result: LocalSessionResult, meta: { hadAudio: boolean; capturedBytes: number }) => void;
+	/** Genuine capture/programming errors, never a recording outcome (see `LocalSessionResult`). */
 	onError: (err: string) => void;
 	/**
 	 * Called as each recogniser segment decodes, before the next segment starts, with the
 	 * segment's zero-based index. Observational: it never changes the transcript.
 	 */
 	onSegment?: (text: string, index: number) => void;
+	/**
+	 * Called synchronously for every captured chunk *before* it is buffered, with the very buffer the
+	 * final pass will transcribe. Purely observational: a throwing callback is swallowed, so capture
+	 * can never fail because of a preview.
+	 */
+	onAudioChunk?: (chunk: Buffer) => void;
 }
 
 export interface LocalSession {
+	finalAbort: AbortController;
 	recProcess: ChildProcess;
 	audioChunks: Buffer[];
+	/** No longer accepting audio: settled, or aborted. */
 	closed: boolean;
 	hadAudioData: boolean;
-	onDone: (fullText: string, meta: { hadAudio: boolean; hadSpeech: boolean }) => void;
+	capturedBytes: number;
+	/** A stop or abort has begun: a child close or error from now on is expected, and that stop owns the outcome (spec §5.1). */
+	stopping: boolean;
+	/** A terminal result or error has been delivered; every later settle is dropped. */
+	settled: boolean;
+	onDone: LocalSessionCallbacks["onDone"];
 	onError: (err: string) => void;
-	/** Optional per-segment observer; forwarded to the in-process recogniser on stop. */
+	/** Optional per-segment observer; forwarded through the final worker on stop. */
 	onSegment?: (text: string, index: number) => void;
+	/** Optional capture fan-out; see `LocalSessionCallbacks.onAudioChunk`. */
+	onAudioChunk?: (chunk: Buffer) => void;
 }
 
 // ─── WAV encoding ────────────────────────────────────────────────────────────
@@ -843,25 +962,72 @@ export const CHANNELS = 1;
 // ─── Session lifecycle ───────────────────────────────────────────────────────
 
 /**
+ * Deliver the session's one terminal result. Every later settle is dropped: a recording has exactly
+ * one outcome, whether the second attempt comes from a paired `error`/`close`, from a close and a
+ * stop racing, or from a stop that lost the race (spec §5.1).
+ */
+function settle(session: LocalSession, result: LocalSessionResult, meta: { hadAudio: boolean }): void {
+	if (session.settled) return;
+	session.settled = true;
+	session.closed = true;
+	session.onDone(result, { ...meta, capturedBytes: session.capturedBytes });
+}
+
+/** Deliver the session's one terminal capture error — not a recording outcome, so never a result. */
+function fail(session: LocalSession, message: string): void {
+	if (session.settled) return;
+	session.settled = true;
+	session.closed = true;
+	session.onError(message);
+}
+
+/** Why the capture child ended, for the message the user sees. */
+function describeCaptureExit(code: number | null, signal: NodeJS.Signals | null): string {
+	if (signal) return `signal ${signal}`;
+	if (code !== null) return `exit code ${code}`;
+	return "unknown reason";
+}
+
+/**
  * Start a local recording session. Audio is buffered in memory.
  * Transcription happens when stopLocalSession() is called.
  */
 export function startLocalSession(recProcess: ChildProcess, callbacks: LocalSessionCallbacks): LocalSession {
+	/** A throwing audio observer is reported once per recording, not once per chunk. */
+	let warnedOnAudioChunk = false;
+
 	const session: LocalSession = {
+		finalAbort: new AbortController(),
 		recProcess,
 		audioChunks: [],
 		closed: false,
 		hadAudioData: false,
+		capturedBytes: 0,
+		stopping: false,
+		settled: false,
 		onDone: callbacks.onDone,
 		onError: callbacks.onError,
 		onSegment: callbacks.onSegment,
+		onAudioChunk: callbacks.onAudioChunk,
 	};
 
 	recProcess.stdout?.on("data", (chunk: Buffer) => {
-		if (!session.closed) {
-			session.hadAudioData = true;
-			session.audioChunks.push(chunk);
+		if (session.closed) return;
+		// Fan out *before* buffering, with the same buffer the final pass will get: the preview must
+		// see every sample in order, and a throwing observer must never cost capture a chunk.
+		if (session.onAudioChunk) {
+			try {
+				session.onAudioChunk(chunk);
+			} catch (err) {
+				if (!warnedOnAudioChunk) {
+					warnedOnAudioChunk = true;
+					debug("onAudioChunk threw — capture continues:", err instanceof Error ? err.message : String(err));
+				}
+			}
 		}
+		session.hadAudioData = true;
+		session.audioChunks.push(chunk);
+		session.capturedBytes += chunk.length;
 	});
 
 	recProcess.stderr?.on("data", (d: Buffer) => {
@@ -870,19 +1036,53 @@ export function startLocalSession(recProcess: ChildProcess, callbacks: LocalSess
 	});
 
 	recProcess.on("error", (err) => {
-		if (!session.closed) {
-			session.onError(`Audio capture error: ${err.message}`);
+		// A capture error is not a recording outcome: nothing was transcribed, so it keeps the
+		// capture-error channel, and the close that follows it is expected rather than a second one.
+		// A stop or abort that is already in flight owns the outcome, though: an error the stop caused
+		// itself (a failed `kill`, say) must not settle first and throw the buffered audio away.
+		if (session.closed || session.stopping) {
+			debug("capture error while the session was stopping — ignored:", err.message);
+			return;
 		}
+		session.stopping = true;
+		fail(session, `Audio capture error: ${err.message}`);
 	});
+
+	// An unexpected close/exit ends the recording where it stands (spec §5.1): capture is gone, so
+	// the user must not have to stop a recording that is already dead. Both events are registered
+	// because either can arrive first; the single `settled` guard makes the pair one terminal.
+	const onCaptureExit = (code: number | null, signal: NodeJS.Signals | null) => {
+		// `settle` marks the session closed, so `closed` also covers a terminal that already landed.
+		if (session.closed || session.stopping) return;
+		session.stopping = true;
+		settle(
+			session,
+			{ kind: "capture-failed", message: `Audio capture stopped unexpectedly (${describeCaptureExit(code, signal)})` },
+			{ hadAudio: session.hadAudioData }
+		);
+	};
+	recProcess.on("close", onCaptureExit);
+	recProcess.on("exit", onCaptureExit);
 
 	return session;
 }
 
 /**
- * Stop recording and transcribe the buffered audio in-process via sherpa-onnx.
+ * Stop recording and transcribe the buffered audio in the dedicated final worker.
+ * The final-pass boundary is injectable so capture/settlement tests never need a native model.
  */
-export async function stopLocalSession(session: LocalSession, config: VoiceConfig): Promise<void> {
-	if (session.closed) return;
+export async function stopLocalSession(
+	session: LocalSession,
+	config: VoiceConfig,
+	finalPass: typeof transcribeFinal = transcribeFinal
+): Promise<void> {
+	// The stop that starts first owns the outcome. A concurrent second call must not race it: the first
+	// pass has already emptied `audioChunks`, so the second would settle an empty "no speech" result
+	// over text that is still being transcribed.
+	if (session.closed || session.stopping) return;
+
+	// From here on the child's exit is this stop's own doing, not an unexpected capture death.
+	session.stopping = true;
 
 	// Stop recording
 	try {
@@ -892,10 +1092,11 @@ export async function stopLocalSession(session: LocalSession, config: VoiceConfi
 	// Wait briefly for any remaining audio data
 	await new Promise((r) => setTimeout(r, 200));
 
-	// Recheck after await — abort may have fired during the 200ms wait.
-	// Still call onDone so the voice state machine transitions back to idle.
+	// Recheck after await — abort or an unexpected close may have fired during the 200ms wait.
+	// Still settle so the voice state machine transitions back to idle; `settle` drops it when the
+	// session already delivered its terminal.
 	if (session.closed) {
-		session.onDone("", { hadAudio: false, hadSpeech: false });
+		settle(session, { kind: "ok", text: "", hadSpeech: false }, { hadAudio: false });
 		return;
 	}
 
@@ -904,41 +1105,32 @@ export async function stopLocalSession(session: LocalSession, config: VoiceConfi
 	session.audioChunks.length = 0;
 
 	if (pcmData.length === 0) {
-		session.closed = true;
-		session.onDone("", { hadAudio: false, hadSpeech: false });
+		settle(session, { kind: "ok", text: "", hadSpeech: false }, { hadAudio: false });
 		return;
 	}
 
 	try {
-		// In-process via sherpa-onnx (120s timeout)
-		let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
-		const text = await Promise.race([
-			transcribeInProcess(pcmData, config, session.onSegment),
-			new Promise<never>((_, reject) => {
-				timeoutHandle = setTimeout(() => reject(new Error("Transcription timed out (120s)")), 120_000);
-			}),
-		]).finally(() => {
-			if (timeoutHandle) clearTimeout(timeoutHandle);
-		});
+		const result = await finalPass(pcmData, config, session.onSegment, session.finalAbort.signal);
 
-		// Recheck after await — abort may have fired during transcription.
-		// Still call onDone so state machine transitions back to idle.
+		// Recheck after await — abort or an unexpected close may have fired during transcription.
+		// Still settle so the state machine transitions back to idle.
 		if (session.closed) {
-			session.onDone("", { hadAudio: false, hadSpeech: false });
+			settle(session, { kind: "ok", text: "", hadSpeech: false }, { hadAudio: false });
 			return;
 		}
 
-		session.closed = true;
-		session.onDone(text, { hadAudio: true, hadSpeech: text.trim().length > 0 });
+		settle(session, { kind: "ok", ...result }, { hadAudio: true });
 	} catch (err: any) {
+		const message = err?.message || String(err);
 		if (session.closed) {
-			// Session was aborted during transcription — still surface the error
-			// so the user knows transcription failed, not just "no speech"
-			session.onError(`Local transcription aborted: ${err.message || err}`);
+			// Cancellation writes nothing, even if the worker fails afterwards. Match the successful
+			// decode-after-abort path above; worker failures never become capture errors.
+			settle(session, { kind: "ok", text: "", hadSpeech: false }, { hadAudio: false });
 			return;
 		}
-		session.closed = true;
-		session.onError(`Local transcription failed: ${err.message || err}`);
+		// The words the user already saw in the preview are why this is a result and not an error:
+		// only `failed` can become `finalText: null` downstream.
+		settle(session, { kind: "failed", message: `Local transcription failed: ${message}` }, { hadAudio: true });
 	}
 }
 
@@ -946,44 +1138,59 @@ export async function stopLocalSession(session: LocalSession, config: VoiceConfi
 export function abortLocalSession(session: LocalSession | null): void {
 	if (!session || session.closed) return;
 	session.closed = true;
+	session.stopping = true;
+	session.finalAbort.abort();
 	try {
 		session.recProcess.kill("SIGKILL");
 	} catch {}
 }
 
-// ─── In-process transcription via sherpa-onnx ────────────────────────────────
+// ─── Final transcription in a dedicated resident worker ──────────────────────
 
-/**
- * Transcribe PCM audio using sherpa-onnx in-process.
- * Auto-downloads model on first use.
- */
-async function transcribeInProcess(
+/** Download on the host, then construct, segment, decode and join entirely in the worker. */
+async function transcribeFinal(
 	pcmData: Buffer,
 	config: VoiceConfig,
-	onSegment?: (text: string, index: number) => void
-): Promise<string> {
-	const { initSherpa, isSherpaAvailable, getSherpaError, getOrCreateRecognizer, transcribeBufferSegmented } =
-		await import("./sherpa-engine");
+	onSegment?: (text: string, index: number) => void,
+	signal?: AbortSignal
+): Promise<{ text: string; hadSpeech: boolean }> {
+	const { finalPassClient } = await import("./final-pass-client");
+	const lifecycleSignal = finalPassClient.signal;
 	const { ensureModelDownloaded } = await import("./model-download");
-
-	// Initialize sherpa if needed
-	if (!isSherpaAvailable()) {
-		const ok = await initSherpa();
-		if (!ok) {
-			throw new Error(`sherpa-onnx could not be loaded: ${getSherpaError() || "unknown error"}`);
-		}
-	}
 
 	const model = LOCAL_MODELS.find((m) => m.id === (config.localModel || DEFAULT_LOCAL_MODEL));
 	if (!model) throw new Error(`Unknown model: ${config.localModel}`);
 
-	// Ensure model files are downloaded
-	const modelDir = await ensureModelDownloaded(model.id, model.sherpaModel.downloadUrls, model.sizeBytes);
-
-	// Create/reuse recognizer and transcribe
-	const recognizer = getOrCreateRecognizer(model, modelDir, config.language || "en");
-	// Every in-process model decodes long audio in VAD-sized pieces and reports each piece through
-	// `onSegment` as it decodes, in order; audio at or below the segment threshold takes the same
-	// single-decode fast path as before and the concatenation is unchanged.
-	return transcribeBufferSegmented(pcmData, recognizer, undefined, onSegment);
+	// Preserve the original total deadline, including a first-use download. A late download must
+	// not start a new worker after its recording has already failed.
+	let expired = false;
+	const deadline = new AbortController();
+	const cancelled = AbortSignal.any([deadline.signal, lifecycleSignal, ...(signal ? [signal] : [])]);
+	const check = () => {
+		if (expired) throw new Error("Transcription timed out (120s)");
+		if (cancelled.aborted) throw new Error("Transcription cancelled");
+	};
+	let timer: ReturnType<typeof setTimeout> | undefined;
+	const run = async () => {
+		check();
+		const modelDir = await ensureModelDownloaded(model.id, model.sherpaModel.downloadUrls, model.sizeBytes);
+		check();
+		await finalPassClient.rebind(model.id, modelDir, config.language || "en");
+		check();
+		return finalPassClient.transcribe(pcmData, { onSegment, signal: cancelled });
+	};
+	try {
+		return await Promise.race([
+			run(),
+			new Promise<never>((_, reject) => {
+				timer = setTimeout(() => {
+					expired = true;
+					reject(new Error("Transcription timed out (120s)"));
+					deadline.abort();
+				}, 120_000);
+			}),
+		]);
+	} finally {
+		clearTimeout(timer);
+	}
 }

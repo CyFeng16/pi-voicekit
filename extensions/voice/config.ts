@@ -2,6 +2,8 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { CONFIG_DIR_NAME, getAgentDir } from "@earendil-works/pi-coding-agent";
 
+import { PREVIEW_MODEL_ID } from "./local";
+
 export const SETTINGS_KEY = "voice";
 // v4 removed the LLM polish pass and its five `postProcess*` fields; v5 removed the six fields that
 // only the retired cloud backends used; v6 removes the auto-submit switch. Their values are ignored
@@ -57,6 +59,14 @@ export interface VoiceConfig {
 	punctuationNoticeShown?: boolean;
 	/** Global-only shortcut used to toggle recording without hold-to-talk */
 	toggleShortcut?: string;
+	/**
+	 * Recording budget in seconds — a positive finite number. Enforced by `extensions/voice.ts`
+	 * in place of the retired `MAX_RECORDING_SECS` constant; callers read
+	 * `config.maxRecordingSeconds ?? 120`. Distinct from the preview's 60 s segment cap.
+	 */
+	maxRecordingSeconds?: number;
+	previewEnabled?: boolean;
+	localPreviewModel?: string;
 
 	// ─── TTS (text-to-speech) ─────────────────────────────────────────
 	// All TTS fields are opt-in (default: TTS disabled). New in v6.0.0.
@@ -145,6 +155,9 @@ export const DEFAULT_CONFIG: VoiceConfig = {
 	numeralNormalizationEnabled: CLEANUP_ENABLED_DEFAULT,
 	punctuationNoticeShown: false,
 	toggleShortcut: "ctrl+shift+v",
+	maxRecordingSeconds: 120,
+	previewEnabled: true,
+	localPreviewModel: PREVIEW_MODEL_ID,
 	// TTS defaults — all opt-in
 	ttsEnabled: false,
 	// The TTS default follows the dictation default (`language: "zh"`): Piper Chaowen is the only
@@ -260,6 +273,16 @@ function migrateConfig(rawVoice: any, source: VoiceConfigSource, globalVoice?: u
 			source !== "project" && typeof rawVoice.toggleShortcut === "string"
 				? rawVoice.toggleShortcut
 				: DEFAULT_CONFIG.toggleShortcut,
+		// The recording budget is an ordinary optional field: an explicit value in either
+		// scope wins, and a corrupt one (zero, negative, non-numeric, non-finite) falls back.
+		maxRecordingSeconds:
+			typeof rawVoice.maxRecordingSeconds === "number" &&
+			Number.isFinite(rawVoice.maxRecordingSeconds) &&
+			rawVoice.maxRecordingSeconds > 0
+				? rawVoice.maxRecordingSeconds
+				: DEFAULT_CONFIG.maxRecordingSeconds,
+		previewEnabled: asBoolean(rawVoice.previewEnabled, true),
+		localPreviewModel: typeof rawVoice.localPreviewModel === "string" ? rawVoice.localPreviewModel : PREVIEW_MODEL_ID,
 		// TTS fields — type-validated; mismatched persisted values fall
 		// back to safe defaults so a hand-edited config can't poison the
 		// engine. Notably: ttsLocalVoiceId rejects strings, which would
@@ -523,11 +546,13 @@ export function saveConfig(
 }
 
 /**
- * The global-only keys `saveGlobalVoiceFields` accepts. A project block cannot
- * carry them — `serializeConfig` strips them and the loader ignores them — so
- * they always belong in the global file.
+ * The keys `saveGlobalVoiceFields` accepts. `punctuationNoticeShown` is global-only:
+ * a project block cannot carry it — `serializeConfig` strips it and the loader
+ * ignores it — so it always belongs in the global file. `maxRecordingSeconds` is an
+ * ordinary optional field, accepted here so a single-key save can patch it without
+ * rendering the whole in-memory config.
  */
-type GlobalVoiceFieldKey = "punctuationNoticeShown";
+type GlobalVoiceFieldKey = "punctuationNoticeShown" | "maxRecordingSeconds" | "previewEnabled" | "localPreviewModel";
 
 /**
  * Field-level writer for the global-only voice settings (R26).

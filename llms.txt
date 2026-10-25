@@ -1,10 +1,10 @@
 # pi-voicekit
 
-> Voice in and voice out for the Pi coding agent: hold-to-talk dictation for **Chinese and English** with 21 offline models, plus offline text-to-speech that reads the agent's replies aloud. Local-only since 0.6.0 — no key, no endpoint, no account; the extension's own network access is the one-time model download.
+> Voice in and voice out for the Pi coding agent: hold-to-talk dictation for **Chinese and English** with 21 offline models and an optional streaming preview, plus offline text-to-speech that reads the agent's replies aloud. Local-only since 0.6.0 — no key, no endpoint, no account; the extension's own network access is model download only.
 
 ## Overview
 
-pi-voicekit adds voice input and voice output to Pi. Hold SPACE to record, release to transcribe; the audio is recognised in process by sherpa-onnx, so no audio reaches a remote speech service. 21 local models from Parakeet, Whisper, Moonshine, SenseVoice, GigaAM, Paraformer and Qwen3 come with accuracy/speed ratings and device-aware recommendations. Chinese transcripts that come back unpunctuated are punctuated offline by the in-process `punct-ct-transformer-zh-en` model (~285 MB, fetched in the background from session start, falling back to first need) — marks only, no wording changes, English not supported. TTS covers 20 offline models (Kitten, Kokoro, Piper), including auto-speak of agent responses.
+pi-voicekit adds voice input and voice output to Pi. Hold SPACE to record, release to transcribe; the audio is recognised by sherpa-onnx inside a worker thread, so no audio reaches a remote speech service. 21 offline models from Parakeet, Whisper, Moonshine, SenseVoice, GigaAM, Paraformer and Qwen3 come with accuracy/speed ratings and device-aware recommendations. An optional 22nd entry, a 226 MB streaming Paraformer, is download-only and shows a live display-only draft above the editor while you record; it never produces the final transcript, and the panel is silent when the model is not installed. Chinese transcripts that come back unpunctuated are punctuated offline by the in-process `punct-ct-transformer-zh-en` model (~285 MB, fetched in the background from session start, falling back to first need) — marks only, no wording changes, English not supported. TTS covers 20 offline models (Kitten, Kokoro, Piper), including auto-speak of agent responses.
 
 Language scope: **Chinese, English and mixed Chinese–English** are supported and validated. Every other language a model happens to cover is unvalidated and on the roadmap — see the README's Language scope section.
 
@@ -12,7 +12,7 @@ Language scope: **Chinese, English and mixed Chinese–English** are supported a
 
 No audio is uploaded to a remote speech service: capture, recognition, punctuation and synthesis all run in the Pi process, and speech playback hands a temp WAV (mode `0600`) to a local player before deleting it. One configuration the user sets up sends data off the machine, and the claim does not cover it — system audio routing (`PULSE_SERVER` / SSH audio sends playback, and capture, to another host the user chose). Text is not an exception to that claim: what the user sends Pi, typed or dictated and then submitted, goes to whichever model Pi is configured with, like every other prompt. The enforceable part lives in `tests/no-cloud-egress.test.ts` — no module imports the removed WebSocket transport, names a retired vendor identifier or host, or calls `fetch` outside the two model-download modules (`model-download.ts`, `tts-local-models.ts`). That is narrower than "cannot open a socket": it binds what this repository deleted, and a future module could still build its own client.
 
-The one outbound step is real: model files are downloaded once, on first use, from HuggingFace and GitHub releases. Upgrading from 0.5.x erases the retired credential fields from `settings.json` on the first start and reads no API key from the environment.
+The one outbound step is real: model files are downloaded from HuggingFace and GitHub releases — on first use for the models you pick, and only on an explicit press for the optional streaming preview model. Upgrading from 0.5.x erases the retired credential fields from `settings.json` on the first start and reads no API key from the environment.
 
 ## Setup
 
@@ -38,7 +38,11 @@ The one outbound step is real: model files are downloaded once, on first use, fr
 - `extensions/voice.ts`: Main extension — state machine, recording, settings panel handler
 - `extensions/voice/config.ts`: Config loading, saving, migration, retired-key scrub
 - `extensions/voice/onboarding.ts`: Model and language pickers, first-run flow
-- `extensions/voice/local.ts`: Model catalog (21 models), in-process transcription
+- `extensions/voice/local.ts`: Model catalog (22 models), in-process transcription
+- `extensions/voice/preview-panel.ts`: Live display-only draft above the editor
+- `extensions/voice/local-preview-worker.ts`: Preview worker entry — streaming recogniser off the main thread
+- `extensions/voice/final-pass-worker.ts`: Final-pass worker entry — offline recogniser off the main thread
+- `extensions/voice/editor-sink.ts`: Cursor insertion in chunks the editor takes whole
 - `extensions/voice/device.ts`: Device profiling, model fitness scoring
 - `extensions/voice/model-download.ts`: Download manager with resume, verification, Handy import
 - `extensions/voice/sherpa-engine.ts`: sherpa-onnx bindings, recognizer lifecycle
