@@ -77,6 +77,7 @@ import {
 	type VoiceSettingsScope,
 } from "./voice/config";
 import { finalizeOnboardingConfig } from "./voice/onboarding";
+import { finalPassClient } from "./voice/final-pass-client";
 import { makeWidgetRegistry, type WidgetRegistry } from "./voice/ui-widget-base";
 import { makeRenderTicker, type RenderTicker } from "./voice/ui-render-ticker";
 import { TtsInstallProgressWidget } from "./voice/tts-install-progress";
@@ -994,6 +995,9 @@ export default function (pi: ExtensionAPI) {
 		source: "first-run" | "setup-command"
 	) {
 		// One capture path, so a saved setup is always usable: there is no key to check.
+		if (config.localModel !== nextConfig.localModel || config.language !== nextConfig.language) {
+			await finalPassClient.destroy();
+		}
 		config = finalizeOnboardingConfig(nextConfig, { validated: true, source });
 		configSource = selectedScope;
 		const savedPath = saveConfig(config, selectedScope, currentCwd, { loadedSource: configSource });
@@ -2223,6 +2227,9 @@ export default function (pi: ExtensionAPI) {
 		ctx = startCtx;
 		currentCwd = startCtx.cwd;
 		const loaded = loadConfigWithSource(startCtx.cwd);
+		if (config.localModel !== loaded.config.localModel || config.language !== loaded.config.language) {
+			void finalPassClient.destroy();
+		}
 		config = loaded.config;
 		configSource = loaded.source;
 		// `/voice-punctuation status` reports the last decision of *this* session (spec §4.6).
@@ -2389,6 +2396,7 @@ export default function (pi: ExtensionAPI) {
 		// only ever fired on quit), so we treat undefined the same as "quit".
 		const reason = (event as { reason?: string } | undefined)?.reason;
 		if (reason === "quit" || reason === undefined) {
+			await finalPassClient.destroy();
 			try {
 				const { clearRecognizerCache } = await import("./voice/sherpa-engine");
 				clearRecognizerCache();
@@ -2935,6 +2943,7 @@ export default function (pi: ExtensionAPI) {
 			saveConfig: (cfg: VoiceConfig, scope: VoiceSettingsScope, cwd: string) =>
 				saveConfig(cfg, scope, cwd, { loadedSource: configSource }),
 			clearRecognizerCache: () => {
+				void finalPassClient.destroy();
 				try {
 					clearRecognizerCache();
 				} catch {}

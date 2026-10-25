@@ -30,6 +30,7 @@ import { dirname, relative, resolve } from "node:path";
 
 const REPO_ROOT = resolve(import.meta.dir, "..");
 const WORKER_ENTRY = "extensions/voice/local-preview-worker.ts";
+const WORKER_ENTRIES = [...new Bun.Glob("extensions/**/*-worker.ts").scanSync(REPO_ROOT)];
 
 /** The import kinds `scanImports` reports that load a module at run time; type-only imports never appear. */
 const VALUE_KINDS = new Set(["import-statement", "require-call", "require-resolve"]);
@@ -100,15 +101,19 @@ function extensionless(imports: ValueImport[]): string[] {
 		.map((found) => `${repoPath(found.file)}: ${found.specifier}`);
 }
 
-test("every value import the preview worker loads names its file with a .ts extension", () => {
-	const { files, imports } = reachableGraph(WORKER_ENTRY);
+test.each(WORKER_ENTRIES)("every value import %s loads names its file with a .ts extension", (entry) => {
+	const { files, imports } = reachableGraph(entry);
 
 	expect(extensionless(imports)).toEqual([]);
-	// Liveness: an empty or truncated walk would make the assertion above pass for free. The entry's two
-	// siblings are the graph this task added, and `local.ts` is the one that only has type-only imports.
+	// Liveness: neither entry nor its decoding implementation may disappear from the walk.
+	const implementation = entry.endsWith("final-pass-worker.ts") ? "sherpa-engine.ts" : "preview-stream.ts";
 	expect(files.map(repoPath)).toEqual(
-		expect.arrayContaining([WORKER_ENTRY, "extensions/voice/local.ts", "extensions/voice/preview-stream.ts"])
+		expect.arrayContaining([entry, "extensions/voice/local.ts", `extensions/voice/${implementation}`])
 	);
+});
+
+test("the entry glob includes both independent recognition workers", () => {
+	expect(WORKER_ENTRIES).toEqual(expect.arrayContaining([WORKER_ENTRY, "extensions/voice/final-pass-worker.ts"]));
 });
 
 test("the walk would catch an extensionless value import and ignores a type-only one", () => {

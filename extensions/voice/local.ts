@@ -943,7 +943,7 @@ export interface LocalSession {
 	settled: boolean;
 	onDone: LocalSessionCallbacks["onDone"];
 	onError: (err: string) => void;
-	/** Optional per-segment observer; forwarded to the in-process recogniser on stop. */
+	/** Optional per-segment observer; forwarded through the final worker on stop. */
 	onSegment?: (text: string, index: number) => void;
 	/** Optional capture fan-out; see `LocalSessionCallbacks.onAudioChunk`. */
 	onAudioChunk?: (chunk: Buffer) => void;
@@ -1063,9 +1063,14 @@ export function startLocalSession(recProcess: ChildProcess, callbacks: LocalSess
 }
 
 /**
- * Stop recording and transcribe the buffered audio in-process via sherpa-onnx.
+ * Stop recording and transcribe the buffered audio in the dedicated final worker.
+ * The final-pass boundary is injectable so capture/settlement tests never need a native model.
  */
-export async function stopLocalSession(session: LocalSession, config: VoiceConfig): Promise<void> {
+export async function stopLocalSession(
+	session: LocalSession,
+	config: VoiceConfig,
+	finalPass: typeof transcribeFinal = transcribeFinal
+): Promise<void> {
 	// The stop that starts first owns the outcome. A concurrent second call must not race it: the first
 	// pass has already emptied `audioChunks`, so the second would settle an empty "no speech" result
 	// over text that is still being transcribed.
@@ -1100,7 +1105,7 @@ export async function stopLocalSession(session: LocalSession, config: VoiceConfi
 	}
 
 	try {
-		const text = await transcribeWithTimeout(pcmData, config, session.onSegment);
+		const result = await finalPass(pcmData, config, session.onSegment);
 
 		// Recheck after await — abort or an unexpected close may have fired during transcription.
 		// Still settle so the state machine transitions back to idle.
@@ -1109,14 +1114,13 @@ export async function stopLocalSession(session: LocalSession, config: VoiceConfi
 			return;
 		}
 
-		settle(session, { kind: "ok", text, hadSpeech: text.trim().length > 0 }, { hadAudio: true });
+		settle(session, { kind: "ok", ...result }, { hadAudio: true });
 	} catch (err: any) {
 		const message = err?.message || String(err);
 		if (session.closed) {
-			// Session was aborted during transcription — still surface the error so the user knows
-			// transcription failed, not just "no speech". An abort is not a recording outcome, so it
-			// stays out of the result union: aborting must write nothing.
-			fail(session, `Local transcription aborted: ${message}`);
+			// Cancellation writes nothing, even if the worker fails afterwards. Match the successful
+			// decode-after-abort path above; worker failures never become capture errors.
+			settle(session, { kind: "ok", text: "", hadSpeech: false }, { hadAudio: false });
 			return;
 		}
 		// The words the user already saw in the preview are why this is a result and not an error:
@@ -1135,58 +1139,43 @@ export function abortLocalSession(session: LocalSession | null): void {
 	} catch {}
 }
 
-// ─── In-process transcription via sherpa-onnx ────────────────────────────────
+// ─── Final transcription in a dedicated resident worker ──────────────────────
 
-/** The in-process final pass, bounded so a hung recogniser cannot wedge the recording. */
-async function transcribeWithTimeout(
+/** Download on the host, then construct, segment, decode and join entirely in the worker. */
+async function transcribeFinal(
 	pcmData: Buffer,
 	config: VoiceConfig,
 	onSegment?: (text: string, index: number) => void
-): Promise<string> {
-	let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
-	try {
-		return await Promise.race([
-			transcribeInProcess(pcmData, config, onSegment),
-			new Promise<never>((_, reject) => {
-				timeoutHandle = setTimeout(() => reject(new Error("Transcription timed out (120s)")), 120_000);
-			}),
-		]);
-	} finally {
-		if (timeoutHandle) clearTimeout(timeoutHandle);
-	}
-}
-
-/**
- * Transcribe PCM audio using sherpa-onnx in-process.
- * Auto-downloads model on first use.
- */
-async function transcribeInProcess(
-	pcmData: Buffer,
-	config: VoiceConfig,
-	onSegment?: (text: string, index: number) => void
-): Promise<string> {
-	const { initSherpa, isSherpaAvailable, getSherpaError, getOrCreateRecognizer, transcribeBufferSegmented } =
-		await import("./sherpa-engine");
+): Promise<{ text: string; hadSpeech: boolean }> {
+	const { finalPassClient } = await import("./final-pass-client");
 	const { ensureModelDownloaded } = await import("./model-download");
-
-	// Initialize sherpa if needed
-	if (!isSherpaAvailable()) {
-		const ok = await initSherpa();
-		if (!ok) {
-			throw new Error(`sherpa-onnx could not be loaded: ${getSherpaError() || "unknown error"}`);
-		}
-	}
 
 	const model = LOCAL_MODELS.find((m) => m.id === (config.localModel || DEFAULT_LOCAL_MODEL));
 	if (!model) throw new Error(`Unknown model: ${config.localModel}`);
 
-	// Ensure model files are downloaded
-	const modelDir = await ensureModelDownloaded(model.id, model.sherpaModel.downloadUrls, model.sizeBytes);
-
-	// Create/reuse recognizer and transcribe
-	const recognizer = getOrCreateRecognizer(model, modelDir, config.language || "en");
-	// Every in-process model decodes long audio in VAD-sized pieces and reports each piece through
-	// `onSegment` as it decodes, in order; audio at or below the segment threshold takes the same
-	// single-decode fast path as before and the concatenation is unchanged.
-	return transcribeBufferSegmented(pcmData, recognizer, undefined, onSegment);
+	// Preserve the original total deadline, including a first-use download. A late download must
+	// not start a new worker after its recording has already failed.
+	let expired = false;
+	let timer: ReturnType<typeof setTimeout> | undefined;
+	const run = async () => {
+		const modelDir = await ensureModelDownloaded(model.id, model.sherpaModel.downloadUrls, model.sizeBytes);
+		if (expired) throw new Error("Transcription timed out (120s)");
+		await finalPassClient.rebind(model.id, modelDir, config.language || "en");
+		if (expired) throw new Error("Transcription timed out (120s)");
+		return finalPassClient.transcribe(pcmData, onSegment);
+	};
+	try {
+		return await Promise.race([
+			run(),
+			new Promise<never>((_, reject) => {
+				timer = setTimeout(() => {
+					expired = true;
+					reject(new Error("Transcription timed out (120s)"));
+					void finalPassClient.destroy();
+				}, 120_000);
+			}),
+		]);
+	} finally {
+		clearTimeout(timer);
+	}
 }

@@ -22,8 +22,8 @@ import * as path from "node:path";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import type { LocalModelInfo } from "./local";
-import { loadSherpa, getSherpaModule, getSherpaError, isSherpaAvailable } from "./sherpa-loader";
-import { joinTranscriptParts } from "./transcript-join";
+import { loadSherpa, getSherpaModule, getSherpaError, isSherpaAvailable } from "./sherpa-loader.ts";
+import { joinTranscriptParts } from "./transcript-join.ts";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
