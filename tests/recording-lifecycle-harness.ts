@@ -14,7 +14,14 @@ import { makeWidgetRegistry } from "../extensions/voice/ui-widget-base";
 import { startLocalSession, stopLocalSession, abortLocalSession } from "../extensions/voice/local";
 import { DEFAULT_CONFIG } from "../extensions/voice/config";
 
-export function lifecycleHarness(options: { failed?: boolean; missing?: boolean; captureAvailable?: boolean } = {}) {
+export function lifecycleHarness(
+	options: {
+		failed?: boolean;
+		missing?: boolean;
+		captureAvailable?: boolean;
+		transcribe?: () => Promise<{ text: string; hadSpeech: boolean }>;
+	} = {}
+) {
 	const events: string[] = [],
 		writes: string[] = [],
 		history: string[] = [],
@@ -165,6 +172,7 @@ export function lifecycleHarness(options: { failed?: boolean; missing?: boolean;
 		stopLocalSession: (session, config) =>
 			stopLocalSession(session, config, async () => {
 				if (options.failed) throw new Error("final failed");
+				if (options.transcribe) return options.transcribe();
 				return { text: "final", hadSpeech: true };
 			}),
 		finalModels: () => [],

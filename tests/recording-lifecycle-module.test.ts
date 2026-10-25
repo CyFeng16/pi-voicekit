@@ -3,6 +3,61 @@ import { lifecycleHarness } from "./recording-lifecycle-harness";
 import { stopLocalSession } from "../extensions/voice/local";
 import { DEFAULT_CONFIG } from "../extensions/voice/config";
 
+test("start moves idle → recording and reports true", async () => {
+	const h = lifecycleHarness();
+	try {
+		expect(h.controller.state).toBe("idle");
+		expect(await h.lifecycle.startRecording()).toBe(true);
+		expect(h.controller.state).toBe("recording");
+		expect(h.controller.generation).toBe(1);
+	} finally {
+		h.dispose();
+	}
+});
+
+test("warmup → recording → finalizing → idle preserves order and stop owns one final pass", async () => {
+	let finish!: (value: { text: string; hadSpeech: boolean }) => void;
+	let entered!: () => void;
+	let passes = 0;
+	const pending = new Promise<{ text: string; hadSpeech: boolean }>((resolve) => {
+		finish = resolve;
+	});
+	const finalEntered = new Promise<void>((resolve) => {
+		entered = resolve;
+	});
+	const h = lifecycleHarness({
+		transcribe: () => {
+			passes++;
+			entered();
+			return pending;
+		},
+	});
+	try {
+		expect(h.controller.state).toBe("idle");
+		h.deps.setVoiceState("warmup");
+		await h.lifecycle.startRecording();
+		h.feed();
+		const stopping = h.lifecycle.stopVoiceRecording();
+		await finalEntered;
+		expect(h.controller.state).toBe("finalizing");
+		await h.lifecycle.stopVoiceRecording();
+		expect(passes).toBe(1);
+		expect(h.notices).toEqual(["Transcribing with test…"]);
+		finish({ text: "final", hadSpeech: true });
+		await stopping;
+		expect(h.writes).toEqual(["final"]);
+		expect(h.history).toEqual(["final"]);
+		expect(h.events.filter((event) => event.startsWith("state:"))).toEqual([
+			"state:warmup",
+			"state:recording",
+			"state:finalizing",
+			"state:idle",
+		]);
+	} finally {
+		h.dispose();
+	}
+});
+
 // Re-homed callback-slice assertions: the real lifecycle installs these callbacks on the real session.
 for (const captureFailure of [false, true]) {
 	test(
@@ -131,6 +186,43 @@ test("an unexpected capture close takes the error path, not unconfirmed", async 
 		h.dispose();
 	}
 });
+
+for (const outcome of ["no-audio", "no-speech", "decode-failed", "delivery-throw"] as const) {
+	test(`terminal ${outcome} preserves stop sound and idle cleanup`, async () => {
+		const h = lifecycleHarness({
+			failed: outcome === "decode-failed",
+			transcribe: async () => ({ text: "", hadSpeech: false }),
+		});
+		try {
+			await h.lifecycle.startRecording();
+			if (outcome !== "no-audio") h.feed();
+			// Avoid the pre-finalizing notice tripwire; throw only in the completion callback.
+			if (outcome === "delivery-throw") {
+				let calls = 0;
+				h.state.ctx!.ui.notify = (message) => {
+					if (++calls > 1) throw new Error("host notify failed");
+					h.notices.push(message);
+				};
+			}
+			await h.lifecycle.stopVoiceRecording();
+			expect(h.writes).toEqual([]);
+			expect(h.history).toEqual([]);
+			expect(h.controller.state).toBe("idle");
+			expect(h.events.filter((event) => event.startsWith("sound:"))).toEqual(["sound:start", "sound:stop"]);
+			const copy = {
+				"no-audio": "Microphone captured no audio — check mic permissions.",
+				"no-speech": "Microphone captured silence — no speech detected.",
+				"decode-failed": "The final transcription failed and produced no transcript; nothing was inserted.",
+				"delivery-throw": undefined,
+			};
+			expect(h.notices).toEqual(
+				copy[outcome] ? ["Transcribing with test…", copy[outcome]] : ["Transcribing with test…"]
+			);
+		} finally {
+			h.dispose();
+		}
+	});
+}
 
 test("a missing preview model is silent: no panel, no notify, no degradation", async () => {
 	const h = lifecycleHarness({ missing: true });

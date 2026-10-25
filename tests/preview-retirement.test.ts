@@ -114,6 +114,52 @@ test("retirement destroys a hung drain at exactly the flush budget plus 250ms", 
 	expect(events).toEqual(["unref", "clear", "destroy"]);
 });
 
+for (const outcome of ["settled", "cleanup"] as const) {
+	test(`retirement clears timers and destroys once after ${outcome}`, async () => {
+		const timers = new Set<object>();
+		let expire!: () => void;
+		let settle!: () => void;
+		let destroyed = 0;
+		const retirement = createPreviewRetirement({
+			...deps,
+			setTimeout(callback) {
+				expire = callback;
+				const timer = { unref() {} };
+				timers.add(timer);
+				return timer;
+			},
+			clearTimeout(timer) {
+				timers.delete(timer as object);
+			},
+		});
+		const pending = new Promise<void>((resolve) => {
+			settle = resolve;
+		});
+		retirement.retirePreviewClient(
+			{
+				flushTimeoutMs: 25,
+				destroy: async () => {
+					destroyed++;
+				},
+			},
+			pending
+		);
+		expect(retirement.size).toBe(1);
+		expect(timers.size).toBe(1);
+		if (outcome === "cleanup") retirement.destroyRetiringClients();
+		else settle();
+		await Promise.resolve();
+		expect(retirement.size).toBe(0);
+		expect(timers.size).toBe(0);
+		expect(destroyed).toBe(1);
+		settle();
+		expire();
+		retirement.destroyRetiringClients();
+		await Promise.resolve();
+		expect(destroyed).toBe(1);
+	});
+}
+
 test("finish rejection is logged and releases the newest slot", async () => {
 	const messages: unknown[] = [];
 	const retirement = createPreviewRetirement({
