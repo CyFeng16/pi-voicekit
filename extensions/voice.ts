@@ -76,7 +76,6 @@ import {
 	type VoiceConfig,
 	type VoiceSettingsScope,
 } from "./voice/config";
-import { finalizeOnboardingConfig } from "./voice/onboarding";
 import { finalPassClient } from "./voice/final-pass-client";
 import { makeWidgetRegistry, type WidgetRegistry } from "./voice/ui-widget-base";
 import { makeRenderTicker, type RenderTicker } from "./voice/ui-render-ticker";
@@ -90,9 +89,6 @@ import {
 	LOCAL_MODELS,
 	SAMPLE_RATE,
 	CHANNELS,
-	getLanguagesForLocalModel,
-	isLanguageSupportedByModel,
-	localLanguageDisplayName,
 	type LocalSession,
 } from "./voice/local";
 import { shouldArmReleaseDetectOnRepeat } from "./voice/hold-to-talk";
@@ -968,90 +964,6 @@ export default function (pi: ExtensionAPI) {
 		setVoiceState("idle");
 	}
 
-	async function finalizeAndSaveSetup(
-		uiCtx: ExtensionContext | ExtensionCommandContext,
-		nextConfig: VoiceConfig,
-		selectedScope: VoiceSettingsScope,
-		summaryLines: string[],
-		source: "first-run" | "setup-command"
-	) {
-		// One capture path, so a saved setup is always usable: there is no key to check.
-		if (config.localModel !== nextConfig.localModel || config.language !== nextConfig.language) {
-			await finalPassClient.destroy();
-		}
-		config = finalizeOnboardingConfig(nextConfig, { validated: true, source });
-		configSource = selectedScope;
-		const savedPath = saveConfig(config, selectedScope, currentCwd, { loadedSource: configSource });
-		uiCtx.ui.notify(["Voice setup complete.", ...summaryLines, "", `Saved to ${savedPath}`].join("\n"), "info");
-	}
-
-	// ─── Warmup Widget ──────────────────────────────────────────────────────
-	// ─── Minimal Voice Indicators ──────────────────────────────────────
-
-	function getRecordDot(): string {
-		// v7.2 — soft pulse between full and dim. Two-state instead of
-		// three-state (cleaner, more like a breathing LED indicator
-		// than the v7.0 multi-glyph approach).
-		const phase = (Math.sin(Date.now() / 700) + 1) / 2;
-		return phase > 0.5 ? "●" : "○";
-	}
-
-	function buildMiniWave(level: number): string {
-		// Legacy block-bar wave — retained for compatibility with any
-		// caller that still uses it. New code should use buildAuroraWave.
-		const bars = "▁▂▃▄▅▆▇█";
-		const len = 12;
-		let out = "";
-		const t = Date.now() / 1000;
-		const energy = Math.pow(level, 0.7);
-		for (let i = 0; i < len; i++) {
-			const pos = i / len;
-			const wave1 = Math.sin(t * 4.5 + i * 0.9) * 0.35;
-			const wave2 = Math.sin(t * 7.2 + i * 1.4 + 2.0) * 0.15;
-			const center = 1.0 - Math.abs(pos - 0.5) * 1.2;
-			const base = 0.15 + energy * 0.85;
-			const value = Math.max(0, Math.min(1, (wave1 + wave2 + 0.5) * base * center));
-			const idx = Math.min(bars.length - 1, Math.round(value * (bars.length - 1)));
-			out += bars[idx];
-		}
-		return out;
-	}
-
-	/**
-	 * v7.2 world-class — Liquid Braille audio waveform with truecolor
-	 * Aurora gradient. Per Gemini design recommendation:
-	 *   - 8 effective vertical levels per CELL (4 dots × 2 columns) via
-	 *     braille — vs 8 levels per cell with block-bars.
-	 *   - 2 audio samples per cell width — 2× density of block-bar wave.
-	 *   - Per-cell color picks an aurora stop based on local peak;
-	 *     loud peaks "burn" into hot peach/red, soft tails stay cool
-	 *     lavender. RGB interpolated at runtime.
-	 * Output is `cells` cells wide rendered as a single string with
-	 * inline ANSI 24-bit escapes; ends with a reset. Caller-side
-	 * width math should use `cells` not the byte-length of the result.
-	 */
-	function buildAuroraWave(level: number, cells = 16): string {
-		// Generate 2*cells audio "samples" via multi-frequency sine
-		// + the live RMS energy. Same organic motion as the legacy
-		// wave but at higher density.
-		const samples = 2 * cells;
-		const t = Date.now() / 1000;
-		const energy = Math.pow(level, 0.7);
-		const arr: number[] = [];
-		for (let i = 0; i < samples; i++) {
-			const pos = i / samples;
-			const wave1 = Math.sin(t * 4.5 + i * 0.45) * 0.35;
-			const wave2 = Math.sin(t * 7.2 + i * 0.7 + 2.0) * 0.15;
-			const center = 1.0 - Math.abs(pos - 0.5) * 1.0;
-			const base = 0.1 + energy * 0.9;
-			const value = Math.max(0, Math.min(1, (wave1 + wave2 + 0.5) * base * center));
-			arr.push(value);
-		}
-		// Lazy-import to keep voice.ts hot path fast on cold start.
-		const { liquidBraille, auroraColor } = require("./voice/ui-aura") as typeof import("./voice/ui-aura");
-		return liquidBraille(arr, auroraColor);
-	}
-
 	// ─── Warmup Widget ──────────────────────────────────────────────────
 	// Presentation is injected; lifecycle, generation and preview ownership stay here.
 	const recordingPresenter = createRecordingPresenter({
@@ -1078,10 +990,6 @@ export default function (pi: ExtensionAPI) {
 
 	function showRecordingWidget() {
 		recordingPresenter.mountRecordingIndicator();
-	}
-
-	function showRecordingWidgetFrame() {
-		recordingPresenter.renderRecordingFrame();
 	}
 
 	// ─── Voice: Start / Stop ─────────────────────────────────────────────────
@@ -2182,8 +2090,6 @@ export default function (pi: ExtensionAPI) {
 	}
 	const messageStreams = new Map<string, MessageStreamState>();
 
-	const SENTENCE_TERMINATORS = /[.!?](?=\s|$)|[\n]{1,}/g;
-
 	function extractAccumulatedText(message: any): string {
 		if (!message || !Array.isArray(message.content)) return "";
 		return (message.content as any[])
@@ -2745,9 +2651,7 @@ export default function (pi: ExtensionAPI) {
 		if (result?.type === "download" && result.modelId) {
 			const model = LOCAL_MODELS.find((m) => m.id === result.modelId);
 			if (model) {
-				const { checkDownloadPrereqs, createProgressTracker, verifyDownload, formatBytes } = await import(
-					"./voice/model-download"
-				);
+				const { checkDownloadPrereqs, createProgressTracker, verifyDownload } = await import("./voice/model-download");
 				const { initSherpa, isSherpaAvailable, getSherpaError } = await import("./voice/sherpa-engine");
 
 				// ── Step 1: Check sherpa-onnx dependency ──
