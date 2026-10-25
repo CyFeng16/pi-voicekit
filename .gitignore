@@ -11,3 +11,6 @@ __pycache__/
 .npm/
 .npmrc
 tmp/
+
+# Worker bundles produced by `prepack` (scripts/build-workers.mjs) — shipped, never committed.
+extensions/voice/*-worker.js
