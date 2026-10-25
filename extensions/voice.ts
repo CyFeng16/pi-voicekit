@@ -366,6 +366,19 @@ function detectAudioCaptureTool(): AudioCaptureTool | null {
 	return null;
 }
 
+/**
+ * Test seam: forget the memoised capture-tool probes.
+ *
+ * `commandExists` and `detectAudioCaptureTool` memoise at module scope, so a test that spies on
+ * `child_process.spawnSync` would otherwise still see whatever the first call in the process
+ * observed - which differs between a developer machine and CI. Clearing the memo makes the probe
+ * observable from a test on either.
+ */
+export function resetCaptureToolProbeCache(): void {
+	_cmdExistsCache.clear();
+	_cachedAudioTool = undefined;
+}
+
 // ─── Abort helper — nuke everything synchronously ────────────────────────────
 
 function abortSession(session: LocalSession | null): void {

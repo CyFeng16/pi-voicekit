@@ -5,7 +5,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { EventEmitter } from "node:events";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import voiceExtension from "../extensions/voice";
+import voiceExtension, { resetCaptureToolProbeCache } from "../extensions/voice";
 import * as local from "../extensions/voice/local";
 import * as previewWorker from "../extensions/voice/preview-worker-client";
 
@@ -37,6 +37,9 @@ async function extensionHarness(previewEnabled = false) {
 		stderr: Buffer.alloc(0),
 		signal: null,
 	});
+	// The probe memo is process-wide, so clear it once the spy is in place; otherwise a preceding
+	// test file fixes the answer and this harness observes the real machine instead of the spy.
+	resetCaptureToolProbeCache();
 	let kills = 0;
 	const captures: Array<EventEmitter & { stdout: EventEmitter; stderr: EventEmitter; kill: () => boolean }> = [];
 	const spawn = spyOn(childProcess, "spawn").mockImplementation((() => {
@@ -108,6 +111,7 @@ async function extensionHarness(previewEnabled = false) {
 		try {
 			await shutdown();
 		} finally {
+			resetCaptureToolProbeCache();
 			stop.mockRestore();
 			spawn.mockRestore();
 			probes.mockRestore();
