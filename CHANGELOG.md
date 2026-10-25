@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.7] - 2026-10-26
+
+Same content as 0.6.6 — that version was tagged but never reached the registry: the release workflow
+failed at "Typecheck + tests" before publishing, and nothing was pushed to npm.
+
+### Fixed
+
+- **Capture-tool detection no longer leaks between test files.** `detectAudioCaptureTool()` and
+  `commandExists()` memoise at module scope, so whichever test file reached them first fixed the answer
+  for the whole process — on a developer machine the probes found `sox`, on a CI runner they found
+  nothing, and eight integration tests that drive the real extension took the "no audio capture tool"
+  path there. The memo now has a documented test seam the harness clears, and the suite passes whether
+  or not the machine has a capture tool installed.
+
 ## [0.6.6] - 2026-10-26
 
 ### Changed
@@ -1540,7 +1554,8 @@ single source of truth per row.
 - VAD pre-filtering
 - Pompom/Lumo creature companion (now separate package)
 
-[Unreleased]: https://github.com/CyFeng16/pi-voicekit/compare/v0.6.6...HEAD
+[Unreleased]: https://github.com/CyFeng16/pi-voicekit/compare/v0.6.7...HEAD
+[0.6.7]: https://github.com/CyFeng16/pi-voicekit/compare/v0.6.6...v0.6.7
 [0.6.6]: https://github.com/CyFeng16/pi-voicekit/compare/v0.6.5...v0.6.6
 [0.6.5]: https://github.com/CyFeng16/pi-voicekit/compare/v0.6.4...v0.6.5
 [0.6.4]: https://github.com/CyFeng16/pi-voicekit/compare/v0.6.3...v0.6.4
