@@ -1,6 +1,6 @@
 import type { ExtensionCommandContext, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { VoiceConfig, VoiceSettingsScope } from "./config";
-import { LOCAL_MODELS, getLanguagesForLocalModel, type LocalLangEntry, type LocalModelInfo } from "./local";
+import { finalModels, getLanguagesForLocalModel, type LocalLangEntry, type LocalModelInfo } from "./local";
 import {
 	detectDevice,
 	autoRecommendModel,
@@ -32,9 +32,9 @@ export function extractLanguageCode(selection: string): string {
 	return match ? match[1] : "en";
 }
 
-/** Find display name for a language code, resolved against the local model language catalogs. */
+/** Find display name for a language code, resolved against the final models' language catalogs. */
 export function languageDisplayName(code: string): string {
-	for (const model of LOCAL_MODELS) {
+	for (const model of finalModels()) {
 		const { languages } = getLanguagesForLocalModel(model.id);
 		const entry = languages.find((l) => l.code === code);
 		if (entry) return `${entry.name} (${entry.code})`;
@@ -227,7 +227,8 @@ export async function pickLocalModel(
 	const { Container, Input, Spacer, Text, fuzzyFilter, getKeybindings } = await import("@earendil-works/pi-tui");
 
 	const device = detectDevice();
-	const allItems = LOCAL_MODELS.map((m) => {
+	// Final models only — the streaming preview entry must never become `config.localModel`.
+	const allItems = finalModels().map((m) => {
 		const fitness = getModelFitness(m, device);
 		const badge = fitnessLabel(fitness);
 		return {
@@ -318,7 +319,7 @@ export async function pickLocalModel(
 				updateList();
 			} else if (kb.matches(keyData, "tui.select.confirm") || keyData === "\n") {
 				const item = filtered[selectedIndex];
-				done(item ? LOCAL_MODELS.find((m) => m.id === item.id) : undefined);
+				done(item ? finalModels().find((m) => m.id === item.id) : undefined);
 			} else if (kb.matches(keyData, "tui.select.cancel")) {
 				done(undefined);
 			} else {
@@ -378,8 +379,8 @@ export async function runVoiceOnboarding(
 	const detectedLang = localeToLanguageCode(device.systemLocale);
 	const language = currentConfig.language || detectedLang;
 
-	// Auto-recommend the best model
-	const recommended = autoRecommendModel(LOCAL_MODELS, device, language);
+	// Auto-recommend the best model (final models only — the preview entry is never a dictation model)
+	const recommended = autoRecommendModel(finalModels(), device, language);
 	const deviceSummary = formatDeviceSummary(device);
 
 	let localModel = currentConfig.localModel;
@@ -453,7 +454,7 @@ export async function runVoiceOnboarding(
 	if (!scopeChoice) return undefined;
 	const selectedScope: VoiceSettingsScope = scopeChoice.startsWith("Project") ? "project" : "global";
 
-	const selectedModel = LOCAL_MODELS.find((m) => m.id === localModel);
+	const selectedModel = finalModels().find((m) => m.id === localModel);
 
 	const summaryLines = [
 		`Backend: Local — ${selectedModel?.name || localModel} (in-process)`,

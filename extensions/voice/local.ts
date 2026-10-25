@@ -15,12 +15,23 @@ import type { VoiceConfig } from "./config";
 // ─── Model catalog ───────────────────────────────────────────────────────────
 
 export interface SherpaModelConfig {
+	/**
+	 * Decoding mode. `"online"` marks a streaming recogniser, which may only feed the display
+	 * preview and never the authoritative pass. Absent means `"offline"`.
+	 */
+	mode?: "offline" | "online";
 	/** Recognizer type for sherpa-onnx */
 	type: "whisper" | "moonshine" | "sense_voice" | "nemo_ctc" | "transducer" | "paraformer" | "qwen3_asr";
 	/** Map of role → filename within model directory */
 	files: Record<string, string>;
 	/** Map of role → download URL (HuggingFace or GitHub releases) */
 	downloadUrls: Record<string, string>;
+	/** Endpointing rules for online models — silence in seconds, utterance length in samples. */
+	endpointing?: {
+		enableEndpoint: true;
+		rule2MinTrailingSilence: number;
+		rule3MinUtteranceLength: number;
+	};
 }
 
 export interface LocalModelInfo {
@@ -53,6 +64,11 @@ export interface LocalModelInfo {
 	tier: "edge" | "standard" | "heavy";
 	/** Preferred model — best-in-class for its language/use case. Only these get [recommended]. */
 	preferred?: boolean;
+	/**
+	 * Which selection slot the entry may fill. `"preview"` entries are download-only: they render in
+	 * the Models tab but can never become `config.localModel`. Absent means `"final"`.
+	 */
+	role?: "final" | "preview";
 	/** Accuracy rating 1-5 (5 = best). Based on published WER benchmarks. */
 	accuracy: 1 | 2 | 3 | 4 | 5;
 	/** Speed rating 1-5 (5 = fastest). Based on real-time factor and latency benchmarks. */
@@ -73,6 +89,9 @@ function hf1(repo: string, file: string): string {
 function hf2(repo: string, file: string): string {
 	return `${HF2}/${repo}/resolve/main/${file}`;
 }
+
+/** The single streaming entry: preview-only, and the only online model in the catalogue. */
+export const PREVIEW_MODEL_ID = "streaming-paraformer-bilingual-zh-en";
 
 /**
  * Model catalog — verified against actual HuggingFace repos and file listings.
@@ -603,9 +622,63 @@ export const LOCAL_MODELS: LocalModelInfo[] = [
 			},
 		},
 	},
+	// ═══════════════════════════════════════════════════════════════════════
+	// PREVIEW ONLY — streaming model for the on-screen draft, never the final pass
+	// ═══════════════════════════════════════════════════════════════════════
+	{
+		id: PREVIEW_MODEL_ID,
+		name: "Streaming Paraformer (bilingual zh-en)",
+		size: "226 MB",
+		sizeBytes: 237_202_501,
+		runtimeRamMB: 300,
+		notes:
+			"Streaming preview only — never selectable as the final model. Live draft while you speak; the final text still comes from your offline model.",
+		langSupport: "bilingual-zh-en",
+		tier: "edge",
+		role: "preview",
+		accuracy: 4,
+		speed: 5,
+		sherpaModel: {
+			mode: "online",
+			type: "paraformer",
+			files: {
+				encoder: "encoder.int8.onnx",
+				decoder: "decoder.int8.onnx",
+				tokens: "tokens.txt",
+			},
+			downloadUrls: {
+				encoder: hf1("sherpa-onnx-streaming-paraformer-bilingual-zh-en", "encoder.int8.onnx"),
+				decoder: hf1("sherpa-onnx-streaming-paraformer-bilingual-zh-en", "decoder.int8.onnx"),
+				tokens: hf1("sherpa-onnx-streaming-paraformer-bilingual-zh-en", "tokens.txt"),
+			},
+			endpointing: {
+				enableEndpoint: true,
+				rule2MinTrailingSilence: 1.2,
+				rule3MinUtteranceLength: 600,
+			},
+		},
+	},
 ];
 
 export const DEFAULT_LOCAL_MODEL = "parakeet-v3";
+
+// ─── Role selectors ──────────────────────────────────────────────────────────
+
+/**
+ * Catalogue entries that may produce the authoritative transcript (anything not marked
+ * `role: "preview"`). Every final-model consumer — pickers, auto-recommendation, the
+ * post-delete fallback — must select through this instead of filtering inline.
+ */
+export function finalModels(): LocalModelInfo[] {
+	return LOCAL_MODELS.filter((model) => (model.role ?? "final") === "final");
+}
+
+/** The streaming entry that may only feed the display preview. */
+export function previewModel(): LocalModelInfo {
+	const model = LOCAL_MODELS.find((entry) => entry.id === PREVIEW_MODEL_ID);
+	if (!model) throw new Error(`Preview model ${PREVIEW_MODEL_ID} is missing from LOCAL_MODELS`);
+	return model;
+}
 
 // ─── Language support per model family ───────────────────────────────────────
 // Whisper uses simple ISO 639-1 codes (no regional variants like "en-AU").
