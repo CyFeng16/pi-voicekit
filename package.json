@@ -48,6 +48,7 @@
     "test": "bun test",
     "build:workers": "bun scripts/build-workers.mjs",
     "prepack": "bun run build:workers",
+    "smoke:installed": "bun scripts/smoke-installed.mjs",
     "check": "bun run typecheck && bun run test",
     "format": "prettier --write \"**/*.{ts,mts,json,yml,yaml}\"",
     "format:check": "prettier --check \"**/*.{ts,mts,json,yml,yaml}\"",
