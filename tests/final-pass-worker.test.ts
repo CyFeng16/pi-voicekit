@@ -62,7 +62,7 @@ test("ready gates audio, requests serialize and the worker stays warm across rec
 	expect(worker.terminated).toBe(true);
 });
 
-for (const mode of ["failed", "error", "exit", "destroy", "timeout"] as const) {
+for (const mode of ["failed", "error", "exit", "destroy"] as const) {
 	test(`${mode} rejects active and queued work and allows a fresh worker`, async () => {
 		const { client, workers } = harness(mode === "timeout" ? 10 : 1000);
 		await client.rebind("sensevoice", "/missing", "en");
@@ -100,6 +100,25 @@ for (const [model, dir, lang] of [
 		workers[1]!.emit("message", { type: "ready" });
 		workers[1]!.emit("message", { type: "result", text: "new", hadSpeech: true });
 		await expect(next).resolves.toEqual({ text: "new", hadSpeech: true });
+		await client.destroy();
+	});
+}
+
+for (const cancel of [false, true]) {
+	test(`an active job's ${cancel ? "cancellation" : "timeout"} cannot reject the queued job`, async () => {
+		const { client, workers } = harness(20);
+		await client.rebind("sensevoice", "/models", "en");
+		const controller = new AbortController();
+		const first = client.transcribe(pcm, { signal: controller.signal }).catch((error) => error);
+		const second = client.transcribe(pcm);
+		const old = workers[0]!;
+		if (cancel) controller.abort();
+		expect(await first).toBeInstanceOf(Error);
+		expect(workers).toHaveLength(2);
+		old.emit("message", { type: "result", text: "A", hadSpeech: true });
+		workers[1]!.emit("message", { type: "ready" });
+		workers[1]!.emit("message", { type: "result", text: "B", hadSpeech: true });
+		await expect(second).resolves.toEqual({ text: "B", hadSpeech: true });
 		await client.destroy();
 	});
 }
@@ -194,6 +213,41 @@ for (const outcome of ["result", "failed", "exit", "timeout", "abort"] as const)
 		await client.destroy();
 	});
 }
+
+test("aborting local capture cancels its active final job and leaves B usable", async () => {
+	const { client, workers } = harness(20);
+	await client.rebind("sensevoice", "/models", "en");
+	const proc = Object.assign(new EventEmitter(), { stdout: new EventEmitter(), stderr: new EventEmitter(), kill() {} });
+	const session = startLocalSession(proc as any, { onDone() {}, onError() {} });
+	proc.stdout.emit("data", pcm);
+	let second!: Promise<unknown>;
+	await stopLocalSession(session, DEFAULT_CONFIG, (audio, _config, _observer, signal) => {
+		const first = client.transcribe(audio, { signal });
+		second = client.transcribe(pcm);
+		abortLocalSession(session);
+		expect(workers[0]!.terminated).toBe(true);
+		workers[1]!.emit("message", { type: "ready" });
+		workers[1]!.emit("message", { type: "result", text: "B", hadSpeech: true });
+		return first;
+	});
+	await expect(second).resolves.toEqual({ text: "B", hadSpeech: true });
+	await client.destroy();
+});
+
+test("cancelling a queued job does not terminate the active worker", async () => {
+	const { client, workers } = harness();
+	await client.rebind("sensevoice", "/models", "en");
+	const first = client.transcribe(pcm);
+	const controller = new AbortController();
+	const second = client.transcribe(pcm, { signal: controller.signal }).catch((error) => error);
+	controller.abort();
+	expect(await second).toBeInstanceOf(Error);
+	expect(workers[0]!.terminated).toBe(false);
+	workers[0]!.emit("message", { type: "ready" });
+	workers[0]!.emit("message", { type: "result", text: "A", hadSpeech: true });
+	await expect(first).resolves.toEqual({ text: "A", hadSpeech: true });
+	await client.destroy();
+});
 
 test("only the worker entry calls the offline recogniser", () => {
 	const sources = Object.fromEntries(

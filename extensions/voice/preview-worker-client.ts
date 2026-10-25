@@ -82,6 +82,8 @@ export interface PreviewClientOptions {
 }
 
 export interface PreviewClient {
+	/** Includes abandoned-recording maintenance flushes, not only session-owned drains. */
+	readonly pendingDrain: Promise<void> | null;
 	/** Effective flush deadline, also used to bound retirement by the extension. */
 	readonly flushTimeoutMs: number;
 	/** One claim per recording; the worker is created lazily on the first claim that actually feeds. */
@@ -119,6 +121,7 @@ interface ClaimState {
 }
 
 interface PendingFlush {
+	done: Promise<void>;
 	/** The claim waiting on this answer, or `null` for a maintenance flush that reports to nobody. */
 	claim: ClaimState | null;
 	requestId: number;
@@ -247,12 +250,20 @@ export function createPreviewClient(options: PreviewClientOptions): PreviewClien
 	}
 
 	function track(claim: ClaimState | null, resolve: () => void): PendingFlush {
+		let complete!: () => void;
+		const done = new Promise<void>((r) => {
+			complete = r;
+		});
 		const pendingFlush: PendingFlush = {
+			done,
 			claim,
 			requestId: nextRequestId++,
 			settled: false,
 			timer: undefined as unknown as Timer,
-			resolve,
+			resolve: () => {
+				resolve();
+				complete();
+			},
 		};
 		pendingFlush.timer = startTimer(pendingFlush);
 		pending.set(pendingFlush.requestId, pendingFlush);
@@ -577,7 +588,14 @@ export function createPreviewClient(options: PreviewClientOptions): PreviewClien
 		};
 	}
 
-	return { claim, destroy: destroyClient, flushTimeoutMs };
+	return {
+		claim,
+		destroy: destroyClient,
+		flushTimeoutMs,
+		get pendingDrain() {
+			return pending.size ? Promise.all([...pending.values()].map((flush) => flush.done)).then(() => {}) : null;
+		},
+	};
 }
 
 /** The response types the protocol defines; anything else is not this worker's and is ignored. */

@@ -11,11 +11,9 @@
  *   carrying any other id is dropped before it can reach the composer. Together with the terminal gate
  *   below, that is what keeps a retired recording's late commit out of the next recording's panel: the
  *   entrypoint can order the teardown, but it cannot make the channel stay silent.
- * - **The terminal gate.** `finish()` drains the last segment *first* and closes the gate after the
- *   drain, because the drain is precisely when the last commit arrives (§5.3: one flush per segment,
- *   including stop). Closing the gate earlier would discard the words spoken last — the same loss the
- *   segment drain exists to prevent. Once the gate is closed, every later event, including one with
- *   this recording's own id, is dropped.
+ * - **The terminal gate.** `drain()` leaves audio and events open during finalizing. `terminal()`
+ *   snapshots text and synchronously closes both gates before delivery. `finish()` then drains and
+ *   releases without delaying delivery. A late event can never remount the panel.
  * - **`degraded` coalescing.** A recording is degraded or it is not: two failures are one fact. The
  *   first reason is recorded — it is the field the entrypoint folds into its single outcome notice
  *   (§5.5) — and the host is told once, so a worker that fails twice cannot produce two notices.
@@ -55,11 +53,15 @@ export interface PreviewSession {
 	readonly text: string;
 	/** The first degradation this recording suffered, or `null` while it is healthy. */
 	readonly degraded: DegradeReason | null;
-	/** Offer captured audio. Dropped once the terminal path has begun. */
+	/** Offer captured audio throughout finalizing; dropped only after the terminal. */
 	feed(chunk: Buffer): void;
 	/** Apply one channel event. Foreign ids and post-terminal events are dropped. */
 	handleEvent(event: PreviewEvent): void;
-	/** Best-effort bounded flush, unmount, then `release()`. Never rejects. */
+	/** Snapshot text, close both gates, and unmount synchronously before delivery. */
+	terminal(): string;
+	/** Best-effort stop drain; audio and events remain open until the terminal. */
+	drain(): Promise<void>;
+	/** Synchronously close/unmount, then bounded flush and release. Never rejects. */
 	finish(): Promise<void>;
 	/** Cancel: unmount now; then `destroy()` when no audio was fed, else `release()` (a pending `finish()` releases). */
 	abort(): void;
@@ -81,8 +83,10 @@ export function createPreviewSession(channel: PreviewChannel, host: PreviewSessi
 
 	/** The gate is closed: no more events, no more audio, and the panel is gone. */
 	let closed = false;
-	/** `finish()` was entered; its drain still owns the claim, so `abort()` must not release it. */
+	/** The terminal cleanup owns release, so later calls must not release again. */
 	let finishing: Promise<void> | null = null;
+	let draining: Promise<void> | null = null;
+	let needsDrain = true;
 	let mounted = false;
 	/** Audio reached the channel, so an abort leaves a segment for the worker to drain. */
 	let fedAudio = false;
@@ -122,8 +126,27 @@ export function createPreviewSession(channel: PreviewChannel, host: PreviewSessi
 		quietly(() => host.onDegraded(reason, detail));
 	}
 
+	function drain(): Promise<void> {
+		if (draining) return draining;
+		if (!needsDrain) return Promise.resolve();
+		needsDrain = false;
+		draining = (async () => {
+			try {
+				await channel.flush("stop");
+			} catch {}
+		})().finally(() => {
+			draining = null;
+		});
+		return draining;
+	}
+
 	return {
 		recordingId,
+		terminal() {
+			const text = composer.text;
+			close();
+			return text;
+		},
 
 		get text(): string {
 			return composer.text;
@@ -134,10 +157,9 @@ export function createPreviewSession(channel: PreviewChannel, host: PreviewSessi
 		},
 
 		feed(chunk: Buffer): void {
-			// Once the drain has begun the recording's audio is closed: a late chunk would open a segment
-			// after the stop flush and be dropped by `release()` anyway, and the final pass keeps every
-			// sample regardless (§5.3: the cap segments the preview only).
-			if (closed || finishing !== null) return;
+			// Capture still drains during finalizing. Only the terminal closes audio.
+			if (closed) return;
+			needsDrain = true;
 			// The channel's own rule: shorter than one sample never opens a segment or spawns a worker,
 			// so it is not audio and must not turn a zero-audio abort into a release.
 			if (chunk.length >= 2) fedAudio = true;
@@ -166,19 +188,15 @@ export function createPreviewSession(channel: PreviewChannel, host: PreviewSessi
 			}
 		},
 
+		drain,
+
 		finish(): Promise<void> {
 			if (finishing !== null) return finishing;
-			if (closed) return Promise.resolve();
+			close();
 			finishing = (async () => {
-				try {
-					// One flush per recording, and the channel bounds it with its own timeout: a failed or
-					// timed-out drain becomes `degraded` plus an empty commit there, never a rejection here.
-					await channel.flush("stop");
-				} catch {
-					// A rejected flush means the channel broke its contract. There is nothing to report: the
-					// channel already owns the degradation, and the recording must not inherit the failure.
-				}
-				close();
+				await drain();
+				// Audio may have arrived behind the first stop flush.
+				if (needsDrain) await drain();
 				quietly(() => channel.release());
 			})();
 			return finishing;
@@ -194,6 +212,13 @@ export function createPreviewSession(channel: PreviewChannel, host: PreviewSessi
 			// A stop in flight still owns the claim: `release()` waits for the drain instead of handing a
 			// claim that is still flushing to the next recording.
 			if (finishing !== null) return;
+			if (draining) {
+				finishing = draining.then(() => {
+					quietly(() => channel.release());
+				});
+				return;
+			}
+			finishing = Promise.resolve();
 			if (fedAudio) {
 				// Audio reached the worker, so `release()` drains the abandoned segment with its own
 				// maintenance flush and keeps the worker warm for the next recording (§5.5).

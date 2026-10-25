@@ -1324,9 +1324,10 @@ export default function (pi: ExtensionAPI) {
 		recordingOwner = owner;
 		const recordingCtx = ctx;
 		const previewModelDir = resolvePreviewModelDir(config.previewEnabled ?? true);
-		if (previewClient && previewModelDir !== previewClientModelDir) {
+		const previousDrain = previewFinish ?? previewClient?.pendingDrain ?? null;
+		if (previewClient && (previewModelDir !== previewClientModelDir || previousDrain)) {
 			const oldClient = previewClient;
-			const previousFinish = previewFinish;
+			const previousFinish = previousDrain;
 			previewClient = null;
 			previewClientModelDir = null;
 			previewFinish = null;
@@ -1378,8 +1379,12 @@ export default function (pi: ExtensionAPI) {
 				if (current() && (config.previewEnabled ?? true)) preview.feed(chunk);
 			},
 			onDone: (result: LocalSessionResult, doneMeta: { capturedBytes: number }) => {
+				if (result.kind === "capture-failed") {
+					recordingCallbacks.onError(result.message);
+					return;
+				}
 				if (!owner.deliver()) return;
-				void finishPreview(preview);
+				const previewText = preview.terminal();
 				activeSession = null;
 				clearRecordingAnimTimer();
 				if (statusTimer) {
@@ -1399,7 +1404,7 @@ export default function (pi: ExtensionAPI) {
 							capturedBytes: doneMeta.capturedBytes,
 							finalText: result.kind === "ok" ? result.text : null,
 							finalHadSpeech: result.kind === "ok" && result.hadSpeech,
-							previewText: preview.text,
+							previewText,
 						}),
 						preview.degraded,
 						{
@@ -1424,6 +1429,8 @@ export default function (pi: ExtensionAPI) {
 					);
 				} catch (err) {
 					voiceDebug("outcome delivery threw", { error: String(err) });
+				} finally {
+					void finishPreview(preview);
 				}
 				playSound("stop");
 				// Full state reset on successful completion
@@ -1556,7 +1563,7 @@ export default function (pi: ExtensionAPI) {
 			const preview = activePreview;
 			await recordingOwner?.stop(
 				() => stopLocalSession(session, config),
-				() => (preview ? finishPreview(preview) : Promise.resolve())
+				() => (preview ? preview.drain() : Promise.resolve())
 			);
 		} else {
 			// No active session — shouldn't happen, but recover gracefully

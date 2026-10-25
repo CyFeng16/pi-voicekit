@@ -907,7 +907,10 @@ export function localLanguageDisplayName(code: string): string {
  * preview's words are kept and the missing authoritative text is reported. `onError` stays reserved
  * for capture and programming errors, which have no transcript to keep.
  */
-export type LocalSessionResult = { kind: "ok"; text: string; hadSpeech: boolean } | { kind: "failed"; message: string };
+export type LocalSessionResult =
+	| { kind: "ok"; text: string; hadSpeech: boolean }
+	| { kind: "failed"; message: string }
+	| { kind: "capture-failed"; message: string };
 
 /**
  * Callbacks a local recording session accepts. `onSegment` and `onAudioChunk` are optional, so callers
@@ -931,6 +934,7 @@ export interface LocalSessionCallbacks {
 }
 
 export interface LocalSession {
+	finalAbort: AbortController;
 	recProcess: ChildProcess;
 	audioChunks: Buffer[];
 	/** No longer accepting audio: settled, or aborted. */
@@ -993,6 +997,7 @@ export function startLocalSession(recProcess: ChildProcess, callbacks: LocalSess
 	let warnedOnAudioChunk = false;
 
 	const session: LocalSession = {
+		finalAbort: new AbortController(),
 		recProcess,
 		audioChunks: [],
 		closed: false,
@@ -1052,7 +1057,7 @@ export function startLocalSession(recProcess: ChildProcess, callbacks: LocalSess
 		session.stopping = true;
 		settle(
 			session,
-			{ kind: "failed", message: `Audio capture stopped unexpectedly (${describeCaptureExit(code, signal)})` },
+			{ kind: "capture-failed", message: `Audio capture stopped unexpectedly (${describeCaptureExit(code, signal)})` },
 			{ hadAudio: session.hadAudioData }
 		);
 	};
@@ -1105,7 +1110,7 @@ export async function stopLocalSession(
 	}
 
 	try {
-		const result = await finalPass(pcmData, config, session.onSegment);
+		const result = await finalPass(pcmData, config, session.onSegment, session.finalAbort.signal);
 
 		// Recheck after await — abort or an unexpected close may have fired during transcription.
 		// Still settle so the state machine transitions back to idle.
@@ -1134,6 +1139,7 @@ export function abortLocalSession(session: LocalSession | null): void {
 	if (!session || session.closed) return;
 	session.closed = true;
 	session.stopping = true;
+	session.finalAbort.abort();
 	try {
 		session.recProcess.kill("SIGKILL");
 	} catch {}
@@ -1145,9 +1151,11 @@ export function abortLocalSession(session: LocalSession | null): void {
 async function transcribeFinal(
 	pcmData: Buffer,
 	config: VoiceConfig,
-	onSegment?: (text: string, index: number) => void
+	onSegment?: (text: string, index: number) => void,
+	signal?: AbortSignal
 ): Promise<{ text: string; hadSpeech: boolean }> {
 	const { finalPassClient } = await import("./final-pass-client");
+	const lifecycleSignal = finalPassClient.signal;
 	const { ensureModelDownloaded } = await import("./model-download");
 
 	const model = LOCAL_MODELS.find((m) => m.id === (config.localModel || DEFAULT_LOCAL_MODEL));
@@ -1156,13 +1164,20 @@ async function transcribeFinal(
 	// Preserve the original total deadline, including a first-use download. A late download must
 	// not start a new worker after its recording has already failed.
 	let expired = false;
+	const deadline = new AbortController();
+	const cancelled = AbortSignal.any([deadline.signal, lifecycleSignal, ...(signal ? [signal] : [])]);
+	const check = () => {
+		if (expired) throw new Error("Transcription timed out (120s)");
+		if (cancelled.aborted) throw new Error("Transcription cancelled");
+	};
 	let timer: ReturnType<typeof setTimeout> | undefined;
 	const run = async () => {
+		check();
 		const modelDir = await ensureModelDownloaded(model.id, model.sherpaModel.downloadUrls, model.sizeBytes);
-		if (expired) throw new Error("Transcription timed out (120s)");
+		check();
 		await finalPassClient.rebind(model.id, modelDir, config.language || "en");
-		if (expired) throw new Error("Transcription timed out (120s)");
-		return finalPassClient.transcribe(pcmData, onSegment);
+		check();
+		return finalPassClient.transcribe(pcmData, { onSegment, signal: cancelled });
 	};
 	try {
 		return await Promise.race([
@@ -1171,7 +1186,7 @@ async function transcribeFinal(
 				timer = setTimeout(() => {
 					expired = true;
 					reject(new Error("Transcription timed out (120s)"));
-					void finalPassClient.destroy();
+					deadline.abort();
 				}, 120_000);
 			}),
 		]);

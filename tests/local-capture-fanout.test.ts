@@ -204,7 +204,7 @@ describe("an unexpected capture close terminates the recording", () => {
 		expect(terminal.errors).toEqual([]);
 		expect(terminal.results).toHaveLength(1);
 		expect(terminal.results[0]!.result).toEqual({
-			kind: "failed",
+			kind: "capture-failed",
 			message: expect.stringContaining("Audio capture stopped unexpectedly"),
 		});
 		// The words captured before the crash are still accounted for.
@@ -263,7 +263,7 @@ describe("an unexpected capture close terminates the recording", () => {
 
 		expect(terminal.errors).toEqual([]);
 		expect(terminal.results).toHaveLength(1);
-		expect(terminal.results[0]!.result.kind).toBe("failed");
+		expect(terminal.results[0]!.result.kind).toBe("capture-failed");
 	});
 
 	test("an abort is expected: its close settles nothing", () => {

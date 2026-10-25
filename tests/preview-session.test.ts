@@ -191,6 +191,20 @@ describe("preview session — one recording, one set of events", () => {
 	});
 });
 
+test("capture tail is fed throughout finalizing, even after the stop drain settles", async () => {
+	const channel = fakeChannel();
+	const session = createPreviewSession(channel, fakeHost());
+	const first = Buffer.from([1, 0]);
+	const tail = Buffer.from([2, 0]);
+	session.feed(first);
+	await session.drain();
+	session.feed(tail);
+	expect(channel.fed).toEqual([first, tail]);
+	await session.finish();
+	session.feed(Buffer.alloc(2));
+	expect(channel.fed).toEqual([first, tail]);
+});
+
 describe("preview session — the end of the recording", () => {
 	test("the session owns the panel: mounted on the first event, unmounted exactly once", async () => {
 		const channel = fakeChannel();
@@ -219,7 +233,7 @@ describe("preview session — the end of the recording", () => {
 		expect(channel.destroyed).toBe(0);
 	});
 
-	test("finish flushes the last segment, keeps its commit, and never rejects", async () => {
+	test("finish closes synchronously before draining and drops late events", async () => {
 		const channel = fakeChannel();
 		const host = fakeHost();
 		const session = createPreviewSession(channel, host);
@@ -233,13 +247,15 @@ describe("preview session — the end of the recording", () => {
 			session.handleEvent(degraded("preview-worker-failed", "worker exited with code 1"));
 		};
 
-		await session.finish();
+		const finishing = session.finish();
+		expect(host.unmounts).toBe(1);
+		await finishing;
 
 		expect(channel.flushes).toEqual(["stop"]);
 		// The commit replaced the tail rather than appending to it: one segment, one copy of its text.
 		expect(session.text).toBe("你好");
-		expect(session.degraded).toBe("preview-worker-failed");
-		expect(host.degradations).toHaveLength(1);
+		expect(session.degraded).toBeNull();
+		expect(host.degradations).toHaveLength(0);
 		expect(host.unmounts).toBe(1);
 		expect(channel.released).toBe(1);
 	});
@@ -304,7 +320,7 @@ describe("preview session — the end of the recording", () => {
 		channel.flushGate = new Promise<void>((resolve) => {
 			settle = resolve;
 		});
-		const finished = session.finish();
+		const finished = session.drain();
 		expect(channel.flushes).toEqual(["stop"]);
 
 		// A slow or hung worker is exactly the window in which a user reaches for cancel: the panel

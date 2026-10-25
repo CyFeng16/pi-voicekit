@@ -4,6 +4,10 @@ import { createRecordingOwner, resolvePreviewModelDir } from "../extensions/voic
 import { createPreviewSession } from "../extensions/voice/preview-session";
 import { classifyOutcome, deliverOutcome } from "../extensions/voice/dictation-outcome";
 import { insertTranscript } from "../extensions/voice/editor-sink";
+import { createPreviewClient } from "../extensions/voice/preview-worker-client";
+import { EventEmitter } from "node:events";
+import { startLocalSession, stopLocalSession } from "../extensions/voice/local";
+import { DEFAULT_CONFIG } from "../extensions/voice/config";
 
 test("the preview model directory is resolved only when installed and enabled", () => {
 	const urls: Record<string, string>[] = [];
@@ -277,6 +281,60 @@ test("repeated finishes retain the outstanding drain until the session releases"
 	expect(harness.pending).toBeNull();
 });
 
+for (const duringStop of [false, true]) {
+	test(`cancelled A's ${duringStop ? "stop" : "maintenance"} drain cannot deliver A as B on the same directory`, async () => {
+		const workers: any[] = [];
+		const preamble = entrypointSource.slice(
+			entrypointSource.indexOf("\tasync function startRecording():"),
+			entrypointSource.indexOf("\t\tlet unsubscribe:")
+		);
+		const start = new Function(
+			"createPreviewClient",
+			"createRecordingOwner",
+			transpiler.transformSync(`
+		let previewClient = null, previewClientModelDir = null, previewFinish = null;
+		let recordingGeneration = 0, recordingOwner = null;
+		const activePreview = null, ctx = null, config = {};
+		const voiceDebug = () => {}, safeErrorText = String, setVoiceState = () => {};
+		const resolvePreviewModelDir = () => "same";
+		${retirementWiring}
+		${preamble}
+		const events = [];
+		return { channel: previewClient.claim(String(generation), event => events.push(event)), events };
+		}
+		return startRecording;
+	`)
+		)(
+			(options: any) =>
+				createPreviewClient({
+					...options,
+					spawnWorker: () => {
+						const worker = Object.assign(new EventEmitter(), { postMessage() {}, terminate() {} });
+						workers.push(worker);
+						return worker;
+					},
+				}),
+			createRecordingOwner
+		);
+		const a = await start();
+		a.channel.feed(Buffer.alloc(2));
+		workers[0].emit("message", { type: "ready" });
+		const previewA = createPreviewSession(a.channel, { mountPanel() {}, unmountPanel() {}, onDegraded() {} });
+		previewA.feed(Buffer.alloc(2));
+		if (duringStop) void previewA.drain();
+		previewA.abort();
+		const b = await start();
+		b.channel.feed(Buffer.alloc(2));
+		expect(workers).toHaveLength(2);
+		workers[1].emit("message", { type: "ready" });
+		workers[0].emit("message", { type: "partial", segmentId: 0, revision: 1, text: "A" });
+		workers[1].emit("message", { type: "partial", segmentId: 0, revision: 1, text: "B" });
+		expect(b.events.map((event: any) => event.text)).toEqual(["B"]);
+		await a.channel.destroy();
+		await b.channel.destroy();
+	});
+}
+
 for (const rejectDrain of [false, true]) {
 	test(`preview swap waits for an outstanding drain (${rejectDrain ? "rejected" : "resolved"})`, async () => {
 		const events: string[] = [];
@@ -418,6 +476,113 @@ for (const outcome of ["hung", "settled", "cleanup"] as const) {
 			settle();
 		}
 	});
+}
+
+for (const captureFailure of [false, true]) {
+	test(
+		captureFailure
+			? "unexpected capture close writes neither editor nor history"
+			: "final delivery unmounts before insertion and rejects late partials",
+		async () => {
+			let mounted = false;
+			let unmounts = 0;
+			const fed: Buffer[] = [];
+			const preview = createPreviewSession(
+				{
+					recordingId: "r",
+					feed: (chunk) => fed.push(chunk),
+					flush: () => new Promise(() => {}),
+					release() {},
+					destroy: async () => {},
+				},
+				{
+					mountPanel() {
+						mounted = true;
+					},
+					unmountPanel() {
+						mounted = false;
+						unmounts++;
+					},
+					onDegraded() {},
+				}
+			);
+			preview.handleEvent({ kind: "partial", recordingId: "r", segmentId: 0, revision: 1, text: "preview" });
+			const writes: string[] = [],
+				history: string[] = [],
+				notices: string[] = [];
+			const ctx = {
+				hasUI: true,
+				ui: {
+					getEditorText: () => "",
+					pasteToEditor(text: string) {
+						if (!captureFailure) expect(mounted).toBe(false);
+						writes.push(text);
+					},
+					setEditorText() {
+						throw new Error("replacement");
+					},
+					notify: (text: string) => notices.push(text),
+				},
+			};
+			const body = entrypointSource.slice(
+				entrypointSource.indexOf("\t\tconst recordingCallbacks = {"),
+				entrypointSource.indexOf("\n\t\t// ── Start the local capture session")
+			);
+			const callbacks = new Function(
+				"preview",
+				"ctx",
+				"owner",
+				"deliverOutcome",
+				"classifyOutcome",
+				"insertTranscript",
+				"history",
+				transpiler.transformSync(`
+			const current = () => true, config = {}, SAMPLE_RATE = 16000, CHANNELS = 1;
+			let activeSession = null, statusTimer = null, lastStopTime = 0;
+			const clearRecordingAnimTimer = () => {}, hideWidget = () => {}, playSound = () => {}, resetHoldState = () => {};
+			const setVoiceState = () => {}, clearWarmupWidget = () => {}, voiceDebug = () => {};
+			const punctuateTranscript = text => text, addToHistory = text => history.push(text);
+			const finishPreview = session => session.finish();
+			${body}
+			return recordingCallbacks;
+		`)
+			)(
+				preview,
+				ctx,
+				createRecordingOwner(() => true),
+				deliverOutcome,
+				classifyOutcome,
+				insertTranscript,
+				history
+			);
+			const proc = Object.assign(new EventEmitter(), {
+				stdout: new EventEmitter(),
+				stderr: new EventEmitter(),
+				kill() {},
+			});
+			const session = startLocalSession(proc as any, callbacks);
+			const first = Buffer.from([1, 0]),
+				tail = Buffer.from([2, 0]);
+			proc.stdout.emit("data", first);
+			if (captureFailure) proc.emit("close", 1, null);
+			else {
+				const stopping = stopLocalSession(session, DEFAULT_CONFIG, async () => ({ text: "final", hadSpeech: true }));
+				void preview.drain();
+				proc.stdout.emit("data", tail);
+				await stopping;
+				expect(fed).toEqual([first, tail]);
+			}
+			expect(writes).toEqual(captureFailure ? [] : ["final"]);
+			expect(history).toEqual(captureFailure ? [] : ["final"]);
+			expect(notices).toHaveLength(1);
+			if (captureFailure) expect(notices[0]).toContain("Voice error: Audio capture stopped unexpectedly");
+			expect(mounted).toBe(false);
+			expect(unmounts).toBe(1);
+			preview.handleEvent({ kind: "partial", recordingId: "r", segmentId: 0, revision: 2, text: "late" });
+			expect(preview.text).toBe("preview");
+			expect(mounted).toBe(false);
+		}
+	);
 }
 
 test("stale generations cannot stop or deliver", async () => {

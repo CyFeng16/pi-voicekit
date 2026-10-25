@@ -12,7 +12,11 @@ export interface FinalWorkerLike {
 type Result = { text: string; hadSpeech: boolean };
 type SegmentObserver = (text: string, index: number) => void;
 export interface FinalPassClient {
-	transcribe(pcm: Buffer, onSegment?: SegmentObserver): Promise<Result>;
+	readonly signal: AbortSignal;
+	transcribe(
+		pcm: Buffer,
+		options?: { signal?: AbortSignal; onSegment?: SegmentObserver } | SegmentObserver
+	): Promise<Result>;
 	rebind(modelId: string, modelDir: string, language: string): Promise<void>;
 	destroy(): Promise<void>;
 }
@@ -20,6 +24,7 @@ export interface FinalPassClient {
 interface Job {
 	pcm: Uint8Array;
 	onSegment?: SegmentObserver;
+	cleanup(): void;
 	resolve(result: Result): void;
 	reject(error: Error): void;
 }
@@ -39,6 +44,7 @@ export function createFinalPassClient(
 	let active: Job | null = null;
 	let timer: ReturnType<typeof setTimeout> | undefined;
 	const queue: Job[] = [];
+	let lifecycle = new AbortController();
 
 	function retire(message: string): Promise<void> {
 		const old = worker;
@@ -48,7 +54,10 @@ export function createFinalPassClient(
 		const jobs = active ? [active, ...queue] : [...queue];
 		active = null;
 		queue.length = 0;
-		for (const job of jobs) job.reject(new Error(message));
+		for (const job of jobs) {
+			job.cleanup();
+			job.reject(new Error(message));
+		}
 		try {
 			return Promise.resolve(old?.terminate()).then(
 				() => {},
@@ -57,6 +66,27 @@ export function createFinalPassClient(
 		} catch {
 			return Promise.resolve();
 		}
+	}
+
+	// Job object identity scopes cancellation and deadlines; retiring its worker fences late messages.
+	function cancelJob(job: Job, message: string): void {
+		if (active === job) {
+			const old = worker;
+			worker = null;
+			ready = false;
+			active = null;
+			clearTimeout(timer);
+			try {
+				void Promise.resolve(old?.terminate()).catch(() => {});
+			} catch {}
+		} else {
+			const index = queue.indexOf(job);
+			if (index < 0) return;
+			queue.splice(index, 1);
+		}
+		job.cleanup();
+		job.reject(new Error(message));
+		pump();
 	}
 
 	function post(message: FinalRequest): void {
@@ -87,6 +117,7 @@ export function createFinalPassClient(
 			const job = active;
 			active = null;
 			clearTimeout(timer);
+			job.cleanup();
 			job.resolve({ text: message.text, hadSpeech: message.hadSpeech });
 			pump();
 		}
@@ -100,8 +131,10 @@ export function createFinalPassClient(
 			return;
 		}
 		// The host deadline includes cold construction and settles even while native decoding is stuck.
+		const job = active;
 		timer = setTimeout(() => {
-			void retire(
+			cancelJob(
+				job,
 				timeoutMs === 120_000 ? "Transcription timed out (120s)" : `Transcription timed out (${timeoutMs}ms)`
 			);
 		}, timeoutMs);
@@ -129,11 +162,25 @@ export function createFinalPassClient(
 	}
 
 	return {
-		transcribe(pcm, onSegment) {
+		get signal() {
+			return lifecycle.signal;
+		},
+		transcribe(pcm, options = {}) {
 			if (!binding) return Promise.reject(new Error("Final worker has no model binding"));
+			const { signal, onSegment } = typeof options === "function" ? { onSegment: options, signal: undefined } : options;
+			if (signal?.aborted) return Promise.reject(new Error("Transcription cancelled"));
 			return new Promise<Result>((resolve, reject) => {
+				const abort = () => cancelJob(job, "Transcription cancelled");
 				// Copy, not transfer: capture/preview consumers may still own the original pooled Buffer.
-				queue.push({ pcm: new Uint8Array(pcm), onSegment, resolve, reject });
+				const job: Job = {
+					pcm: new Uint8Array(pcm),
+					onSegment,
+					resolve,
+					reject,
+					cleanup: () => signal?.removeEventListener("abort", abort),
+				};
+				queue.push(job);
+				signal?.addEventListener("abort", abort, { once: true });
 				pump();
 			});
 		},
@@ -145,7 +192,13 @@ export function createFinalPassClient(
 			// Lazy rebuild: a settings change must not incur a load until final audio actually needs it.
 			return retire("Final worker rebound to a different model or language");
 		},
-		destroy: () => retire("Final worker destroyed"),
+		destroy: () => {
+			const old = lifecycle;
+			lifecycle = new AbortController();
+			const retired = retire("Final worker destroyed");
+			old.abort();
+			return retired;
+		},
 	};
 }
 
