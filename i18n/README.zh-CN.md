@@ -110,7 +110,8 @@ pi-voicekit 会自动检测你的音频工具。如果你已安装 sox 或 ffmpe
 ### 朗读 — TTS 模型与音色
 
 二十个离线 TTS 模型（Kitten、Kokoro、Piper），最小约 13 MB，选中即下载；随后可选择音色、
-设置语速，并开关智能体回复的自动朗读。面板中有一行 **Test**，会用同一条链路合成一句示例。
+设置语速。TTS 开启后智能体回复会自动朗读 — 该行为由 `settings.json` 中的 `ttsAutoSpeak`
+控制（默认开），本标签页没有对应行。面板中有一行 **Test**，会用同一条链路合成一句示例。
 
 ### 设备 — 硬件信息和依赖项
 
@@ -384,7 +385,7 @@ extensions/voice/sherpa-onnx-node.d.ts      可选原生模块的类型声明
 	"voice": {
 		"version": 5,
 		"enabled": true,
-		"language": "en",
+		"language": "zh",
 		"localModel": "parakeet-v3",
 		"scope": "global",
 		"onboarding": { "completed": true, "schemaVersion": 5 }

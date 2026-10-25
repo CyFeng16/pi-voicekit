@@ -119,7 +119,8 @@ See what's installed, total disk usage, and which model is active. Press Enter t
 ### Speak — TTS models and voices
 
 Twenty offline TTS models (Kitten, Kokoro, Piper) from ~13 MB, downloaded on selection;
-then pick a voice, set the speed, and toggle auto-speak of the agent's replies. The panel
+then pick a voice and set the speed. Replies are read aloud automatically once TTS is on —
+`ttsAutoSpeak` (on by default) is a `settings.json` field with no row in this tab. The panel
 has a **Test** row that synthesises a sample sentence through the same pipeline.
 
 ### Device — hardware profile and dependencies
@@ -415,7 +416,7 @@ live under `~/.pi/models`.
 	"voice": {
 		"version": 5,
 		"enabled": true,
-		"language": "en",
+		"language": "zh",
 		"localModel": "parakeet-v3",
 		"scope": "global",
 		"onboarding": { "completed": true, "schemaVersion": 5 }

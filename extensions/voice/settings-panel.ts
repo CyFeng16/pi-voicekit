@@ -20,7 +20,7 @@
 
 import { matchesKey, Key, truncateToWidth } from "@earendil-works/pi-tui";
 import type { Theme, ThemeColor } from "@earendil-works/pi-coding-agent";
-import { type VoiceConfig, type VoiceSettingsScope } from "./config";
+import { DEFAULT_TTS_LOCAL_MODEL, type VoiceConfig, type VoiceSettingsScope } from "./config";
 import { LOCAL_MODELS, getLanguagesForLocalModel, type LocalModelInfo } from "./local";
 import type { DeviceProfile, ModelFitness } from "./device";
 import { getFreeDiskSpace, formatBytes, getModelsDir, scanHandyModels, importHandyModel } from "./model-download";
@@ -381,7 +381,7 @@ export class VoiceSettingsPanel {
 		}
 		// wide tier — include model/voice details
 		const sttDetail = sttOn ? this.shortenId(config.localModel ?? "—") : "off";
-		const ttsDetail = ttsOn ? this.shortenId(config.ttsLocalModel ?? "kitten-nano-en-v0_2") : "off";
+		const ttsDetail = ttsOn ? this.shortenId(config.ttsLocalModel ?? DEFAULT_TTS_LOCAL_MODEL) : "off";
 		return `${sttBadge} ${this.dim(sttDetail)}${sep}${ttsBadge} ${this.dim(ttsDetail)}${sep}${this.dim(`Lang ${lang}`)}`;
 	}
 
@@ -707,7 +707,7 @@ export class VoiceSettingsPanel {
 
 	/** Status-bar helper: format the current model+voice as one short string. */
 	private formatActiveModelOrVoice(config: VoiceConfig): string {
-		const modelId = config.ttsLocalModel ?? "kitten-nano-en-v0_2";
+		const modelId = config.ttsLocalModel ?? DEFAULT_TTS_LOCAL_MODEL;
 		const sid = typeof config.ttsLocalVoiceId === "number" ? config.ttsLocalVoiceId : 0;
 		// Lazy lookup — keep status compact, full label is in the rows below.
 		const model = TTS_LOCAL_MODELS_REF.find((m) => m.id === modelId);
@@ -717,7 +717,7 @@ export class VoiceSettingsPanel {
 	}
 
 	private formatLocalModelLabel(id: string | undefined): string {
-		const modelId = id ?? "kitten-nano-en-v0_2";
+		const modelId = id ?? DEFAULT_TTS_LOCAL_MODEL;
 		const model = TTS_LOCAL_MODELS_REF.find((m) => m.id === modelId);
 		if (!model) return modelId;
 		const installed = TTS_INSTALLED_CHECK_REF(modelId);
@@ -726,7 +726,7 @@ export class VoiceSettingsPanel {
 	}
 
 	private formatVoiceLabel(config: VoiceConfig): string {
-		const modelId = config.ttsLocalModel ?? "kitten-nano-en-v0_2";
+		const modelId = config.ttsLocalModel ?? DEFAULT_TTS_LOCAL_MODEL;
 		const sid = typeof config.ttsLocalVoiceId === "number" ? config.ttsLocalVoiceId : 0;
 		const model = TTS_LOCAL_MODELS_REF.find((m) => m.id === modelId);
 		const voice = model?.voices.find((v) => v.sid === sid);
@@ -1043,7 +1043,7 @@ export class VoiceSettingsPanel {
 	private openTtsModelPicker(): void {
 		const chassis = this.getTtsModelChassis();
 		chassis.clearSearch();
-		const currentId = this.p.config.ttsLocalModel ?? "kitten-nano-en-v0_2";
+		const currentId = this.p.config.ttsLocalModel ?? DEFAULT_TTS_LOCAL_MODEL;
 		const current = TTS_LOCAL_MODELS_REF.find((m) => m.id === currentId);
 		if (current) chassis.selectValue(current);
 		this.sub = "tts-model-picker";
@@ -1052,7 +1052,7 @@ export class VoiceSettingsPanel {
 	private renderTtsModelPicker(w: number, iw: number): string[] {
 		const lines: string[] = [];
 		const chassis = this.getTtsModelChassis();
-		const currentId = this.p.config.ttsLocalModel ?? "kitten-nano-en-v0_2";
+		const currentId = this.p.config.ttsLocalModel ?? DEFAULT_TTS_LOCAL_MODEL;
 
 		lines.push(`  ${this.bold("Pick TTS model")}`);
 		const query = chassis.getQuery();
@@ -1198,7 +1198,7 @@ export class VoiceSettingsPanel {
 
 	private getCurrentVoiceCatalog(): { id: string | number; label: string; meta?: string; language?: string }[] {
 		const { config } = this.p;
-		const modelId = config.ttsLocalModel ?? "kitten-nano-en-v0_2";
+		const modelId = config.ttsLocalModel ?? DEFAULT_TTS_LOCAL_MODEL;
 		const model = TTS_LOCAL_MODELS_REF.find((m) => m.id === modelId);
 		if (!model) return [];
 		// v7.1: thread the model's primary language so the picker

@@ -66,6 +66,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import {
 	DEFAULT_CONFIG,
+	DEFAULT_TTS_LOCAL_MODEL,
 	getGlobalSettingsPath,
 	loadConfigWithSource,
 	loadGlobalToggleShortcut,
@@ -2631,8 +2632,6 @@ export default function (pi: ExtensionAPI) {
 						"  /voice-settings → open settings panel",
 						"  /voice dictate  → continuous mode (no hold)",
 						"  /voice test     → verify setup",
-						"",
-						"  Say 'undo', 'clear', 'new line', 'period' during dictation",
 					].join("\n"),
 					"info"
 				);
@@ -3270,7 +3269,7 @@ export default function (pi: ExtensionAPI) {
 			// Fetch the model on demand if it is missing. v7.1: surface
 			// progress through the sticky install widget instead of the
 			// v7.0.x notify-spam loop.
-			const modelId = config.ttsLocalModel || "kitten-nano-en-v0_2";
+			const modelId = config.ttsLocalModel || DEFAULT_TTS_LOCAL_MODEL;
 			try {
 				getInstalledTtsModelDir(modelId);
 			} catch {
@@ -3498,7 +3497,7 @@ export default function (pi: ExtensionAPI) {
 			lines.push(`  Auto-speak:   ${config.ttsAutoSpeak ? "yes" : "no"}`);
 			lines.push("");
 
-			const modelId = config.ttsLocalModel ?? "kitten-nano-en-v0_2";
+			const modelId = config.ttsLocalModel ?? DEFAULT_TTS_LOCAL_MODEL;
 			let model;
 			try {
 				model = getTtsModel(modelId);

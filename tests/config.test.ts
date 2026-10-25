@@ -7,6 +7,7 @@ import { resetPunctuationForTest } from "../extensions/voice/punctuation";
 import { CONFIG_DIR_NAME } from "@earendil-works/pi-coding-agent";
 import {
 	DEFAULT_CONFIG,
+	DEFAULT_TTS_LOCAL_MODEL,
 	getGlobalSettingsPath,
 	getProjectSettingsPath,
 	loadConfigWithSource,
@@ -17,6 +18,7 @@ import {
 	VOICE_CONFIG_VERSION,
 	type VoiceConfig,
 } from "../extensions/voice/config";
+import { getTtsModel, modelSupportsLanguage } from "../extensions/voice/tts-local-models";
 
 const tempDirs: string[] = [];
 /** `os.homedir` mocks that outlive their test body — see `runSessionStart`; restored in `afterEach`. */
@@ -114,6 +116,24 @@ describe("loadConfigWithSource", () => {
 		expect(result.config.enabled).toBe(true);
 		expect(result.config.onboarding.completed).toBe(false);
 		expect(result.config.scope).toBe("global");
+		expect(result.config.language).toBe("zh");
+	});
+
+	test("keeps English when the settings file asks for it — the Chinese default only fills an absent key", () => {
+		const cwd = makeTempDir();
+		const agentDir = path.join(cwd, "agent-home");
+		writeSettings(agentDir, "settings.json", { enabled: true, language: "en" });
+
+		const result = loadConfigWithSource(cwd, { agentDir });
+
+		expect(result.config.language).toBe("en");
+	});
+
+	test("the default TTS model speaks the default dictation language", () => {
+		const model = getTtsModel(DEFAULT_TTS_LOCAL_MODEL);
+
+		expect(modelSupportsLanguage(model, DEFAULT_CONFIG.language)).toBe(true);
+		expect(model.incompatible).toBeUndefined();
 	});
 
 	test("migrates a legacy global config whose raw backend and model keys are explicit", () => {
@@ -1329,7 +1349,7 @@ describe("session_start activation (the local model is the only path)", () => {
 		if (options.ttsModelInstalled) {
 			// The TTS model lookup resolves under the mocked home, so an install marker is enough to keep
 			// `/voice-speak` off the (network) install path and inside the mocked synthesis.
-			const ttsModelDir = path.join(home, ".pi", "models", "tts", DEFAULT_CONFIG.ttsLocalModel!);
+			const ttsModelDir = path.join(home, ".pi", "models", "tts", DEFAULT_TTS_LOCAL_MODEL);
 			fs.mkdirSync(ttsModelDir, { recursive: true });
 			fs.writeFileSync(path.join(ttsModelDir, "tokens.txt"), "");
 		}

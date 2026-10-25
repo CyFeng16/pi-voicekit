@@ -62,7 +62,7 @@ export interface VoiceConfig {
 
 	/** Master TTS toggle. When false, /voice-speak is a no-op. */
 	ttsEnabled?: boolean;
-	/** Active local TTS model id (e.g. "kitten-nano-en-v0_2"). */
+	/** Active local TTS model id (e.g. "piper-zh_CN-chaowen-medium-int8"). */
 	ttsLocalModel?: string;
 	/**
 	 * Local backend speaker id (numeric `sid` per the model's voice
@@ -131,10 +131,20 @@ const PUNCTUATION_ENABLED_DEFAULT = true;
 /** Defaults of the two transcript-cleanup switches (spec §4.4) — on unless the machine turns them off. */
 const CLEANUP_ENABLED_DEFAULT = true;
 
+/**
+ * Default local TTS model. This fork defaults the dictation language to Chinese, so the TTS default
+ * follows it: Piper Chaowen is the only small, non-flagged Chinese voice in the catalog (13 MB, MIT,
+ * one male voice, 22.05 kHz). `DEFAULT_TTS_MODEL` in `tts-local-models.ts` is a different thing — the
+ * English smallest model `recommendDefaultModel` suggests for en/unknown locales.
+ */
+export const DEFAULT_TTS_LOCAL_MODEL = "piper-zh_CN-chaowen-medium-int8";
+
 export const DEFAULT_CONFIG: VoiceConfig = {
 	version: VOICE_CONFIG_VERSION,
 	enabled: true,
-	language: "en",
+	// This fork ships Chinese as the default dictation language (upstream defaulted to English).
+	// A `language` in settings.json always wins; this only fills the absent key.
+	language: "zh",
 	scope: "global",
 	localModel: undefined,
 	punctuationEnabled: PUNCTUATION_ENABLED_DEFAULT,
@@ -144,7 +154,10 @@ export const DEFAULT_CONFIG: VoiceConfig = {
 	toggleShortcut: "ctrl+shift+v",
 	// TTS defaults — all opt-in
 	ttsEnabled: false,
-	ttsLocalModel: "kitten-nano-en-v0_2",
+	// The TTS default follows the dictation default (`language: "zh"`): Piper Chaowen is the only
+	// small, non-flagged Chinese voice in the catalog. `DEFAULT_TTS_MODEL` in `tts-local-models.ts`
+	// stays the English smallest model that `recommendDefaultModel` suggests for en/unknown locales.
+	ttsLocalModel: DEFAULT_TTS_LOCAL_MODEL,
 	ttsLocalVoiceId: 0,
 	ttsSpeed: 1.0,
 	ttsAutoSpeak: true,
@@ -263,7 +276,7 @@ function migrateConfig(rawVoice: any, source: VoiceConfigSource, globalVoice?: u
 		ttsLocalModel:
 			typeof rawVoice.ttsLocalModel === "string" && rawVoice.ttsLocalModel
 				? rawVoice.ttsLocalModel
-				: DEFAULT_CONFIG.ttsLocalModel,
+				: DEFAULT_TTS_LOCAL_MODEL,
 		ttsLocalVoiceId:
 			typeof rawVoice.ttsLocalVoiceId === "number" && Number.isFinite(rawVoice.ttsLocalVoiceId)
 				? rawVoice.ttsLocalVoiceId

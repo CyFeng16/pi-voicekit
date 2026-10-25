@@ -116,9 +116,10 @@ export interface TtsLocalModelInfo {
 // ─── Catalog ──────────────────────────────────────────────────────────────────
 
 /**
- * Default TTS model id — what gets downloaded on first `/voice-speak` if no
- * model is selected. Chosen for the smallest viable English model (25 MB)
- * with a permissive license and 8 voices for variety.
+ * The catalog's first-run suggestion for an English or unknown locale — what
+ * `recommendDefaultModel` picks before the user chooses anything: the smallest
+ * viable English model (25 MB), permissive licence, 8 voices. It is NOT the
+ * config default: `DEFAULT_CONFIG.ttsLocalModel` follows the dictation language.
  */
 export const DEFAULT_TTS_MODEL = "kitten-nano-en-v0_2";
 

@@ -20,7 +20,7 @@
  * to maintain.
  */
 
-import type { VoiceConfig } from "./config";
+import { DEFAULT_TTS_LOCAL_MODEL, type VoiceConfig } from "./config";
 import { synthesize, type TtsAudio } from "./tts-engine";
 import { openPlaybackStream, float32ToInt16, type PlaybackStream } from "./tts-playback";
 import { getTtsModel, type TtsLocalModelInfo } from "./tts-local-models";
@@ -208,7 +208,7 @@ interface SynthesizeChunkOpts {
 async function synthesizeChunk(opts: SynthesizeChunkOpts): Promise<{ samples: Float32Array; sampleRate: number }> {
 	const { chunk, config, language, signal } = opts;
 
-	const modelId = config.ttsLocalModel || "kitten-nano-en-v0_2";
+	const modelId = config.ttsLocalModel || DEFAULT_TTS_LOCAL_MODEL;
 	const model: TtsLocalModelInfo = getTtsModel(modelId);
 	if (!opts.resolveModelDir) {
 		throw new Error(
