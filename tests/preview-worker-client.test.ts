@@ -112,6 +112,8 @@ describe("preview worker client", () => {
 		const channel = client.claim("r1", (event) => events.push(event));
 
 		channel.feed(pcm16(160));
+		// The partial is in hand before the flush is posted, so the tail the client has to freeze is known.
+		await until(() => events.some((event) => event.kind === "partial"));
 		const startedAt = Date.now();
 		await channel.flush("stop");
 		const elapsed = Date.now() - startedAt;
@@ -119,19 +121,43 @@ describe("preview worker client", () => {
 		// The caller waited the timeout and not a millisecond more: the promise resolves, it never rejects.
 		expect(elapsed).toBeGreaterThanOrEqual(100);
 		expect(elapsed).toBeLessThan(1_000);
-		expect(events.filter((event) => event.kind === "degraded")).toEqual([
-			{ kind: "degraded", recordingId: "r1", reason: "preview-worker-failed", detail: expect.any(String) },
-		]);
-		// A failed flush manufactures no commit and no second degradation.
-		expect(events.filter((event) => event.kind === "commit")).toEqual([]);
+		// The segment closes with the text the user is still looking at, and only then is it degraded: a
+		// consumer that stops listening on `degraded` must not lose the words it was rendering.
+		expect(events.map((event) => event.kind)).toEqual(["partial", "commit", "degraded"]);
+		expect(events[1]).toEqual({ kind: "commit", recordingId: "r1", segmentId: 0, text: "p0:1:160" });
+		expect(events[2]).toEqual({
+			kind: "degraded",
+			recordingId: "r1",
+			reason: "preview-worker-failed",
+			detail: expect.any(String),
+		});
+		// One failed flush is exactly one commit and exactly one degradation.
+		expect(events.filter((event) => event.kind === "commit")).toHaveLength(1);
 		expect(events.filter((event) => event.kind === "degraded")).toHaveLength(1);
 		// A worker that will not answer a flush cannot be reused, so it is not kept warm either.
 		expect(spawner.terminated).toBe(1);
 
-		// The claim is degraded for good: a later flush settles immediately and reports nothing new.
+		// The claim is degraded for good: later flushes and feeds report nothing new.
 		const settled = events.length;
 		await channel.flush("stop");
+		channel.feed(pcm16(160));
 		expect(events).toHaveLength(settled);
+	}, 10_000);
+
+	test("a timed-out flush with no partial commits empty text before it degrades", async () => {
+		const spawner = spawnerFor("silent");
+		const client = makeClient(spawner, { flushTimeoutMs: 120 });
+		const events: PreviewEvent[] = [];
+		const channel = client.claim("r1", (event) => events.push(event));
+
+		// This worker never produces a partial, so there is no tail to freeze; the segment still closes.
+		channel.feed(pcm16(160));
+		await channel.flush("stop");
+
+		expect(events).toEqual([
+			{ kind: "commit", recordingId: "r1", segmentId: 0, text: "" },
+			{ kind: "degraded", recordingId: "r1", reason: "preview-worker-failed", detail: expect.any(String) },
+		]);
 	}, 10_000);
 
 	test("two consecutive claims reuse one worker; release never terminates it", async () => {
@@ -215,6 +241,8 @@ describe("preview worker client", () => {
 
 		// An intentional teardown is not a degradation, and the 5 s timeout was never waited out.
 		expect(events.filter((event) => event.kind === "degraded")).toEqual([]);
+		// Nothing is frozen either: an abandoned recording is dropped, not closed off.
+		expect(events.filter((event) => event.kind === "commit")).toEqual([]);
 		expect(spawner.terminated).toBe(1);
 	});
 
@@ -259,6 +287,12 @@ describe("preview worker client", () => {
 		]);
 		// One worker failure is one degradation, however many flushes were waiting on it.
 		expect(events.filter((event) => event.kind === "degraded")).toHaveLength(1);
+		// A reported failure closes the segment the same way a timeout does, and likewise before the
+		// degradation, so the `degraded`-message path cannot lose the tail either.
+		expect(events.map((event) => event.kind)).toEqual(["partial", "commit", "degraded"]);
+		expect(events.filter((event) => event.kind === "commit")).toEqual([
+			{ kind: "commit", recordingId: "r1", segmentId: 0, text: "p0:1:160" },
+		]);
 	});
 
 	test("partials and commits reach the claim, converted and in order", async () => {

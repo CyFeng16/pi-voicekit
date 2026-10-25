@@ -16,7 +16,9 @@
  *   the worker will never answer them, so waiting would only add the timeout to the final path.
  * - **Failure is one `degraded` per recording, never a throw.** `feed()`, `flush()` and `destroy()` are
  *   safe on any path; a worker that cannot start, dies, or stops answering becomes one
- *   `preview-worker-failed` event carrying the detail for the debug channel.
+ *   `preview-worker-failed` event carrying the detail for the debug channel. That event is preceded by
+ *   one `commit` freezing whatever the segment was still showing (see `freezeClaim`), so a failure never
+ *   erases text the caller could already render.
  * - **No preview is not a failure.** A `null` model directory yields a claim whose methods are no-ops and
  *   that emits nothing at all — a missing preview model is the ordinary steady state (§6.2).
  *
@@ -103,6 +105,15 @@ interface ClaimState {
 	degraded: boolean;
 	/** Audio reached the worker, so releasing this claim leaves a segment for it to drain. */
 	fedAudio: boolean;
+	/**
+	 * The segment this claim could still have open, and the last partial text forwarded for it.
+	 *
+	 * A commit advances the id past the segment it ended and clears the text; `text === null` means the
+	 * open segment showed nothing yet. Tracking it here is what lets a failure close the segment with the
+	 * words the caller is still rendering instead of an empty one.
+	 */
+	openSegmentId: number;
+	openText: string | null;
 }
 
 interface PendingFlush {
@@ -176,10 +187,32 @@ export function createPreviewClient(options: PreviewClientOptions): PreviewClien
 		}
 	}
 
+	/**
+	 * Close the claim's open segment with a `commit`, carrying the last partial text it showed.
+	 *
+	 * This is what the spec's "empty commit" on a failed flush is for (§4.3): it ends the segment for good,
+	 * so the next claim's first partial cannot extend text the user already saw, and it does so without
+	 * losing anything — the text handed over is the text that was on screen, and the commit is that same
+	 * text made immutable. With no partial ever forwarded the commit is empty, which a text join drops.
+	 */
+	function freezeClaim(claim: ClaimState): void {
+		const text = claim.openText ?? "";
+		claim.openText = null;
+		deliver(claim, {
+			kind: "commit",
+			recordingId: claim.recordingId,
+			segmentId: claim.openSegmentId,
+			text,
+		});
+	}
+
 	/** The one degradation a claim may receive. A later failure finds it already reported. */
 	function degradeClaim(claim: ClaimState, detail: string): void {
 		if (claim.released || claim.degraded) return;
 		claim.degraded = true;
+		// The commit lands first: a consumer that stops listening on `degraded` still has the text it was
+		// rendering, now as an immutable segment instead of a tail a later claim could overwrite.
+		freezeClaim(claim);
 		deliver(claim, { kind: "degraded", recordingId: claim.recordingId, reason: "preview-worker-failed", detail });
 	}
 
@@ -370,6 +403,9 @@ export function createPreviewClient(options: PreviewClientOptions): PreviewClien
 	function onPartial(message: { segmentId: number; revision: number; text: string }): void {
 		const claim = streamTarget();
 		if (claim === null) return;
+		// Remember the tail as it is delivered: this is the text a failure has to freeze, not re-ask for.
+		claim.openSegmentId = message.segmentId;
+		claim.openText = message.text;
 		deliver(claim, {
 			kind: "partial",
 			recordingId: claim.recordingId,
@@ -382,6 +418,12 @@ export function createPreviewClient(options: PreviewClientOptions): PreviewClien
 	function onCommit(message: { segmentId: number; text: string }): void {
 		const claim = streamTarget();
 		if (claim === null) return;
+		// The committed segment is immutable now and nothing of it is left to freeze: the claim's open
+		// segment becomes the next one, and a later failure therefore cannot re-commit its text.
+		if (message.segmentId >= claim.openSegmentId) {
+			claim.openSegmentId = message.segmentId + 1;
+			claim.openText = null;
+		}
 		deliver(claim, {
 			kind: "commit",
 			recordingId: claim.recordingId,
@@ -480,7 +522,15 @@ export function createPreviewClient(options: PreviewClientOptions): PreviewClien
 	}
 
 	function claim(recordingId: string, onEvent: (event: PreviewEvent) => void): PreviewChannel {
-		const state: ClaimState = { recordingId, onEvent, released: false, degraded: false, fedAudio: false };
+		const state: ClaimState = {
+			recordingId,
+			onEvent,
+			released: false,
+			degraded: false,
+			fedAudio: false,
+			openSegmentId: 0,
+			openText: null,
+		};
 
 		if (modelDir === null) {
 			// Without a model there is no preview at all: not a degradation, and not worth a worker.

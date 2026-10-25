@@ -14,6 +14,7 @@
  *
  * `workerData.mode` selects the script:
  * - `stream` (default): the well-behaved worker.
+ * - `silent`: answers `init`, then ignores `feed` and `flush`, so a claim never receives a partial.
  * - `silent-flush`: answers `init`, emits partials, swallows every `flush`.
  * - `fail-second-flush`: swallows the first flush, then reports `failed` and exits.
  */
@@ -21,7 +22,7 @@
 import { parentPort, workerData, type MessagePort } from "node:worker_threads";
 import type { WorkerRequest, WorkerResponse } from "../../extensions/voice/local-preview-worker";
 
-export type FakePreviewWorkerMode = "stream" | "silent-flush" | "fail-second-flush";
+export type FakePreviewWorkerMode = "stream" | "silent" | "silent-flush" | "fail-second-flush";
 
 const mode: FakePreviewWorkerMode = (workerData as { mode?: FakePreviewWorkerMode } | null)?.mode ?? "stream";
 
@@ -45,6 +46,7 @@ function script(port: MessagePort): void {
 				send({ type: "ready" });
 				break;
 			case "feed":
+				if (mode === "silent") break;
 				feedsInSegment += 1;
 				send({
 					type: "partial",
@@ -55,7 +57,7 @@ function script(port: MessagePort): void {
 				break;
 			case "flush":
 				flushes += 1;
-				if (mode === "silent-flush") break;
+				if (mode === "silent" || mode === "silent-flush") break;
 				if (mode === "fail-second-flush" && flushes === 1) break;
 				if (mode === "fail-second-flush") {
 					// The real worker posts its one failure and ends the thread; a client that waits for the
