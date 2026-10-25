@@ -1639,6 +1639,17 @@ describe("session_start activation (the local model is the only path)", () => {
 		expect((globalThis as any).__piListen?.recording).not.toBe(true);
 	});
 
+	test("the General tab navigates over four rows, not five", async () => {
+		const session = await runSessionStart({ onboarding: { completed: true } });
+
+		let rows = -1;
+		await session.closePanel((panel) => {
+			rows = (panel as any).getRowCount("general");
+		});
+
+		expect(rows).toBe(4);
+	});
+
 	test("F1 opens help with no configured model", async () => {
 		// Help is advertised by the extension and has nothing to do with a model; the callback used to be
 		// missing entirely, so the key fell through to the editor.
