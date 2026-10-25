@@ -7,6 +7,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.6] - 2026-10-26
+
+### Changed
+
+- **The recording path left `extensions/voice.ts`.** It now lives in five modules beside it —
+  `recording-controller.ts` (state and generation), `recording-presenter.ts` (what the user sees and
+  hears), `recording-entry.ts` (the start preamble), `preview-retirement.ts` (retired preview clients)
+  and `recording-lifecycle.ts` (the flow) — each with injected dependencies and a single owner per piece
+  of state. The entrypoint fell from 3 558 to 3 197 lines and keeps the command surface, the settings
+  panel, onboarding, TTS, the session hooks and the composition. Nothing the user can see changes: same
+  notices, sounds, state names, timing budgets, editor insertion and history rules.
+
+### Added
+
+- **The test suite is compiled.** `tsconfig.tests.json` type-checks `tests/**` alongside the extensions,
+  and the twelve type errors that had accumulated outside the compiler are fixed with no suppressions and
+  no deleted coverage. `bun run check` now runs both projects.
+- **A packaging gate that runs the artifact a user receives.** `bun run smoke:installed` packs the
+  tarball, stages it under a `node_modules/pi-voicekit` path, and starts both worker entries with the real
+  `node` binary, requiring a protocol message from each. CI runs it in a `packaging` job on every push and
+  pull request. This is the class of defect that made 0.6.4 fail on every installed copy while every test
+  passed.
+- **A release-contract checker.** `bun run release:check` enforces all four release rules — the
+  `package.json` version, both `package-lock.json` version fields, a dated `## [x.y.z]` section whose
+  `[Unreleased]` above it is empty, and the compare-link definitions — and `release.yml` runs the same
+  checker before it sets up Bun, so a violated rule fails the release before anything reaches the
+  registry.
+
+### Removed
+
+- The tests that executed source text sliced out of `extensions/voice.ts`
+  (`tests/preview-entrypoint.test.ts`, `tests/recording-lifecycle.test.ts` and two string adapters). Every
+  assertion they carried now lives in a module suite or in an integration test that drives the real
+  extension through its registered commands and hooks.
+
+### Note
+
+The real-machine gates — first-text latency, TUI frame rate, peak RSS, a five-minute recording, real-model
+equivalence and `/reload` worker reclamation — were not run for this release. The automation above is what
+this version claims.
+
 ## [0.6.5] - 2026-10-25
 
 ### Fixed
@@ -1499,7 +1540,8 @@ single source of truth per row.
 - VAD pre-filtering
 - Pompom/Lumo creature companion (now separate package)
 
-[Unreleased]: https://github.com/CyFeng16/pi-voicekit/compare/v0.6.5...HEAD
+[Unreleased]: https://github.com/CyFeng16/pi-voicekit/compare/v0.6.6...HEAD
+[0.6.6]: https://github.com/CyFeng16/pi-voicekit/compare/v0.6.5...v0.6.6
 [0.6.5]: https://github.com/CyFeng16/pi-voicekit/compare/v0.6.4...v0.6.5
 [0.6.4]: https://github.com/CyFeng16/pi-voicekit/compare/v0.6.3...v0.6.4
 [0.6.3]: https://github.com/CyFeng16/pi-voicekit/compare/v0.6.2...v0.6.3
