@@ -18,6 +18,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   documented way a user's own configuration can move data off the machine; the auto-submit exception
   went with the feature.
 
+The config schema is now 6: `serializeConfig` stamps both `voice.version` and
+`onboarding.schemaVersion`, so a file still at 5 keeps working and is rewritten at 6
+on the next full save.
+
 ## [0.6.1] - 2026-10-24
 
 ### Fixed

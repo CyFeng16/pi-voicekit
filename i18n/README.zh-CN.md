@@ -387,7 +387,7 @@ extensions/voice/sherpa-onnx-node.d.ts      可选原生模块的类型声明
 		"language": "zh",
 		"localModel": "parakeet-v3",
 		"scope": "global",
-		"onboarding": { "completed": true, "schemaVersion": 5 }
+		"onboarding": { "completed": true, "schemaVersion": 6 }
 	}
 }
 ```
