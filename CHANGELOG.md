@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+
+- **Two advisories fixed in the dependency tree.** `undici` (high — a denial of service via an
+  unhandled error on excessive content-encodings) and `brace-expansion` (moderate — quadratic-time
+  expansion of the `{a,b}` rewrite) both arrived through `@earendil-works/pi-coding-agent`. Both are
+  now pinned above their advisory ranges with `overrides` (`undici@^8.12.2`, `brace-expansion@^5.0.12`),
+  and both lockfiles were regenerated. Neither package is code this extension ships: it runs inside Pi,
+  which supplies its own copy.
+
 ## [0.6.2] - 2026-10-25
 
 ### Removed
