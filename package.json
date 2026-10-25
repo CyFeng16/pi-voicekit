@@ -53,7 +53,8 @@
     "format": "prettier --write \"**/*.{ts,mts,json,yml,yaml}\"",
     "format:check": "prettier --check \"**/*.{ts,mts,json,yml,yaml}\"",
     "compat:upstream": "node scripts/upstream-compat.mjs",
-    "release:dry": "bun run check && bun publish --dry-run"
+    "release:check": "bun scripts/release-check.mjs",
+    "release:dry": "bun run release:check && bun run check && bun publish --dry-run"
   },
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": "*",
