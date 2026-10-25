@@ -147,6 +147,7 @@ for (const transition of ["installed", "enabled", "removed", "disabled"] as cons
 			transpiler.transformSync(`
 				let previewClient = null;
 				let previewClientModelDir: string | null = null;
+				let previewFinish: Promise<void> | null = null;
 				let recordingGeneration = 0, recordingOwner = null;
 				const activePreview = null, ctx = null;
 				const voiceDebug = () => {}, setVoiceState = () => {};
@@ -211,7 +212,11 @@ for (const superseded of [false, true]) {
 			const config = { enabled: true }, sub = "dictate", toggleShortcutLabel = "toggle";
 			const cmdCtx = { ui: { notify: (text) => notices.push(text) } };
 			const startVoiceRecording = () => { recordingGeneration++; return pending; };
-			return { run: async () => { ${body} }, supersede: () => recordingGeneration++ };
+			return {
+				run: async () => { ${body} },
+				supersede: () => recordingGeneration++,
+				get dictationMode() { return dictationMode; }
+			};
 		`)
 		)(pending, notices);
 		const running = harness.run();
@@ -219,6 +224,96 @@ for (const superseded of [false, true]) {
 		resolve(true);
 		await running;
 		expect(notices).toHaveLength(superseded ? 0 : 1);
+		expect(harness.dictationMode).toBe(!superseded);
+	});
+}
+
+test("repeated finishes retain the outstanding drain until the session releases", async () => {
+	const body = entrypointSource.slice(
+		entrypointSource.indexOf("\tfunction finishPreview("),
+		entrypointSource.indexOf("\tasync function startRecording():")
+	);
+	const harness = new Function(
+		transpiler.transformSync(`
+		let previewFinish = null;
+		const voiceDebug = () => {}, safeErrorText = String;
+		${body}
+		return { finishPreview, get pending() { return previewFinish; } };
+	`)
+	)();
+	let settle!: () => void;
+	let releases = 0;
+	const session = createPreviewSession(
+		{
+			recordingId: "old",
+			feed() {},
+			flush: () =>
+				new Promise<void>((resolve) => {
+					settle = resolve;
+				}),
+			release() {
+				releases++;
+			},
+			destroy: async () => {},
+		},
+		{ mountPanel() {}, unmountPanel() {}, onDegraded() {} }
+	);
+	const owner = createRecordingOwner(() => true);
+	await owner.stop(
+		async () => {},
+		() => harness.finishPreview(session)
+	);
+	expect(harness.pending).not.toBeNull();
+	const finishing = harness.finishPreview(session);
+	expect(releases).toBe(0);
+	settle();
+	await finishing;
+	expect(releases).toBe(1);
+	expect(harness.pending).toBeNull();
+});
+
+for (const rejectDrain of [false, true]) {
+	test(`preview swap waits for an outstanding drain (${rejectDrain ? "rejected" : "resolved"})`, async () => {
+		const events: string[] = [];
+		let settle!: () => void;
+		const pending = new Promise<void>((resolve, reject) => {
+			settle = () => {
+				events.push("settled");
+				if (rejectDrain) reject(new Error("drain failed"));
+				else resolve();
+			};
+		});
+		const preamble = entrypointSource.slice(
+			entrypointSource.indexOf("\tasync function startRecording():"),
+			entrypointSource.indexOf("\t\tlet unsubscribe:")
+		);
+		const harness = new Function(
+			"pending",
+			"events",
+			"createRecordingOwner",
+			transpiler.transformSync(`
+				let previewFinish = pending;
+				let previewClientModelDir = "old";
+				let previewClient = {
+					claim() { throw new Error("new claim touched old client"); },
+					destroy() { events.push("destroy"); return Promise.reject(new Error("destroy failed")); }
+				};
+				let recordingGeneration = 0, recordingOwner = null;
+				const activePreview = null, ctx = null, config = {};
+				const voiceDebug = () => events.push("debug"), safeErrorText = String;
+				const setVoiceState = () => {}, resolvePreviewModelDir = () => "new";
+				const createPreviewClient = () => ({ claim() { events.push("new claim"); } });
+				${preamble}
+				previewClient.claim(String(generation), () => {});
+				}
+				return startRecording;
+			`)
+		)(pending, events, createRecordingOwner);
+		await harness();
+		expect(events.filter((event) => event !== "debug")).toEqual(["new claim"]);
+		settle();
+		await new Promise((resolve) => setTimeout(resolve, 0));
+		expect(events.slice(-3)).toEqual(["settled", "destroy", "debug"]);
 	});
 }
 

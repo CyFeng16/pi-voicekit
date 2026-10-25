@@ -721,6 +721,7 @@ export default function (pi: ExtensionAPI) {
 	let recordingGeneration = 0;
 	let previewClient: PreviewClient | null = null;
 	let previewClientModelDir: string | null = null;
+	let previewFinish: Promise<void> | null = null;
 	let activePreview: PreviewSession | null = null;
 	let recordingOwner: ReturnType<typeof createRecordingOwner> | null = null;
 
@@ -878,8 +879,12 @@ export default function (pi: ExtensionAPI) {
 		activePreview?.abort();
 		activePreview = null;
 		recordingGeneration++;
-		void previewClient?.destroy();
+		void previewClient?.destroy().catch((error) => {
+			voiceDebug("preview destroy failed", { error: safeErrorText(error) });
+		});
 		previewClient = null;
+		previewClientModelDir = null;
+		previewFinish = null;
 		// v7.1: cancel in-flight installs FIRST so their AbortControllers
 		// fire before we drop UI state. Without this, a session_shutdown
 		// during a download would leave the network/disk work running
@@ -1263,6 +1268,18 @@ export default function (pi: ExtensionAPI) {
 		}
 	}
 
+	function finishPreview(preview: PreviewSession): Promise<void> {
+		// Retain every outstanding drain for this client, without delaying final-pass delivery.
+		const finishing = Promise.all([previewFinish, preview.finish()])
+			.then(() => {})
+			.catch((error) => voiceDebug("preview finish failed", { error: safeErrorText(error) }))
+			.finally(() => {
+				if (previewFinish === finishing) previewFinish = null;
+			});
+		previewFinish = finishing;
+		return finishing;
+	}
+
 	async function startRecording(): Promise<boolean> {
 		voiceDebug("startRecording called");
 		setVoiceState("recording");
@@ -1275,9 +1292,15 @@ export default function (pi: ExtensionAPI) {
 		const recordingCtx = ctx;
 		const previewModelDir = resolvePreviewModelDir(config.previewEnabled ?? true);
 		if (previewClient && previewModelDir !== previewClientModelDir) {
-			// destroy() retires claims and terminates the worker synchronously.
-			void previewClient.destroy();
+			const oldClient = previewClient;
+			const previousFinish = previewFinish;
 			previewClient = null;
+			previewClientModelDir = null;
+			previewFinish = null;
+			// Retire the shared reference now, but let its channel finish draining before destruction.
+			void (previousFinish ? previousFinish.finally(() => oldClient.destroy()) : oldClient.destroy()).catch((error) =>
+				voiceDebug("preview destroy failed", { error: safeErrorText(error) })
+			);
 		}
 		if (!previewClient) {
 			previewClient = createPreviewClient({ previewModelDir });
@@ -1326,7 +1349,7 @@ export default function (pi: ExtensionAPI) {
 			},
 			onDone: (result: LocalSessionResult, doneMeta: { capturedBytes: number }) => {
 				if (!owner.deliver()) return;
-				void preview.finish();
+				void finishPreview(preview);
 				activeSession = null;
 				clearRecordingAnimTimer();
 				if (statusTimer) {
@@ -1503,7 +1526,7 @@ export default function (pi: ExtensionAPI) {
 			const preview = activePreview;
 			await recordingOwner?.stop(
 				() => stopLocalSession(session, config),
-				() => preview?.finish() ?? Promise.resolve()
+				() => (preview ? finishPreview(preview) : Promise.resolve())
 			);
 		} else {
 			// No active session — shouldn't happen, but recover gracefully
@@ -2640,12 +2663,12 @@ export default function (pi: ExtensionAPI) {
 					cmdCtx.ui.notify("Already in dictation mode. /voice stop to end.", "info");
 					return;
 				}
-				dictationMode = true;
 				const starting = startVoiceRecording();
 				const generation = recordingGeneration;
 				const ok = await starting;
 				if (generation !== recordingGeneration) return;
 				if (ok) {
+					dictationMode = true;
 					cmdCtx.ui.notify(
 						[
 							"🎤 Continuous dictation mode active.",
