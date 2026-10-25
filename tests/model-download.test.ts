@@ -167,3 +167,24 @@ describe("languagesForLangSupport (shared capability table)", () => {
 		expect(languagesForLangSupport("some-future-family" as any)).toEqual([]);
 	});
 });
+
+describe("getFreeDiskSpace", () => {
+	// Regression: on a fresh install the models directory, its parent and possibly
+	// `~/.pi` do not exist yet — exactly when "is there room to download?" matters.
+	// A single-parent retry returned null there, which silently removed the hint from
+	// the settings panel's Device tab (caught by CI, where no ~/.pi exists).
+	test("resolves through missing ancestors instead of giving up", () => {
+		const { getFreeDiskSpace } = require("../extensions/voice/model-download");
+		const deepMissing = path.join(os.tmpdir(), "no-such-a", "no-such-b", "models", "nested");
+		const free = getFreeDiskSpace(deepMissing);
+		expect(free).not.toBeNull();
+		expect(free!).toBeGreaterThan(0);
+	});
+
+	test("never returns a negative figure for the filesystem root", () => {
+		const { getFreeDiskSpace } = require("../extensions/voice/model-download");
+		const free = getFreeDiskSpace("/no-such-model-dir");
+		expect(free).not.toBeNull();
+		expect(free!).toBeGreaterThanOrEqual(0);
+	});
+});

@@ -580,19 +580,21 @@ export function getFreeDiskSpace(dirPath: string): number | null {
 	} catch {
 		// statfsSync not available or path doesn't exist yet
 	}
-
-	// Fallback: try parent directory
-	const parent = path.dirname(dirPath);
-	if (parent !== dirPath) {
+	// Fallback: walk up to the nearest ancestor that exists. The models directory is absent on a
+	// fresh install — exactly when "is there room to download?" matters most — so a single-parent
+	// retry is not enough (`~/.pi/models` and `~/.pi` can both be missing).
+	let current = path.dirname(dirPath);
+	while (true) {
 		try {
-			const stats = fs.statfsSync(parent);
+			const stats = fs.statfsSync(current);
 			return stats.bavail * stats.bsize;
 		} catch {
-			// Give up
+			// Keep walking up; the filesystem root is tried too.
 		}
+		const parent = path.dirname(current);
+		if (parent === current) return null;
+		current = parent;
 	}
-
-	return null;
 }
 
 /** Format bytes as human-readable string. */
