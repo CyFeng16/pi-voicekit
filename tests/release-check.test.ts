@@ -110,6 +110,32 @@ describe("checkRelease — spec §6.1", () => {
 		expect(violations[0]).toContain("not empty");
 	});
 
+	test("fails when the version section is above [Unreleased]", () => {
+		// Nothing in [Unreleased] and the notes are under [0.6.5] as they should be, but the
+		// sections are ordered the other way round: the next release's notes would land above
+		// the version section and be released under the wrong heading.
+		const changelog = [
+			"# Changelog",
+			"",
+			"## [0.6.5] - 2026-10-25",
+			"",
+			"### Fixed",
+			"",
+			"- a fixed thing",
+			"",
+			"## [Unreleased]",
+			"",
+			`[Unreleased]: ${REPO}/compare/v0.6.5...HEAD`,
+			`[0.6.5]: ${REPO}/compare/v0.6.4...v0.6.5`,
+			"",
+		].join("\n");
+		const violations = checkRelease(release({ changelog }), VERSION);
+		expect(violations).toHaveLength(1);
+		expect(violations[0]).toContain("CHANGELOG.md");
+		expect(violations[0]).toContain("[Unreleased]");
+		expect(violations[0]).toContain("above");
+	});
+
 	test("passes when [Unreleased] holds only headings and blank lines", () => {
 		const changelog = CHANGELOG.replace("## [Unreleased]\n", "## [Unreleased]\n\n### Added\n\n### Fixed\n");
 		expect(checkRelease(release({ changelog }), VERSION)).toEqual([]);
@@ -126,6 +152,17 @@ describe("checkRelease — spec §6.1", () => {
 		const violations = checkRelease(release({ changelog }), VERSION);
 		expect(violations).toHaveLength(1);
 		expect(violations[0]).toContain("[0.6.5]:");
+	});
+
+	test("fails when the compare link compares the version against itself", () => {
+		// A compare against itself resolves to an empty range, so the notes would have no
+		// previous release to diff against.
+		const changelog = CHANGELOG.replace(`${REPO}/compare/v0.6.4...v0.6.5`, `${REPO}/compare/v0.6.5...v0.6.5`);
+		const violations = checkRelease(release({ changelog }), VERSION);
+		expect(violations).toHaveLength(1);
+		expect(violations[0]).toContain("CHANGELOG.md");
+		expect(violations[0]).toContain("[0.6.5]:");
+		expect(violations[0]).toContain("itself");
 	});
 
 	test("fails when [Unreleased] does not point at the release", () => {

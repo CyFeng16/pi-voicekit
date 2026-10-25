@@ -50,10 +50,19 @@ function linkDefinition(markdown, label) {
 	return match === null ? null : match[1];
 }
 
+/** The `## [version]` heading shape, shared by the rules that read a heading's text and position. */
+function headingPattern(version) {
+	return new RegExp(`^## \\[${escapeRegExp(version)}\\](\\s|$)`);
+}
+
 /** The first `## [version]` heading, verbatim; `""` when there is none to judge. */
 function headingLine(markdown, version) {
-	const pattern = new RegExp(`^## \\[${escapeRegExp(version)}\\](\\s|$)`);
-	return markdown.split(/\r?\n/).find((line) => pattern.test(line)) ?? "";
+	return markdown.split(/\r?\n/).find((line) => headingPattern(version).test(line)) ?? "";
+}
+
+/** The line index of the first `## [version]` heading; `-1` when there is none. */
+function headingIndex(markdown, version) {
+	return markdown.split(/\r?\n/).findIndex((line) => headingPattern(version).test(line));
 }
 
 /** Everything in a section body that actually says something: prose and list items, not headings. */
@@ -102,6 +111,15 @@ function checkChangelogSection(markdown, version) {
 		// empty for this rule, which is why the body is judged rather than the status.
 		violations.push(`CHANGELOG.md: [Unreleased] is not empty — move its notes into [${version}]`);
 	}
+
+	// Emptiness is half of rule 3: `[Unreleased]` is the section a release empties and the next
+	// release fills, so it has to sit above the version section. Below it, notes added after this
+	// release land above the headings they no longer belong to.
+	const unreleasedAt = headingIndex(markdown, "Unreleased");
+	const versionAt = headingIndex(markdown, version);
+	if (unreleasedAt !== -1 && versionAt !== -1 && unreleasedAt > versionAt) {
+		violations.push(`CHANGELOG.md: [Unreleased] is below [${version}] — it must be above the version section`);
+	}
 	return violations;
 }
 
@@ -116,6 +134,11 @@ function checkCompareLinks(markdown, version) {
 		const match = VERSION_LINK.exec(released);
 		if (match === null || match[2] !== version) {
 			violations.push(`CHANGELOG.md: "[${version}]:" is not a "…/compare/vPREV...v${version}" link: ${released}`);
+		} else if (match[1] === version) {
+			// A version compared against itself resolves to an empty range, so nothing is diffed.
+			violations.push(
+				`CHANGELOG.md: "[${version}]:" compares [${version}] against itself, not the previous release: ${released}`
+			);
 		}
 	}
 
