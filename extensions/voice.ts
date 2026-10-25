@@ -92,6 +92,7 @@ import {
 	isLanguageSupportedByModel,
 	localLanguageDisplayName,
 	type LocalSession,
+	type LocalSessionResult,
 } from "./voice/local";
 import { shouldArmReleaseDetectOnRepeat, decideRecordingStartTimer } from "./voice/hold-to-talk";
 import { GapTimer, type TimerPort } from "./voice/release-controller";
@@ -1244,8 +1245,21 @@ export default function (pi: ExtensionAPI) {
 		setVoiceState("recording");
 
 		// ── Callbacks for the active recording session ──
-		const recordingCallbacks = {
-			onDone: async (fullText: string, meta: { hadAudio: boolean; hadSpeech: boolean }) => {
+		// Adapter until the preview rewrite of this path lands: the session now reports one result union
+		// (`ok` with its text, or `failed` with why the final pass could not finish). A failed final pass
+		// is still routed to the existing error notice here rather than being mistaken for a silent
+		// recording — only this adapter changes, the completion body below is untouched.
+		const recordingCallbacks: {
+			onDone: (result: LocalSessionResult, meta: { hadAudio: boolean }) => Promise<void>;
+			onError: (err: string) => void;
+		} = {
+			onDone: async (result: LocalSessionResult, doneMeta: { hadAudio: boolean }) => {
+				if (result.kind === "failed") {
+					recordingCallbacks.onError(result.message);
+					return;
+				}
+				const fullText = result.text;
+				const meta = { hadAudio: doneMeta.hadAudio, hadSpeech: result.hadSpeech };
 				voiceDebug("onDone callback", { fullText: fullText.slice(0, 100), meta, voiceState, spaceConsumed });
 				activeSession = null;
 				clearRecordingAnimTimer();
