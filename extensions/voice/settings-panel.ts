@@ -155,8 +155,6 @@ export class VoiceSettingsPanel {
 	// Models tab — grouped view
 	private modelSearch = "";
 	private modelGroups: ModelGroup[] = [];
-	/** Flat row list synthesized from `modelGroups`; navigation skips headings. */
-	private modelRows: { type: "heading"; group: ModelGroup } | ModelRow[] = [] as never;
 	private modelRowsFlat: ({ kind: "heading"; group: ModelGroup } | { kind: "row"; row: ModelRow })[] = [];
 	/** Selectable indexes (i.e. row entries only — headings excluded). */
 	private modelSelectableIdx: number[] = [];
@@ -209,7 +207,6 @@ export class VoiceSettingsPanel {
 	private success = (s: string) => this.c("success", "32", s);
 	private warning = (s: string) => this.c("warning", "33", s);
 	private error = (s: string) => this.c("error", "31", s);
-	private muted = (s: string) => (this.p.theme ? this.p.theme.fg("muted", s) : `\x1b[2m${s}\x1b[22m`);
 
 	// ─── Component interface ──────────────────────────────────────────────
 
@@ -540,7 +537,6 @@ export class VoiceSettingsPanel {
 			const isPreview = m.role === "preview";
 
 			const prefix = isSelected ? `${this.accent(ICON.cursorBar)}  ` : `   `;
-			const name = (isSelected ? this.accent(m.name) : m.name).padEnd(nameW + (isSelected ? 0 : 0));
 			const namePad = m.name.length < nameW ? " ".repeat(nameW - m.name.length) : "";
 			const size = this.dim(m.size.padStart(8));
 			const langHint = this.dim(formatLangHint(m).padEnd(13));

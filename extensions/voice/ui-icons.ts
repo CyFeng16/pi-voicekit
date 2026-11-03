@@ -98,9 +98,6 @@ export const ICON = {
 	ellipsis: "…",
 } as const;
 
-/** Semantic icon role — pick one in widget code, never hardcode the glyph. */
-export type IconRole = keyof typeof ICON;
-
 /**
  * Return spinner frame for tick `t` (any non-negative integer). Rotates
  * through `ICON.spinnerFrames` in order. Used by every animated widget
@@ -113,12 +110,4 @@ export type IconRole = keyof typeof ICON;
 export function spinnerFrame(t: number, profile: "braille" | "arc" = "braille"): string {
 	const frames = profile === "arc" ? ICON.spinnerFramesArc : ICON.spinnerFrames;
 	return frames[((t % frames.length) + frames.length) % frames.length];
-}
-
-/** Pulse frame — for "alive but waiting" states (no rotation, breathing). */
-export function pulseFrame(t: number): string {
-	const frames = ICON.pulseFrames;
-	// Half-speed pulse: each frame holds for 2 ticks.
-	const idx = Math.floor(t / 2) % frames.length;
-	return frames[idx]!;
 }

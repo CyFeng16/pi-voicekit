@@ -273,7 +273,7 @@ const ABBREV_RULES: ReadonlyArray<readonly [RegExp, string]> = [
 	[/\bHTML\b/g, "H T M L"],
 ];
 
-export function expandAbbreviations(text: string): string {
+function expandAbbreviations(text: string): string {
 	let out = text;
 	for (const [re, rep] of ABBREV_RULES) out = out.replace(re, rep);
 	return out;
@@ -330,7 +330,7 @@ function numberToWords(n: number): string {
  *     twenty-six" naturally for `2026`)
  *   - hex-like tokens (`0xFF`)
  */
-export function expandSimpleNumbers(text: string): string {
+function expandSimpleNumbers(text: string): string {
 	// Negative lookbehind: reject digits that are part of a version/decimal
 	// (`v1.2`, `3.14`) or a word (`v2`, `5k`).
 	// Negative lookahead: reject digits followed by a word char (`100ms`)

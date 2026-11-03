@@ -778,12 +778,12 @@ function normalizeLangTag(tag: string): string {
 // ─── Model installation (download + extract) ─────────────────────────────────
 
 /** TTS models live under ~/.pi/models/tts/ to keep them separate from STT. */
-export function getTtsModelsDir(): string {
+function getTtsModelsDir(): string {
 	return path.join(os.homedir(), ".pi", "models", "tts");
 }
 
 /** Per-model directory. Does NOT verify existence — see getInstalledTtsModelDir. */
-export function getTtsModelDir(modelId: string): string {
+function getTtsModelDir(modelId: string): string {
 	return path.join(getTtsModelsDir(), modelId);
 }
 

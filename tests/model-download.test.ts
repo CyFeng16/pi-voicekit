@@ -1,5 +1,4 @@
-import { afterEach, describe, expect, test } from "bun:test";
-import * as fs from "node:fs";
+import { describe, expect, test } from "bun:test";
 import * as os from "node:os";
 import * as path from "node:path";
 import {
@@ -16,24 +15,6 @@ import {
 	isLanguageSupportedByModel,
 	languagesForLangSupport,
 } from "../extensions/voice/local";
-
-const tempDirs: string[] = [];
-
-function makeTempModelDir(modelId: string): string {
-	const modelsBase = path.join(os.tmpdir(), `pi-voice-models-test-${Date.now()}`);
-	const modelDir = path.join(modelsBase, modelId);
-	fs.mkdirSync(modelDir, { recursive: true });
-	tempDirs.push(modelsBase);
-	return modelDir;
-}
-
-afterEach(() => {
-	for (const dir of tempDirs.splice(0)) {
-		if (fs.existsSync(dir)) {
-			fs.rmSync(dir, { recursive: true, force: true });
-		}
-	}
-});
 
 describe("getModelsDir", () => {
 	test("returns path under ~/.pi/models/", () => {
@@ -81,7 +62,7 @@ describe("download URLs validation", () => {
 	test("all model download URLs are valid HTTPS URLs", () => {
 		for (const model of LOCAL_MODELS) {
 			const urls = model.sherpaModel.downloadUrls;
-			for (const [role, url] of Object.entries(urls)) {
+			for (const url of Object.values(urls)) {
 				expect(url).toStartWith("https://");
 				// Should be a valid URL
 				expect(() => new URL(url)).not.toThrow();

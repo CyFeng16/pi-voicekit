@@ -216,9 +216,13 @@ function voiceDebug(...args: unknown[]) {
 		const line = `[voice ${ts}] ${args.map((a) => (typeof a === "object" ? JSON.stringify(a) : String(a))).join(" ")}\n`;
 		try {
 			fs.appendFileSync(VOICE_LOG_FILE, line);
-		} catch {}
+		} catch {
+			/* SAFETY: log write is best-effort; failure must not break dictation */
+		}
 		process.stderr.write(line);
-	} catch {}
+	} catch {
+		/* SAFETY: fallback path; a throw here has nowhere left to report */
+	}
 }
 
 /**
@@ -791,7 +795,9 @@ export default function (pi: ExtensionAPI) {
 			const proc = spawn("afplay", [file], { stdio: "ignore", detached: true });
 			proc.unref();
 			proc.on("error", () => {}); // Prevent unhandled error crash
-		} catch {}
+		} catch {
+			/* SAFETY: afplay is optional; a missing player must not break the command */
+		}
 	}
 
 	// ─── Voice UI ────────────────────────────────────────────────────────────
@@ -900,6 +906,13 @@ export default function (pi: ExtensionAPI) {
 			voiceDebug("playback stop threw during voiceCleanup", String(err));
 		}
 		activePlaybackIndicator = null;
+
+		// Drop cached OfflineTts handles: a torn-down session has no further use for
+		// them, and sherpa-onnx-node only releases the native instances once this module
+		// drops its last JS reference. The import is cached, so repeated cleanups are cheap.
+		void import("./voice/tts-engine")
+			.then(({ clearTtsCache }) => clearTtsCache())
+			.catch((error) => voiceDebug("tts cache clear failed", { error: safeErrorText(error) }));
 		// Drain registry — each widget self-clears its slot via dispose().
 		try {
 			widgetRegistry?.disposeAll();
@@ -1350,6 +1363,7 @@ export default function (pi: ExtensionAPI) {
 			// in the editor and ? is a literal character. Help is
 			// reachable by F1 or /voice-help instead.
 			if (matchesKey(data, Key.f1) && ctx?.hasUI) {
+				// SAFETY: the `ctx?.hasUI` guard above already proved a UI-capable command context.
 				openHelpOverlay(ctx as unknown as ExtensionCommandContext).catch(() => {});
 				return { consume: true };
 			}
@@ -2054,7 +2068,9 @@ export default function (pi: ExtensionAPI) {
 			try {
 				const { clearRecognizerCache } = await import("./voice/sherpa-engine");
 				clearRecognizerCache();
-			} catch {}
+			} catch {
+				/* SAFETY: quit path; a failed optional import must not block shutdown */
+			}
 		}
 	});
 
@@ -2474,7 +2490,9 @@ export default function (pi: ExtensionAPI) {
 						setTimeout(() => {
 							try {
 								testProc.kill();
-							} catch {}
+							} catch {
+								/* SAFETY: process may already be gone; kill is best-effort */
+							}
 							done();
 						}, 3000);
 					});
@@ -2483,7 +2501,9 @@ export default function (pi: ExtensionAPI) {
 						lines.push(`    mic capture:       OK (${size} bytes via ${tool.name})`);
 						try {
 							fs.unlinkSync(testFile);
-						} catch {}
+						} catch {
+							/* SAFETY: temp file may be gone; unlink cannot fail the probe */
+						}
 					} else {
 						lines.push(`    mic capture:       FAILED — ${tool.name} ran but no audio captured`);
 					}
@@ -2608,7 +2628,9 @@ export default function (pi: ExtensionAPI) {
 				void finalPassClient.destroy();
 				try {
 					clearRecognizerCache();
-				} catch {}
+				} catch {
+					/* SAFETY: cache clear is best-effort; the panel still gets its result */
+				}
 			},
 		};
 
@@ -2779,7 +2801,9 @@ export default function (pi: ExtensionAPI) {
 		if (!activeSpeak) return false;
 		try {
 			activeSpeak.abort();
-		} catch {}
+		} catch {
+			/* SAFETY: abort() never throws by contract; state reset stays unconditional */
+		}
 		activeSpeak = null;
 		return true;
 	}
@@ -2848,12 +2872,16 @@ export default function (pi: ExtensionAPI) {
 			if (callerSignal.aborted) {
 				try {
 					controller.abort();
-				} catch {}
+				} catch {
+					/* SAFETY: abort() never throws by contract; caller signal may be hostile */
+				}
 			} else {
 				callerAbortListener = () => {
 					try {
 						controller.abort();
-					} catch {}
+					} catch {
+						/* SAFETY: abort() never throws by contract; caller signal may be hostile */
+					}
 				};
 				callerSignal.addEventListener("abort", callerAbortListener);
 			}
@@ -2912,7 +2940,9 @@ export default function (pi: ExtensionAPI) {
 			if (callerAbortListener && callerSignal) {
 				try {
 					callerSignal.removeEventListener("abort", callerAbortListener);
-				} catch {}
+				} catch {
+					/* SAFETY: a hostile signal must not break teardown */
+				}
 			}
 		}
 	}

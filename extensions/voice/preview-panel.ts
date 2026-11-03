@@ -28,7 +28,7 @@
 import { visualWidth } from "./ui-width";
 
 /** Rows the panel shows when the caller does not ask for a different height. */
-export const PREVIEW_LINES = 6;
+const PREVIEW_LINES = 6;
 
 /** The `aboveEditor` component shape the host's widget factory expects. */
 export interface PreviewPanel {
