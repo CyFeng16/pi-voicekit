@@ -7,7 +7,7 @@ import {
 	localeToLanguageCode,
 	type DeviceProfile,
 } from "../extensions/voice/device";
-import { LOCAL_MODELS, type LocalModelInfo } from "../extensions/voice/local";
+import { LOCAL_MODELS } from "../extensions/voice/local";
 
 // ─── Helper: mock device profiles ────────────────────────────────────────────
 

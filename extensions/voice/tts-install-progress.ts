@@ -57,7 +57,6 @@ const SAMPLE_WINDOW = 30; // ~3 s of byte samples at 10 Hz tick
 export class TtsInstallProgressWidget extends BaseDisposableWidget {
 	readonly key: string;
 	private readonly ui: InstallWidgetUI;
-	private readonly modelId: string;
 	private readonly modelName: string;
 	private readonly controller: AbortController;
 	private phase: TtsInstallProgress["phase"] = "download";
@@ -70,7 +69,6 @@ export class TtsInstallProgressWidget extends BaseDisposableWidget {
 		super(opts.registry, () => opts.ui.setWidget(installWidgetKey(opts.modelId), undefined));
 		this.key = installWidgetKey(opts.modelId);
 		this.ui = opts.ui;
-		this.modelId = opts.modelId;
 		this.modelName = opts.modelName;
 		this.totalBytes = opts.totalBytesEstimate;
 		this.controller = opts.controller;

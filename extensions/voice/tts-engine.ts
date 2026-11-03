@@ -2,10 +2,8 @@
  * Local TTS engine — wraps sherpa-onnx-node OfflineTts.
  *
  * Public API:
- *   - initTts()                  — load sherpa via the shared loader
  *   - synthesize(opts)           — produce {samples, sampleRate} + abort
- *   - synthesizeById(opts)       — synthesize using a model id from the catalog
- *   - clearTtsCache()            — drop cached instance (called on model switch)
+ *   - clearTtsCache()            — drop cached instances (called on teardown)
  *   - resolveLanguageForLocal    — validate language ↔ local model match
  *   - validateTtsLanguageInput    — non-empty/string language guard
  *
@@ -45,7 +43,7 @@ import * as path from "node:path";
 import * as os from "node:os";
 import * as fs from "node:fs";
 import { loadSherpa, getSherpaModule, getSherpaError, isSherpaAvailable } from "./sherpa-loader";
-import { type TtsLocalModelInfo, modelSupportsLanguage, getTtsModel } from "./tts-local-models";
+import { type TtsLocalModelInfo, modelSupportsLanguage } from "./tts-local-models";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -144,37 +142,24 @@ function cacheKey(modelId: string, modelDir: string): string {
  */
 const ttsCache = new Map<string, CachedTts | Promise<CachedTts>>();
 
-// ─── Initialization ──────────────────────────────────────────────────────────
-
-/**
- * Initialize TTS support. Routes through the shared sherpa loader so the
- * native module is loaded exactly once per process even if STT was already
- * initialized.
- */
-export async function initTts(): Promise<boolean> {
-	return loadSherpa();
-}
-
 export { isSherpaAvailable, getSherpaError };
 
 // ─── Recognizer (TTS instance) management ────────────────────────────────────
 
 /**
  * Get or create an OfflineTts for `model`. Internal — public callers go
- * through `synthesize()` / `synthesizeById()` instead, which keeps the
+ * through `synthesize()` instead, which keeps the
  * sherpa-specific native handle behind the module boundary. Pulling the
  * handle out of this module would couple every caller to sherpa lifecycle
  * semantics and make swapping engines (or adding pooling) require a
  * cross-package refactor.
  *
  * Concurrent calls share the same in-flight construction promise. After
- * construction the cached instance is reused until either:
- *   - The user picks a different model (call clearTtsCache() then re-call)
- *   - The settings panel deletes a downloaded model (cache is cleared)
- *   - The session shuts down (clearTtsCache() runs in voiceCleanup)
+ * construction the cached instance is reused for the rest of the session;
+ * `clearTtsCache()` (called from voiceCleanup) drops every entry at teardown.
  *
  * @throws if loadSherpa() failed (platform incompat) — caller should already
- *         have checked initTts() ok before calling.
+ *         have loaded sherpa before calling.
  */
 function getOrCreateTts(model: TtsLocalModelInfo, modelDir: string): Promise<CachedTts> {
 	const key = cacheKey(model.id, modelDir);
@@ -243,47 +228,6 @@ async function doCreateTts(model: TtsLocalModelInfo, modelDir: string): Promise<
  */
 export function clearTtsCache(): void {
 	ttsCache.clear();
-}
-
-// ─── Warmup ──────────────────────────────────────────────────────────────────
-
-/**
- * Pre-load the sherpa-onnx module AND construct the OfflineTts for `model`
- * in the background, so the user's first `/voice-speak` doesn't pay the
- * 600-900ms cold-start init cost.
- *
- * Idempotent: subsequent calls for the same (model, modelDir) await the
- * same in-flight promise via the existing `ttsCache` machinery — the only
- * difference vs a real synthesize is that warmup discards the result.
- *
- * Cancellation: `signal` aborts the load. If the user toggles TTS off
- * before warmup completes, the construction continues and the resulting
- * instance lands in the cache (cheap memory cost), but no UI flicker
- * happens — the cache is simply unused. Cleaner alternative would be to
- * abort native createAsync but sherpa-onnx-node doesn't expose that.
- *
- * Errors: returns `false` on any failure (logged to debug output, not
- * rethrown). Callers treat this as a best-effort optimization — failure
- * here is not a user-facing error because the next /voice-speak will
- * surface the same error anyway through synthesize().
- */
-export async function warmupTts(
-	model: TtsLocalModelInfo,
-	modelDir: string,
-	opts: { signal?: AbortSignal } = {}
-): Promise<boolean> {
-	if (opts.signal?.aborted) return false;
-	try {
-		const ok = await loadSherpa();
-		if (!ok) return false;
-		if (opts.signal?.aborted) return false;
-		await getOrCreateTts(model, modelDir);
-		return true;
-	} catch {
-		// Warmup is best-effort; swallow errors so callers never have to
-		// worry about a backgrounded promise rejection.
-		return false;
-	}
 }
 
 // ─── Synthesis ───────────────────────────────────────────────────────────────
@@ -456,7 +400,7 @@ function extendChain(cached: CachedTts): { previousTail: Promise<void>; release:
  * before it hands the value to sherpa, so a malformed language fails with a
  * message that names the actual problem rather than an engine-side error.
  */
-export function validateTtsLanguageInput(language: unknown): asserts language is string {
+function validateTtsLanguageInput(language: unknown): asserts language is string {
 	if (!language || typeof language !== "string") {
 		throw new Error(`TTS language is required (got: ${language})`);
 	}
@@ -470,7 +414,7 @@ export function validateTtsLanguageInput(language: unknown): asserts language is
  * supported-language list lives on the catalog entry, so callers that have
  * already looked the model up can pass it straight through.
  */
-export function resolveLanguageForLocal(model: TtsLocalModelInfo, language: string): void {
+function resolveLanguageForLocal(model: TtsLocalModelInfo, language: string): void {
 	validateTtsLanguageInput(language);
 	if (!modelSupportsLanguage(model, language)) {
 		const supported = model.languages.join(", ");
@@ -640,13 +584,4 @@ function findKokoroLexicons(modelDir: string): string | null {
 	const lex = entries.filter((e) => e.startsWith("lexicon-") && e.endsWith(".txt"));
 	if (lex.length === 0) return null;
 	return lex.map((e) => path.join(modelDir, e)).join(",");
-}
-
-/**
- * Tiny convenience for callers that have a model id but not the full model
- * record. Looks up the catalog entry and forwards to synthesize().
- */
-export async function synthesizeById(opts: Omit<SynthesizeOpts, "model"> & { modelId: string }): Promise<TtsAudio> {
-	const model = getTtsModel(opts.modelId);
-	return synthesize({ ...opts, model });
 }

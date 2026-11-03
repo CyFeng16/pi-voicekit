@@ -108,7 +108,7 @@ export function deleteModel(modelId: string): boolean {
  * - Atomic writes (download to .tmp, rename on success)
  * - Abort support via AbortSignal
  */
-export async function downloadModel(
+async function downloadModel(
 	config: ModelDownloadConfig,
 	onProgress?: (progress: DownloadProgress) => void,
 	signal?: AbortSignal
@@ -161,9 +161,6 @@ export async function downloadModel(
 			overallDownloaded -= startByte; // undo the partial credit
 			startByte = 0;
 		}
-
-		const contentLength = parseInt(resp.headers.get("content-length") || "0", 10);
-		const totalFileSize = startByte + contentLength;
 
 		if (!resp.body) throw new Error(`No response body for ${filename}`);
 

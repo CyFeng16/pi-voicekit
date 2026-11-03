@@ -4,7 +4,7 @@ import { CONFIG_DIR_NAME, getAgentDir } from "@earendil-works/pi-coding-agent";
 
 import { PREVIEW_MODEL_ID } from "./local";
 
-export const SETTINGS_KEY = "voice";
+const SETTINGS_KEY = "voice";
 // v4 removed the LLM polish pass and its five `postProcess*` fields; v5 removed the six fields that
 // only the retired cloud backends used; v6 removes the auto-submit switch. Their values are ignored
 // and never migrated, but an ordinary save keeps a file's own `postProcess*` keys in place
@@ -176,7 +176,7 @@ export const DEFAULT_CONFIG: VoiceConfig = {
 	},
 };
 
-export function readJsonFile(filePath: string): Record<string, unknown> {
+function readJsonFile(filePath: string): Record<string, unknown> {
 	try {
 		if (!fs.existsSync(filePath)) return {};
 		return JSON.parse(fs.readFileSync(filePath, "utf8"));
@@ -350,7 +350,7 @@ const VALID_MODIFIERS = new Set(["ctrl", "shift", "alt", "meta", "cmd", "super"]
 const SHORTCUT_PATTERN = /^[a-z0-9+]+$/;
 
 /** Validate a shortcut string like "ctrl+shift+v". Returns true if structurally valid. */
-export function isValidShortcut(shortcut: string): boolean {
+function isValidShortcut(shortcut: string): boolean {
 	if (typeof shortcut !== "string" || shortcut.length === 0 || !SHORTCUT_PATTERN.test(shortcut)) return false;
 	const parts = shortcut.split("+");
 	if (parts.length < 1 || parts.length > 4) return false;

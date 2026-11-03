@@ -32,7 +32,7 @@
  */
 
 import { ICON } from "./ui-icons";
-import { visualWidth, padRightVisual } from "./ui-width";
+import { visualWidth } from "./ui-width";
 
 // ─── Liquid Braille ───────────────────────────────────────────────────────────
 
@@ -54,7 +54,7 @@ import { visualWidth, padRightVisual } from "./ui-width";
 const BRAILLE_LEFT_BITS = [0, 0x40, 0x44, 0x46, 0x47] as const;
 const BRAILLE_RIGHT_BITS = [0, 0x80, 0xa0, 0xb0, 0xb8] as const;
 
-export function brailleBar(left: number, right: number): string {
+function brailleBar(left: number, right: number): string {
 	const l = Math.max(0, Math.min(4, Math.round(left)));
 	const r = Math.max(0, Math.min(4, Math.round(right)));
 	return String.fromCodePoint(0x2800 + BRAILLE_LEFT_BITS[l]! + BRAILLE_RIGHT_BITS[r]!);
@@ -164,22 +164,6 @@ export function activityTag(level: number, dim: (s: string) => string): string {
 	return auroraColor(0.85) + "▇ loud" + "\x1b[0m";
 }
 
-/** Hex-color string version (for callers that want to mix into rgb fonts). */
-export function auroraHex(level: number): string {
-	const t = Math.max(0, Math.min(1, level));
-	const segments = AURORA_STOPS.length - 1;
-	const pos = t * segments;
-	const idx = Math.min(segments - 1, Math.floor(pos));
-	const f = pos - idx;
-	const a = AURORA_STOPS[idx]!;
-	const b = AURORA_STOPS[idx + 1]!;
-	const r = Math.round(a[0] + (b[0] - a[0]) * f);
-	const g = Math.round(a[1] + (b[1] - a[1]) * f);
-	const blue = Math.round(a[2] + (b[2] - a[2]) * f);
-	const hex = (n: number) => n.toString(16).padStart(2, "0");
-	return `#${hex(r)}${hex(g)}${hex(blue)}`;
-}
-
 // ─── Floating Island chrome ────────────────────────────────────────────────────
 
 /** ANSI escape stripper — required before any visual-width math on
@@ -224,11 +208,8 @@ export function island(opts: {
 	// Layout: corner + boxH + space + title + space + filler + corner.
 	// All widths stripped of ANSI before counting.
 	const titleW = trueWidth(title);
-	const topFillerCount = Math.max(0, innerW - 1 - 1 - titleW - 1); // -1 leading boxH, -1+1 spaces, -1 trailing boxH... fixed:
-	// Layout cells:
-	//   [boxH][ ][title][ ][boxH × topFillerCount]   = innerW cells total
-	//   1     1  titleW 1   topFillerCount = innerW
-	// → topFillerCount = innerW - titleW - 3
+	// Layout cells: [boxH][space][title][space][boxH × topFill] = innerW cells,
+	// so topFill = innerW - titleW - 3.
 	const topFill = Math.max(0, innerW - titleW - 3);
 	const top =
 		dim(ICON.boxRoundedTL) +
@@ -262,11 +243,4 @@ export function island(opts: {
 	}
 
 	return [top, middle, bottom];
-}
-
-/** Pad-right helper that respects pre-styled (ANSI-escape-laden) strings. */
-export function padToWidth(s: string, width: number): string {
-	const w = trueWidth(s);
-	if (w >= width) return s;
-	return s + " ".repeat(width - w);
 }

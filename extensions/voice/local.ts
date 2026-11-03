@@ -98,7 +98,6 @@ export interface LocalModelInfo {
 // HuggingFace base URLs for sherpa-onnx models (verified repos)
 const HF1 = "https://huggingface.co/csukuangfj";
 const HF2 = "https://huggingface.co/csukuangfj2";
-const GH = "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models";
 
 // Helper to build HuggingFace resolve URLs
 function hf1(repo: string, file: string): string {
@@ -876,26 +875,6 @@ export function isLanguageSupportedByModel(modelId: string, langCode: string): b
 	// Match base code (e.g. "en" matches "en", regional variants stripped for local)
 	const baseCode = langCode.split("-")[0];
 	return languages.some((l) => l.code === baseCode || l.code === langCode);
-}
-
-/**
- * Find display name for a language code in local model context.
- */
-export function localLanguageDisplayName(code: string): string {
-	// Check all language lists
-	const allLists = [
-		WHISPER_LANGUAGES,
-		SENSEVOICE_LANGUAGES,
-		BILINGUAL_ZH_EN_LANGUAGES,
-		QWEN3_LANGUAGES,
-		RUSSIAN_ONLY_LANGUAGES,
-		...Object.values(SINGLE_LANG),
-	];
-	for (const list of allLists) {
-		const entry = list.find((l) => l.code === code);
-		if (entry) return `${entry.name} (${entry.code})`;
-	}
-	return code;
 }
 
 // ─── Local session type ──────────────────────────────────────────────────────
