@@ -746,6 +746,7 @@ export default function (pi: ExtensionAPI) {
 	let kittyReleaseDetected = false;
 	let spaceDownTime: number | null = null;
 	let holdActivationTimer: ReturnType<typeof setTimeout> | null = null;
+	let warmupShowTimer: ReturnType<typeof setTimeout> | null = null; // delays the warmup widget past a plain tap
 	let spaceConsumed = false; // True once threshold passed and recording started
 	let releaseGapTimer: GapTimer | null = null; // gap-based release detection (see release-controller.ts)
 	let spacePressCount = 0; // Count of rapid space presses (for non-Kitty hold detection)
@@ -872,6 +873,7 @@ export default function (pi: ExtensionAPI) {
 		holdConfirmed = false;
 		clearHoldTimer();
 		clearReleaseTimer();
+		if (warmupShowTimer) { clearTimeout(warmupShowTimer); warmupShowTimer = null; }
 		if (opts?.cooldown) errorCooldownUntil = Date.now() + opts.cooldown;
 	}
 
@@ -1432,7 +1434,7 @@ export default function (pi: ExtensionAPI) {
 						setVoiceState("idle");
 						if (holdDuration < 300) {
 							// Quick tap — just type a space
-							if (ctx?.hasUI) ctx.ui.setEditorText((ctx.ui.getEditorText() || "") + " ");
+							if (ctx?.hasUI) ctx.ui.pasteToEditor(" "); // at the cursor; setEditorText would move it to the end and redraw
 						} else {
 							// Held long enough to see warmup but let go → show hint
 							ctx?.ui.notify("Hold SPACE longer to activate voice.", "info");
@@ -1444,7 +1446,7 @@ export default function (pi: ExtensionAPI) {
 					// Kitty path since we enter warmup on first press, but handle anyway)
 					if (spaceDownTime && !holdConfirmed && recordingController.state === "idle") {
 						resetHoldState();
-						if (ctx?.hasUI) ctx.ui.setEditorText((ctx.ui.getEditorText() || "") + " ");
+						if (ctx?.hasUI) ctx.ui.pasteToEditor(" "); // at the cursor; setEditorText would move it to the end and redraw
 						return { consume: true };
 					}
 
@@ -1622,7 +1624,11 @@ export default function (pi: ExtensionAPI) {
 						holdConfirmed = true; // Kitty: trust the press, release cancels
 
 						setVoiceState("warmup");
-						showWarmupWidget();
+						// Show the countdown only once the key is really held, so a plain tap never flashes it.
+						warmupShowTimer = setTimeout(() => {
+							warmupShowTimer = null;
+							if (recordingController.state === "warmup") showWarmupWidget();
+						}, 250);
 
 						holdActivationTimer = setTimeout(() => {
 							holdActivationTimer = null;
