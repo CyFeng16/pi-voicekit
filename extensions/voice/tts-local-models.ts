@@ -231,6 +231,184 @@ export const TTS_LOCAL_MODELS: TtsLocalModelInfo[] = [
 		22050,
 		"male"
 	),
+	// Additional German voices available in the sherpa-onnx tts-models
+	// releases. Thorsten-high is the recommended de voice — the high-quality
+	// checkpoint has clearly better prosody than medium.
+	piper(
+		"de_DE-thorsten-high-int8",
+		"Piper Thorsten High (de-DE)",
+		35_066_527,
+		["de-DE"],
+		"German, male voice, high quality (best de prosody)",
+		"MIT",
+		false,
+		22050,
+		"male"
+	),
+	piper(
+		"de_DE-thorsten-low-int8",
+		"Piper Thorsten Low (de-DE)",
+		21_292_232,
+		["de-DE"],
+		"German, male voice, low quality (fastest)",
+		"MIT",
+		false,
+		22050,
+		"male"
+	),
+	piper(
+		"de_DE-thorsten_emotional-medium-int8",
+		"Piper Thorsten Emotional (de-DE)",
+		23_479_221,
+		["de-DE"],
+		"German, male voice, 8 emotional variants (sid 0-7)",
+		"MIT",
+		false,
+		22050,
+		"male",
+		8
+	),
+	piper(
+		"de_DE-miro-high-int8",
+		"Piper Miro High (de-DE)",
+		21_280_966,
+		["de-DE"],
+		"German, female voice, high quality",
+		"MIT",
+		false,
+		22050,
+		"female"
+	),
+	piper(
+		"de_DE-glados-high-int8",
+		"Piper Glados High (de-DE)",
+		35_009_386,
+		["de-DE"],
+		"German, female voice, high quality",
+		"MIT",
+		false,
+		22050,
+		"female"
+	),
+	piper(
+		"de_DE-glados-medium-int8",
+		"Piper Glados (de-DE)",
+		20_966_453,
+		["de-DE"],
+		"German, female voice",
+		"MIT",
+		false,
+		22050,
+		"female"
+	),
+	piper(
+		"de_DE-glados-low-int8",
+		"Piper Glados Low (de-DE)",
+		21_035_173,
+		["de-DE"],
+		"German, female voice, low quality (fastest)",
+		"MIT",
+		false,
+		22050,
+		"female"
+	),
+	piper(
+		"de_DE-glados_turret-high-int8",
+		"Piper Glados Turret High (de-DE)",
+		35_034_925,
+		["de-DE"],
+		"German, female voice, high quality",
+		"MIT",
+		false,
+		22050,
+		"female"
+	),
+	piper(
+		"de_DE-glados_turret-medium-int8",
+		"Piper Glados Turret (de-DE)",
+		20_949_149,
+		["de-DE"],
+		"German, female voice",
+		"MIT",
+		false,
+		22050,
+		"female"
+	),
+	piper(
+		"de_DE-glados_turret-low-int8",
+		"Piper Glados Turret Low (de-DE)",
+		21_029_949,
+		["de-DE"],
+		"German, female voice, low quality (fastest)",
+		"MIT",
+		false,
+		22050,
+		"female"
+	),
+	piper(
+		"de_DE-kerstin-low-int8",
+		"Piper Kerstin (de-DE)",
+		21_174_728,
+		["de-DE"],
+		"German, female voice",
+		"MIT",
+		false,
+		22050,
+		"female"
+	),
+	piper(
+		"de_DE-ramona-low-int8",
+		"Piper Ramona (de-DE)",
+		21_199_380,
+		["de-DE"],
+		"German, female voice",
+		"MIT",
+		false,
+		22050,
+		"female"
+	),
+	piper(
+		"de_DE-karlsson-low-int8",
+		"Piper Karlsson (de-DE)",
+		21_126_670,
+		["de-DE"],
+		"German, male voice",
+		"MIT",
+		false,
+		22050,
+		"male"
+	),
+	piper(
+		"de_DE-eva_k-x_low-int8",
+		"Piper Eva (de-DE)",
+		13_321_491,
+		["de-DE"],
+		"German, female voice, small archive",
+		"MIT",
+		false,
+		22050,
+		"female"
+	),
+	piper(
+		"de_DE-pavoque-low-int8",
+		"Piper Pavoque (de-DE)",
+		21_218_697,
+		["de-DE"],
+		"German voice",
+		"MIT",
+		false,
+		22050
+	),
+	piper(
+		"de_DE-dii-high-int8",
+		"Piper Dii High (de-DE)",
+		21_030_921,
+		["de-DE"],
+		"German voice, high quality",
+		"MIT",
+		false,
+		22050
+	),
 	piper(
 		"hi_IN-pratham-medium-int8",
 		"Piper Pratham (hi-IN)",

@@ -102,6 +102,88 @@ describe("prepareForSpeech — list markers", () => {
 	});
 });
 
+describe("prepareForSpeech — tables and numbered lists", () => {
+	test("strips table rows (header, separator, body)", () => {
+		const input = "Hier die Tabelle:\n| Name | Wert |\n| ---- | ---- |\n| a | 1 |\nFertig.";
+		const r = prepareForSpeech(input);
+		expect(r.text).not.toContain("|");
+		expect(r.stats.tablesRemoved).toBe(3);
+		expect(r.text).toContain("Hier die Tabelle");
+		expect(r.text).toContain("Fertig");
+	});
+
+	test("strips numbered list markers before number expansion", () => {
+		const r = prepareForSpeech("1. first\n2. second\n3. third");
+		expect(r.text).toBe("first\nsecond\nthird");
+		expect(r.text).not.toMatch(/one|two|three/);
+	});
+
+	test("numbered markers with closing-paren form", () => {
+		const r = prepareForSpeech("1) eins\n2) zwei");
+		expect(r.text).toBe("eins\nzwei");
+	});
+
+	test("spaced hyphen and en-dash become a comma pause", () => {
+		expect(prepareForSpeech("entweder - oder").text).toBe("entweder, oder");
+		expect(prepareForSpeech("entweder – oder").text).toBe("entweder, oder");
+	});
+
+	test("unspaced hyphen (compound words) is left alone", () => {
+		const r = prepareForSpeech("Entweder-oder bleibt so.");
+		expect(r.text).toBe("Entweder-oder bleibt so.");
+	});
+});
+
+
+describe("prepareForSpeech — locale (de)", () => {
+	test("expands bare numbers to German words", () => {
+		const r = prepareForSpeech("Die Antwort ist 42. Das kostet 250 Euro.", { locale: "de" });
+		expect(r.text).toBe("Die Antwort ist zweiundvierzig. Das kostet zweihundertfünfzig Euro.");
+	});
+
+	test("covers teens, compound tens, and the awkward 70s", () => {
+		const r = prepareForSpeech("11 Punkte, 26 Versuche, 71 Fehler, 80 Glück.", { locale: "de" });
+		expect(r.text).toBe("elf Punkte, sechsundzwanzig Versuche, siebenundsiebzig Fehler, achtzig Glück.");
+	});
+
+	test("hundreds: small remainder gets und, tens concatenate", () => {
+		const r = prepareForSpeech("123, 101 und 250", { locale: "de" });
+		expect(r.text).toBe("einhundertdreiundzwanzig, einhundertundeins und zweihundertfünfzig");
+	});
+
+	test("keeps years intact", () => {
+		const r = prepareForSpeech("Das Modell ist von 2026.", { locale: "de" });
+		expect(r.text).toContain("2026");
+	});
+
+	test("leaves versions, decimals, and unit-suffixed numbers alone", () => {
+		const r = prepareForSpeech("Version v2, Faktor 3.14, Timeout 100ms", { locale: "de" });
+		expect(r.text).toBe("Version v2, Faktor 3.14, Timeout 100ms");
+	});
+
+	test("expands German abbreviations", () => {
+		// (The abbreviation's own dot is consumed by the replacement — same
+		// behaviour as the English "etc." → "et cetera" rule.)
+		const r = prepareForSpeech("Mit z. B. Äpfel, bzw. Birnen, usw.", { locale: "de" });
+		expect(r.text).toBe("Mit zum Beispiel Äpfel, beziehungsweise Birnen, und so weiter");
+	});
+
+	test("region tag de-DE selects the same rules", () => {
+		const r = prepareForSpeech("42", { locale: "de-DE" });
+		expect(r.text).toBe("zweiundvierzig");
+	});
+
+	test("English is the default without a locale (unchanged behaviour)", () => {
+		expect(prepareForSpeech("The answer is 42.").text).toBe("The answer is forty-two.");
+	});
+
+	test("non-German locale keeps English number words", () => {
+		const r = prepareForSpeech("42", { locale: "es" });
+		expect(r.text).toBe("forty-two");
+	});
+});
+
+
 describe("prepareForSpeech — length cap", () => {
 	test("rejects when output exceeds maxChars", () => {
 		const long = "word ".repeat(500); // ~2500 chars
