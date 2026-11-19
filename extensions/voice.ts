@@ -2210,6 +2210,7 @@ export default function (pi: ExtensionAPI) {
 			maxChars: 2000,
 			stripCodeBlocks: true,
 			collapseLinks: true,
+			locale: config.ttsLanguage ?? config.language,
 		});
 		if (prepared.skipped || !prepared.text.trim()) return;
 
@@ -2290,7 +2291,12 @@ export default function (pi: ExtensionAPI) {
 		const text = extractAccumulatedText(message).trim();
 		if (!text) return;
 		const { prepareForSpeech } = await import("./voice/tts-text-filter");
-		const prepared = prepareForSpeech(text, { maxChars: 2000, stripCodeBlocks: true, collapseLinks: true });
+		const prepared = prepareForSpeech(text, {
+			maxChars: 2000,
+			stripCodeBlocks: true,
+			collapseLinks: true,
+			locale: config.ttsLanguage ?? config.language,
+		});
 		if (prepared.skipped) return;
 		lastAutoSpeakAt = now;
 		try {

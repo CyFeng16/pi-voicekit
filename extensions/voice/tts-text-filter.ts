@@ -53,6 +53,15 @@ export interface PrepareForSpeechOpts {
 	 * want to hear "https colon slash slash ..." aloud).
 	 */
 	collapseLinks?: boolean;
+	/**
+	 * Locale (BCP-47, e.g. "de" or "de-DE") for the text-normalization
+	 * pass — number words and abbreviation expansions are locale-specific.
+	 * Omitted or unknown → English (the historical default). Callers that
+	 * know the TTS language (config.ttsLanguage ?? config.language) should
+	 * pass it through so e.g. German text gets "zweiundvierzig", not
+	 * "twenty-four".
+	 */
+	locale?: string;
 }
 
 export interface PrepareForSpeechResult {
@@ -65,6 +74,7 @@ export interface PrepareForSpeechResult {
 	/** Diagnostic counts so callers can show "[N code blocks omitted]" hints. */
 	stats: {
 		codeBlocksRemoved: number;
+		tablesRemoved: number;
 		linksCollapsed: number;
 		ansiEscapesRemoved: number;
 		originalChars: number;
@@ -72,10 +82,11 @@ export interface PrepareForSpeechResult {
 	};
 }
 
-const DEFAULT_OPTS: Required<PrepareForSpeechOpts> = {
-	maxChars: 2000,
-	stripCodeBlocks: true,
-	collapseLinks: true,
+const DEFAULT_OPTS = {
+	maxChars: 2000 as number,
+	stripCodeBlocks: true as boolean,
+	collapseLinks: true as boolean,
+	locale: undefined as string | undefined,
 };
 
 /**
@@ -86,6 +97,7 @@ export function prepareForSpeech(input: string, opts: PrepareForSpeechOpts = {})
 	const config = { ...DEFAULT_OPTS, ...opts };
 	const stats = {
 		codeBlocksRemoved: 0,
+		tablesRemoved: 0,
 		linksCollapsed: 0,
 		ansiEscapesRemoved: 0,
 		originalChars: typeof input === "string" ? input.length : 0,
@@ -116,6 +128,17 @@ export function prepareForSpeech(input: string, opts: PrepareForSpeechOpts = {})
 		const codeMatches = text.match(codeBlockPattern);
 		stats.codeBlocksRemoved = codeMatches?.length ?? 0;
 		text = text.replace(codeBlockPattern, " [code block omitted] ");
+	}
+
+	// 2b. Drop markdown table rows. "pipe, cell, pipe, cell" is pure noise
+	//     aloud, and a table is a layout device — the surrounding prose
+	//     carries the conclusion. A row is any line whose trimmed form is a
+	//     pipe-delimited cell run (covers header, separator, and body rows).
+	{
+		const tablePattern = /^[ \t]*\|.*\|[ \t]*$/gm;
+		const tableMatches = text.match(tablePattern);
+		stats.tablesRemoved = tableMatches?.length ?? 0;
+		text = text.replace(tablePattern, " ");
 	}
 
 	// 3. Collapse markdown link syntax `[text](url)` → `text`. We DO NOT
@@ -161,13 +184,22 @@ export function prepareForSpeech(input: string, opts: PrepareForSpeechOpts = {})
 	// 9. Strip horizontal rules.
 	text = text.replace(/^[-*_]{3,}$/gm, "");
 
-	// 10. Strip leading bullet markers from list items so "- foo" reads
-	//     as "foo". Each item retains its trailing newline so the
-	//     sentence segmenter (Intl.Segmenter in speak.ts) treats them
-	//     as separate sentences with natural pause boundaries — a more
-	//     natural speech cadence than collapsing to a comma list, which
-	//     would be one long run-on with no breath points.
-	text = text.replace(/^[ \t]*[-*+][ \t]+/gm, "");
+	// 9b. A spaced hyphen or en-dash is a deliberate beat in the source.
+	//     Piper glues "-" without a pause but breathes on "," — map spaced
+	//     dashes to a comma so the voice actually pauses where the writer
+	//     meant one ("entweder – oder" → "entweder, oder").
+	text = text.replace(/ - /g, ", ");
+	text = text.replace(/ – /g, ", ");
+
+	// 10. Strip leading bullet markers from list items so "- foo" and
+	//     "1. foo" both read as "foo". Numbered markers are removed BEFORE
+	//     the number expansion in step 11a, so "1." never becomes "one" or
+	//     "eins". Each item retains its trailing newline so the sentence
+	//     segmenter (Intl.Segmenter in speak.ts) treats them as separate
+	//     sentences with natural pause boundaries — a more natural speech
+	//     cadence than collapsing to a comma list, which would be one long
+	//     run-on with no breath points.
+	text = text.replace(/^[ \t]*(?:[-*+]|\d+[.)])[ \t]+/gm, "");
 
 	// 11. Inline code spans: keep the inner text but drop backticks.
 	//     "use `useState`" → "use useState".
@@ -176,13 +208,16 @@ export function prepareForSpeech(input: string, opts: PrepareForSpeechOpts = {})
 	// 11a. v7.1.3 — text normalization (TN). Compact local TTS engines
 	//      (Kitten/Piper) read raw "Dr." as letters and bare numbers
 	//      digit-by-digit. Expand the highest-value patterns:
-	//      - common English abbreviations / titles
-	//      - bare cardinal numbers up to a few digits
+	//      - common abbreviations / titles (locale-specific word forms)
+	//      - bare cardinal numbers up to a few digits (locale-specific
+	//        number words — German text must get "zweiundvierzig", not
+	//        "twenty-four")
 	//      Locale-aware long-form (Microsoft Recognizers-Text style)
 	//      is out of scope; this is the deterministic ~30-pattern pass
-	//      that catches 80% of CLI assistant output gripes.
-	text = expandAbbreviations(text);
-	text = expandSimpleNumbers(text);
+	//      that catches 80% of CLI assistant output gripes. Without a
+	//      locale the English rules apply (historical default).
+	text = expandAbbreviations(text, config.locale);
+	text = expandSimpleNumbers(text, config.locale);
 
 	// 12. v7.1.3 — strip emojis and pictographs. The TTS engines either
 	//     read them as literal "smiling face with smiling eyes" (espeak
@@ -235,12 +270,14 @@ export function prepareForSpeech(input: string, opts: PrepareForSpeechOpts = {})
 
 // ─── Text normalization helpers (v7.1.3) ──────────────────────────────────────
 
+type AbbrRule = readonly [RegExp, string];
+
 /**
  * Common English abbreviations, in regex+replacement form. Word-boundary
  * matched so "Dr." → "Doctor" but "Dropout" stays unchanged. Order matters:
  * longer patterns must precede prefixes that would partially match them.
  */
-const ABBREV_RULES: ReadonlyArray<readonly [RegExp, string]> = [
+const ABBREV_RULES_EN: ReadonlyArray<AbbrRule> = [
 	[/\bDr\./g, "Doctor"],
 	[/\bMr\./g, "Mister"],
 	[/\bMrs\./g, "Misses"],
@@ -273,14 +310,59 @@ const ABBREV_RULES: ReadonlyArray<readonly [RegExp, string]> = [
 	[/\bHTML\b/g, "H T M L"],
 ];
 
-function expandAbbreviations(text: string): string {
+/**
+ * German abbreviation forms. Same mechanics as the English list — word
+ * boundary matched, deterministic, highest-value patterns only. Acronyms
+ * (API, HTTP, …) are spelled out letter-wise in both locales; the word-form
+ * rules differ ("bzw." → "beziehungsweise", not "between").
+ */
+const ABBREV_RULES_DE: ReadonlyArray<AbbrRule> = [
+	[/\bz\.\s?B\./gi, "zum Beispiel"],
+	[/\bzb\./gi, "zum Beispiel"],
+	[/\be\.\s?g\./gi, "zum Beispiel"],
+	[/\bi\.\s?e\./gi, "das heißt"],
+	[/\bd\.\s?h\./gi, "das heißt"],
+	[/\bbzw\./g, "beziehungsweise"],
+	[/\busw\./g, "und so weiter"],
+	[/\bu\.s\.w\./g, "und so weiter"],
+	[/\betc\./gi, "und so weiter"],
+	[/\bca\./gi, "circa"],
+	[/\bapprox\./gi, "ungefähr"],
+	[/\bggf\./g, "gegebenenfalls"],
+	[/\bu\.a\./g, "unter anderem"],
+	[/\bv\.a\./g, "vor allem"],
+	[/\bDr\./g, "Doktor"],
+	[/\bProf\./g, "Professor"],
+	[/\bMr\./g, "Herr"],
+	[/\bMrs\./g, "Frau"],
+	[/\bvol\./gi, "Band"],
+	[/\bch\./gi, "Kapitel"],
+	[/\bp\.s\./gi, "P S"],
+	[/\bU\.S\./g, "U S"],
+	[/\bU\.K\./g, "U K"],
+	[/\bE\.U\./g, "E U"],
+	// CLI / dev terms commonly read poorly — same letter-spelling as English
+	[/\bAPI\b/g, "A P I"],
+	[/\bCLI\b/g, "C L I"],
+	[/\bURL\b/g, "U R L"],
+	[/\bHTTP\b/g, "H T T P"],
+	[/\bHTTPS\b/g, "H T T P S"],
+	[/\bSQL\b/g, "S Q L"],
+	[/\bJSON\b/g, "JAY-son"],
+	[/\bYAML\b/g, "YAH-mul"],
+	[/\bCSS\b/g, "C S S"],
+	[/\bHTML\b/g, "H T M L"],
+];
+
+function expandAbbreviations(text: string, locale?: string): string {
+	const rules = baseLanguage(locale ?? "") === "de" ? ABBREV_RULES_DE : ABBREV_RULES_EN;
 	let out = text;
-	for (const [re, rep] of ABBREV_RULES) out = out.replace(re, rep);
+	for (const [re, rep] of rules) out = out.replace(re, rep);
 	return out;
 }
 
-const ONES = ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine"];
-const TEENS = [
+const ONES_EN = ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine"];
+const TEENS_EN = [
 	"ten",
 	"eleven",
 	"twelve",
@@ -292,33 +374,90 @@ const TEENS = [
 	"eighteen",
 	"nineteen",
 ];
-const TENS = ["", "", "twenty", "thirty", "forty", "fifty", "sixty", "seventy", "eighty", "ninety"];
+const TENS_EN = ["", "", "twenty", "thirty", "forty", "fifty", "sixty", "seventy", "eighty", "ninety"];
 
-function numberToWords(n: number): string {
+function numberToWordsEn(n: number): string {
 	if (n < 0 || n > 9_999_999 || !Number.isInteger(n)) return String(n);
 	if (n === 0) return "zero";
 	const parts: string[] = [];
 	if (n >= 1_000_000) {
-		parts.push(numberToWords(Math.floor(n / 1_000_000)), "million");
+		parts.push(numberToWordsEn(Math.floor(n / 1_000_000)), "million");
 		n %= 1_000_000;
 	}
 	if (n >= 1_000) {
-		parts.push(numberToWords(Math.floor(n / 1_000)), "thousand");
+		parts.push(numberToWordsEn(Math.floor(n / 1_000)), "thousand");
 		n %= 1_000;
 	}
 	if (n >= 100) {
-		parts.push(ONES[Math.floor(n / 100)]!, "hundred");
+		parts.push(ONES_EN[Math.floor(n / 100)]!, "hundred");
 		n %= 100;
 	}
 	if (n >= 20) {
-		parts.push(TENS[Math.floor(n / 10)]!);
+		parts.push(TENS_EN[Math.floor(n / 10)]!);
 		n %= 10;
-		if (n > 0) parts[parts.length - 1] += "-" + ONES[n]!;
+		if (n > 0) parts[parts.length - 1] += "-" + ONES_EN[n]!;
 		n = 0;
 	}
-	if (n >= 10) parts.push(TEENS[n - 10]!);
-	else if (n > 0) parts.push(ONES[n]!);
+	if (n >= 10) parts.push(TEENS_EN[n - 10]!);
+	else if (n > 0) parts.push(ONES_EN[n]!);
 	return parts.join(" ");
+}
+
+// German number words, composed the way they are spoken (one concatenated
+// word per magnitude group, "und" inside the compound): 26 → sechsundzwanzig,
+// 123 → einhundertdreiundzwanzig, 71 → siebenundsiebzig (sieben, not sieben-,
+// before "und"), 70 → siebzig (the -en drops in the tens form).
+const ONES_DE = ["null", "eins", "zwei", "drei", "vier", "fünf", "sechs", "sieben", "acht", "neun"];
+const TEENS_DE = [
+	"zehn",
+	"elf",
+	"zwölf",
+	"dreizehn",
+	"vierzehn",
+	"fünfzehn",
+	"sechzehn",
+	"siebzehn",
+	"achtzehn",
+	"neunzehn",
+];
+const TENS_DE = ["", "", "zwanzig", "dreißig", "vierzig", "fünfzig", "sechzig", "siebzig", "achtzig", "neunzig"];
+
+function germanUnder100(n: number): string {
+	if (n < 10) return ONES_DE[n]!;
+	if (n < 20) return TEENS_DE[n - 10]!;
+	const t = Math.floor(n / 10);
+	const r = n % 10;
+	if (r === 0) return TENS_DE[t]!;
+	// Inside a compound "eins" becomes "ein"; the 70s keep the full "sieben".
+	const unit = t === 7 ? "sieben" : r === 1 ? "ein" : ONES_DE[r]!;
+	return unit + "und" + TENS_DE[t]!;
+}
+
+function numberToWordsDe(n: number): string {
+	if (n < 0 || n > 9_999_999 || !Number.isInteger(n)) return String(n);
+	if (n === 0) return "null";
+	let out = "";
+	if (n >= 1_000_000) {
+		const m = Math.floor(n / 1_000_000);
+		out += m === 1 ? "einemillion" : numberToWordsDe(m) + "millionen";
+		n %= 1_000_000;
+	}
+	if (n >= 1000) {
+		out += numberToWordsDe(Math.floor(n / 1000)) + "tausend";
+		n %= 1000;
+	}
+	if (n >= 100) {
+		const h = Math.floor(n / 100);
+		out += (h === 1 ? "ein" : numberToWordsDe(h)) + "hundert";
+		n %= 100;
+		// A small remainder joins with "und" (einhundertundeins, zweihundertundfünf);
+		// 20+ concatenates directly (zweihundertfünfzig, einhundertdreiundzwanzig)
+		// — the compound already carries its own "und".
+		if (n > 0) out += n < 20 ? "und" + germanUnder100(n) : germanUnder100(n);
+	} else if (n > 0) {
+		out += germanUnder100(n);
+	}
+	return out;
 }
 
 /**
@@ -330,16 +469,17 @@ function numberToWords(n: number): string {
  *     twenty-six" naturally for `2026`)
  *   - hex-like tokens (`0xFF`)
  */
-function expandSimpleNumbers(text: string): string {
+function expandSimpleNumbers(text: string, locale?: string): string {
 	// Negative lookbehind: reject digits that are part of a version/decimal
 	// (`v1.2`, `3.14`) or a word (`v2`, `5k`).
 	// Negative lookahead: reject digits followed by a word char (`100ms`)
 	// or by `.<digit>` (decimal/version) but ALLOW sentence-ending `.`.
+	const de = baseLanguage(locale ?? "") === "de";
 	return text.replace(/(?<![\w.])(\d{1,7})(?![\w]|\.\d)/g, (match, digits: string) => {
 		const n = parseInt(digits, 10);
 		// Years pass through unchanged — TTS engines handle them well.
 		if (digits.length === 4 && n >= 1900 && n <= 2099) return match;
-		return numberToWords(n);
+		return de ? numberToWordsDe(n) : numberToWordsEn(n);
 	});
 }
 
