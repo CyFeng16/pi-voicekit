@@ -873,7 +873,10 @@ export default function (pi: ExtensionAPI) {
 		holdConfirmed = false;
 		clearHoldTimer();
 		clearReleaseTimer();
-		if (warmupShowTimer) { clearTimeout(warmupShowTimer); warmupShowTimer = null; }
+		if (warmupShowTimer) {
+			clearTimeout(warmupShowTimer);
+			warmupShowTimer = null;
+		}
 		if (opts?.cooldown) errorCooldownUntil = Date.now() + opts.cooldown;
 	}
 
