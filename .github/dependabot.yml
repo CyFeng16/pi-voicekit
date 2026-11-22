@@ -34,3 +34,10 @@ updates:
       # Pinned to the Bun version CI runs (see AGENTS.md); bump it with
       # the workflow's `bun-version`.
       - dependency-name: "bun-types"
+      # A prettier bump reformats the tree and fails `format:check`; that
+      # reformat is a deliberate commit, not a side effect of an update.
+      - dependency-name: "prettier"
+      # The native ASR/TTS runtime. A major moves the model and API surface
+      # and has to be evaluated against real audio, so it is not automated.
+      - dependency-name: "sherpa-onnx-node"
+        update-types: ["version-update:semver-major"]
