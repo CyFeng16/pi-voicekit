@@ -144,6 +144,9 @@ const realTimerPort: TimerPort = {
 // (a single tap on the spacebar at the end of a word is ~80ms), too long
 // feels laggy. Users can dial higher via /voice-hold-delay or settings.json.
 const HOLD_THRESHOLD_DEFAULT_MS = 700;
+// The warmup countdown waits this long (or half the hold threshold, if shorter) so a plain tap
+// never flashes it, while a short configured threshold still shows it before recording starts.
+const WARMUP_SHOW_DELAY_MS = 250;
 const RELEASE_DETECT_MS = 500; // Gap in key-repeat that means "released" (non-Kitty)
 // macOS default InitialKeyRepeat is ~375ms, so 500ms
 // ensures the first repeat arrives before we decide "tap"
@@ -1628,10 +1631,13 @@ export default function (pi: ExtensionAPI) {
 
 						setVoiceState("warmup");
 						// Show the countdown only once the key is really held, so a plain tap never flashes it.
-						warmupShowTimer = setTimeout(() => {
-							warmupShowTimer = null;
-							if (recordingController.state === "warmup") showWarmupWidget();
-						}, 250);
+						warmupShowTimer = setTimeout(
+							() => {
+								warmupShowTimer = null;
+								if (recordingController.state === "warmup") showWarmupWidget();
+							},
+							Math.min(WARMUP_SHOW_DELAY_MS, getHoldThresholdMs() / 2)
+						);
 
 						holdActivationTimer = setTimeout(() => {
 							holdActivationTimer = null;

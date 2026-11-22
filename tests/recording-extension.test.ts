@@ -9,7 +9,7 @@ import voiceExtension, { resetCaptureToolProbeCache } from "../extensions/voice"
 import * as local from "../extensions/voice/local";
 import * as previewWorker from "../extensions/voice/preview-worker-client";
 
-async function extensionHarness(previewEnabled = false) {
+async function extensionHarness(previewEnabled = false, voice: Record<string, unknown> = {}) {
 	const home = mkdtempSync(join(os.tmpdir(), "voice-recording-extension-"));
 	const previousAgent = process.env.PI_CODING_AGENT_DIR;
 	process.env.PI_CODING_AGENT_DIR = join(home, "agent");
@@ -25,6 +25,7 @@ async function extensionHarness(previewEnabled = false) {
 				punctuationNoticeShown: true,
 				audioFeedback: false,
 				onboarding: { completed: true },
+				...voice,
 			},
 		})
 	);
@@ -185,6 +186,22 @@ test("a SPACE press does not mount the warmup widget until the key is held", asy
 		// Still held past the show delay → the countdown appears, so the counter really observes mounts.
 		await new Promise((resolve) => setTimeout(resolve, 300));
 		expect(h.widgetKeys).toContain("voice-recording");
+		h.press(SPACE_RELEASE);
+	} finally {
+		await h.dispose();
+	}
+});
+
+test("a short hold threshold still shows the warmup widget before recording starts", async () => {
+	// At 200 ms a fixed 250 ms delay would never show the countdown; half the threshold (100 ms) does.
+	const h = await extensionHarness(false, { holdThresholdMs: 200 });
+	try {
+		h.press(SPACE_RELEASE);
+		h.press(SPACE_PRESS);
+		expect(h.widgetKeys).toEqual([]);
+		await new Promise((resolve) => setTimeout(resolve, 150));
+		expect(h.widgetKeys).toContain("voice-recording");
+		expect(h.captures).toHaveLength(0); // still warming up: recording has not started
 		h.press(SPACE_RELEASE);
 	} finally {
 		await h.dispose();
