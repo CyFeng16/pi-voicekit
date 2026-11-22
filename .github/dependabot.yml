@@ -1,0 +1,36 @@
+# Dependabot policy.
+#
+# CI installs with `bun install --frozen-lockfile` against `bun.lock`, so
+# an update that only rewrites `package-lock.json` fails the `check` job at
+# the install step, before a single test runs. The `bun` ecosystem is the
+# one that maintains `bun.lock`, so it is the only entry here.
+#
+# CONTRIBUTING.md ("Dependency updates") says the verification baseline —
+# the devDependencies, the `PI_VERSION` constant and both lockfiles —
+# moves in its own commit and for a reason. Ignoring the host packages
+# keeps a transitive advisory from dragging a major host upgrade along.
+version: 2
+updates:
+  - package-ecosystem: "bun"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 3
+    # Wait before adopting a release nobody has vetted yet — that window is
+    # where a compromised publish usually gets caught.
+    cooldown:
+      default-days: 7
+    commit-message:
+      prefix: "chore(deps)"
+    groups:
+      dev-patch-and-minor:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+    ignore:
+      # Raised deliberately, with `scripts/upstream-compat.mjs` and a real
+      # session — never as a side effect of an advisory on one of their
+      # transitive dependencies.
+      - dependency-name: "@earendil-works/*"
+      # Pinned to the Bun version CI runs (see AGENTS.md); bump it with
+      # the workflow's `bun-version`.
+      - dependency-name: "bun-types"
