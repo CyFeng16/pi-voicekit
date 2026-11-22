@@ -84,6 +84,6 @@
     "package.json"
   ],
   "optionalDependencies": {
-    "sherpa-onnx-node": "^1.13.0"
+    "sherpa-onnx-node": "^2.0.1"
   }
 }
