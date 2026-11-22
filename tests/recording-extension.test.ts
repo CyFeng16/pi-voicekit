@@ -5,11 +5,15 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { EventEmitter } from "node:events";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import voiceExtension, { resetCaptureToolProbeCache } from "../extensions/voice";
 import * as local from "../extensions/voice/local";
 import * as previewWorker from "../extensions/voice/preview-worker-client";
+import voiceExtension, { resetCaptureToolProbeCache, resetHostUiNotice } from "../extensions/voice";
 
-async function extensionHarness(previewEnabled = false, voice: Record<string, unknown> = {}) {
+async function extensionHarness(
+	previewEnabled = false,
+	uiOverrides: Record<string, unknown> = {},
+	voice: Record<string, unknown> = {}
+) {
 	const home = mkdtempSync(join(os.tmpdir(), "voice-recording-extension-"));
 	const previousAgent = process.env.PI_CODING_AGENT_DIR;
 	process.env.PI_CODING_AGENT_DIR = join(home, "agent");
@@ -41,6 +45,8 @@ async function extensionHarness(previewEnabled = false, voice: Record<string, un
 	// The probe memo is process-wide, so clear it once the spy is in place; otherwise a preceding
 	// test file fixes the answer and this harness observes the real machine instead of the spy.
 	resetCaptureToolProbeCache();
+	// Same reason: the capability notice is once per process and this harness owns the UI it sees.
+	resetHostUiNotice();
 	let kills = 0;
 	const captures: Array<EventEmitter & { stdout: EventEmitter; stderr: EventEmitter; kill: () => boolean }> = [];
 	const spawn = spyOn(childProcess, "spawn").mockImplementation((() => {
@@ -105,6 +111,8 @@ async function extensionHarness(previewEnabled = false, voice: Record<string, un
 			},
 		},
 	};
+	// Lets a test pose as an older Pi: `{ pasteToEditor: undefined }` is a host without that verb.
+	Object.assign(ctx.ui, uiOverrides);
 	voiceExtension({
 		on: (name: string, handler: any) => handlers.set(name, handler),
 		registerCommand: (name: string, command: any) => commands.set(name, command),
@@ -132,9 +140,12 @@ async function extensionHarness(previewEnabled = false, voice: Record<string, un
 		await dispose();
 		throw error;
 	}
+	// session_start notices are cleared for the body of a test, but the capability probe fires there.
+	const startupNotices = [...notices];
 	notices.length = 0;
 	return {
 		notices,
+		startupNotices,
 		writes,
 		sends,
 		widgetKeys,
@@ -194,7 +205,7 @@ test("a SPACE press does not mount the warmup widget until the key is held", asy
 
 test("a short hold threshold still shows the warmup widget before recording starts", async () => {
 	// At 200 ms a fixed 250 ms delay would never show the countdown; half the threshold (100 ms) does.
-	const h = await extensionHarness(false, { holdThresholdMs: 200 });
+	const h = await extensionHarness(false, {}, { holdThresholdMs: 200 });
 	try {
 		h.press(SPACE_RELEASE);
 		h.press(SPACE_PRESS);
@@ -416,6 +427,28 @@ test("a second real start while finalizing cancels the first before capture repl
 		expect(h.passes).toBe(2);
 		expect(h.writes).toEqual(["final"]);
 		expect(h.sends).toEqual([]);
+	} finally {
+		await h.dispose();
+	}
+});
+
+// `peerDependencies` are `"*"`, so an older Pi can load this code. The startup probe is the only
+// thing that turns that into a sentence the user can act on.
+test("a host missing a UI verb gets one startup warning naming it", async () => {
+	const h = await extensionHarness(false, { pasteToEditor: undefined });
+	try {
+		const warnings = h.startupNotices.filter((notice) => notice.includes("pasteToEditor"));
+		expect(warnings).toHaveLength(1);
+		expect(warnings[0]).toContain("pi update");
+	} finally {
+		await h.dispose();
+	}
+});
+
+test("a complete host gets no capability warning", async () => {
+	const h = await extensionHarness();
+	try {
+		expect(h.startupNotices.filter((notice) => notice.includes("this one is missing"))).toEqual([]);
 	} finally {
 		await h.dispose();
 	}

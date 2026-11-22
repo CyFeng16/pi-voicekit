@@ -108,7 +108,8 @@ bun test tests/config.test.ts  # Specific file
 ### Full Verification
 
 ```bash
-bun run check  # typecheck + test
+bun run check        # typecheck + test
+bun run format:check # prettier — CI fails on unformatted files
 ```
 
 ### Test Guidelines
@@ -121,7 +122,7 @@ bun run check  # typecheck + test
 
 ## Pull Request Process
 
-1. **Ensure all tests pass:** `bun run check`
+1. **Ensure the gates pass:** `bun run check` and `bun run format:check`
 2. **Update documentation** if you changed behavior
 3. **Update CHANGELOG.md** under `[Unreleased]`
 4. **Write a clear PR description** explaining what and why
@@ -132,6 +133,7 @@ bun run check  # typecheck + test
 
 - [ ] Tests pass (`bun run check`)
 - [ ] No TypeScript errors (`bun run typecheck`)
+- [ ] Formatting clean (`bun run format:check` — CI runs it on every pull request)
 - [ ] CHANGELOG.md updated
 - [ ] Documentation updated (if applicable)
 - [ ] No secrets or tokens in code
