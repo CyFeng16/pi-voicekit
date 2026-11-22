@@ -75,6 +75,19 @@ function run(command, args, cwd) {
 	};
 }
 
+/**
+ * Typecheck both projects in the probe tree: `tsconfig.json` compiles `extensions/`, and
+ * `tsconfig.tests.json` is the only one that compiles `tests/` against the host types. A probe
+ * that runs one and not the other reports PASS while half the host API surface is unmeasured.
+ */
+function runTypechecks(workdir) {
+	for (const project of ["tsconfig.json", "tsconfig.tests.json"]) {
+		const result = run("bunx", ["tsc", "-p", project, "--noEmit"], workdir);
+		if (result.failed || result.missing) return { ...result, output: `[${project}]\n${result.output}` };
+	}
+	return { status: 0, failed: false, output: "", missing: false };
+}
+
 function resolvedVersions(workdir) {
 	const versions = {};
 	for (const name of HOST_PACKAGES) {
@@ -88,10 +101,19 @@ function resolvedVersions(workdir) {
 	return versions;
 }
 
+/** The repository manifest, reported as a usage error rather than an uncaught parse throw. */
+function readRepoManifest() {
+	try {
+		return JSON.parse(readFileSync(join(REPO_ROOT, "package.json"), "utf8"));
+	} catch (error) {
+		throw new UsageError(`package.json is not readable JSON: ${error instanceof Error ? error.message : error}`);
+	}
+}
+
 /** Build the throwaway tree, install the target release and typecheck `extensions/`. */
 export function probe({ target = DEFAULT_TARGET, keep = false } = {}) {
 	const spec = resolveTargetSpec(target);
-	const manifest = JSON.parse(readFileSync(join(REPO_ROOT, "package.json"), "utf8"));
+	const manifest = readRepoManifest();
 	const patched = applyTargetVersions(manifest, spec);
 	const workdir = mkdtempSync(join(tmpdir(), "pi-voicekit-upstream-"));
 	let install;
@@ -99,14 +121,20 @@ export function probe({ target = DEFAULT_TARGET, keep = false } = {}) {
 	let resolved;
 	try {
 		cpSync(join(REPO_ROOT, "tsconfig.json"), join(workdir, "tsconfig.json"));
+		cpSync(join(REPO_ROOT, "tsconfig.tests.json"), join(workdir, "tsconfig.tests.json"));
 		cpSync(join(REPO_ROOT, "extensions"), join(workdir, "extensions"), { recursive: true });
+		// `tsconfig.tests.json` is the only project that compiles `tests/` against the host types,
+		// so probing `extensions/` alone leaves the test suite's side of the API unmeasured. The
+		// tests import `../scripts/*.mjs`, so that directory has to travel with them.
+		cpSync(join(REPO_ROOT, "tests"), join(workdir, "tests"), { recursive: true });
+		cpSync(join(REPO_ROOT, "scripts"), join(workdir, "scripts"), { recursive: true });
 		writeFileSync(join(workdir, "package.json"), `${JSON.stringify(patched, null, "\t")}\n`);
 
 		install = run("bun", ["install", "--silent"], workdir);
 		typecheck =
 			install.failed || install.missing
 				? { status: null, failed: true, output: "", missing: false, skipped: true }
-				: run("bunx", ["tsc", "-p", "tsconfig.json", "--noEmit"], workdir);
+				: runTypechecks(workdir);
 		resolved = resolvedVersions(workdir);
 	} finally {
 		if (!keep) rmSync(workdir, { recursive: true, force: true });
@@ -170,7 +198,5 @@ export function main(argv) {
 	return result.passed ? 0 : 1;
 }
 
-const invokedDirectly = process.argv[1]
-	? import.meta.url === pathToFileURL(process.argv[1]).href
-	: false;
+const invokedDirectly = process.argv[1] ? import.meta.url === pathToFileURL(process.argv[1]).href : false;
 if (invokedDirectly) process.exit(main(process.argv.slice(2)));

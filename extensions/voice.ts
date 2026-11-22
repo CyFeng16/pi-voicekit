@@ -169,6 +169,31 @@ const CORRUPTION_GUARD_MS = 200; // Min gap between stop and restart
 const VOICE_DEBUG = !!process.env.PI_VOICE_DEBUG;
 const VOICE_LOG_FILE = path.join(os.tmpdir(), "pi-voice-debug.log");
 
+// ─── Host capability probe ────────────────────────────────────────────
+// `peerDependencies` are `"*"` (Pi supplies the host packages), so the Pi running this code can
+// be older than the one it was verified against. Probing the surface we actually call is more
+// reliable than comparing version strings: an API's presence and its version number are not in
+// lockstep across Pi's 0.x line. Overlay-only verbs (`custom`, `select`, `confirm`) are not here —
+// they gate panels, not hold-to-talk, and a host without them still dictates.
+const REQUIRED_HOST_UI = [
+	"notify",
+	"setWidget",
+	"setStatus",
+	"getEditorText",
+	"setEditorText",
+	"pasteToEditor",
+	"onTerminalInput",
+] as const;
+
+function missingHostUi(ui: unknown): string[] {
+	if (!ui || typeof ui !== "object") return [...REQUIRED_HOST_UI];
+	const surface = ui as Record<string, unknown>;
+	return REQUIRED_HOST_UI.filter((name) => typeof surface[name] !== "function");
+}
+
+// Once per process: a reload fires session_start again and must not repeat the notice.
+let hostUiNoticeShown = false;
+
 // ─── Audio level tracking (module scope so streaming can access) ──────
 let audioLevel = 0;
 let audioLevelSmoothed = 0;
@@ -381,6 +406,14 @@ function detectAudioCaptureTool(): AudioCaptureTool | null {
 export function resetCaptureToolProbeCache(): void {
 	_cmdExistsCache.clear();
 	_cachedAudioTool = undefined;
+}
+
+/**
+ * Test seam for the once-per-process host capability notice: every test file that loads this module
+ * shares one instance, so a case that runs against an incomplete UI would silence the next one.
+ */
+export function resetHostUiNotice(): void {
+	hostUiNoticeShown = false;
 }
 
 // ─── Abort helper — nuke everything synchronously ────────────────────────────
@@ -1893,6 +1926,22 @@ export default function (pi: ExtensionAPI) {
 		}
 
 		ctx = startCtx;
+		// A Pi older than the verified baseline, or a host that dropped a verb we call. Say so once
+		// instead of letting hold-to-talk fail later with a bare TypeError inside a key handler.
+		if (startCtx.hasUI && !hostUiNoticeShown) {
+			const missing = missingHostUi(startCtx.ui);
+			if (missing.length > 0) {
+				hostUiNoticeShown = true;
+				const notice = [
+					`pi-voicekit needs a newer Pi: this one is missing ${missing.join(", ")}.`,
+					"",
+					"  Hold-to-talk and dictation may fail until Pi is updated.",
+					"  Run `pi update`, then restart.",
+				].join("\n");
+				if (missing.includes("notify")) voiceDebug("host UI capability gap", { missing });
+				else startCtx.ui.notify(notice, "warning");
+			}
+		}
 		currentCwd = startCtx.cwd;
 		const loaded = loadConfigWithSource(startCtx.cwd);
 		if (config.localModel !== loaded.config.localModel || config.language !== loaded.config.language) {

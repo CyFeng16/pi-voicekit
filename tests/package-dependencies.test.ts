@@ -3,9 +3,22 @@ import { readFileSync } from "node:fs";
 import { readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 
+/**
+ * The oldest Pi this package claims to work with, declared in `package.json` -> `engines.pi` the
+ * way VS Code extensions declare `engines.vscode`. Pi does not read it (it supplies the host
+ * packages and its `peerDependencies` guidance is `"*"`), so this is a claim, not an install
+ * constraint: `ci.yml`'s `minimum` job is what makes it true by installing exactly that version.
+ */
+const MIN_SUPPORTED_PI_RANGE = readJson("package.json").engines.pi as string;
+const MIN_SUPPORTED_PI_VERSION = MIN_SUPPORTED_PI_RANGE.replace(/^[^0-9]*/, "");
+
 const PI_VERSION = "0.87.1";
 const PI_DEV_RANGE = `^${PI_VERSION}`;
 const PI_PEER_RANGE = "*";
+
+// The minimum leg installs the floor instead of the baseline, so the manifest invariants below —
+// which assert the baseline — are the one thing that cannot hold there. Everything else runs.
+const describeBaseline = process.env.PI_MATRIX_LEG === "minimum" ? describe.skip : describe;
 
 const DIRECT_PI_PACKAGES = ["@earendil-works/pi-coding-agent", "@earendil-works/pi-tui"] as const;
 const LEGACY_DIRECT_PI_PACKAGES = ["@mariozechner/pi-coding-agent", "@mariozechner/pi-tui"] as const;
@@ -29,7 +42,7 @@ function listFiles(dir: string): string[] {
 	return files;
 }
 
-describe("Pi dependency support", () => {
+describeBaseline("Pi dependency support", () => {
 	test("package.json uses the current Earendil Works Pi packages", () => {
 		const pkg = readJson("package.json");
 
@@ -115,6 +128,18 @@ describe("Pi dependency support", () => {
 	});
 });
 
+describe("minimum supported version", () => {
+	test("the baseline is not below the declared floor", () => {
+		// A floor above the baseline would promise a version the gates never run against.
+		expect(Bun.semver.order(PI_VERSION, MIN_SUPPORTED_PI_VERSION)).toBeGreaterThanOrEqual(0);
+	});
+
+	test("docs/upstream-baseline.md declares the same floor", () => {
+		const doc = readFileSync("docs/upstream-baseline.md", "utf8");
+		const declared = doc.match(/^\| Minimum supported Pi version \| (\S+) \|$/m)?.[1];
+		expect(declared).toBe(MIN_SUPPORTED_PI_VERSION);
+	});
+});
 // The two packages the security overrides exist for. Both arrive through the pinned
 // Pi dev baseline; the published package ships no runtime dependency of its own.
 const GUARDED_PACKAGES = ["protobufjs", "@protobufjs/utf8"] as const;
