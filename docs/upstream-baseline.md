@@ -12,6 +12,18 @@ The release `bun run check` and the pin test are held to.
 | --- | --- | --- |
 | 2026-09-30 | 0.87.1 | The production runtime. The repository compiled against 0.85.0 while every real session ran 0.87.1. |
 
+## Minimum supported
+
+The oldest Pi this package claims to work with. `peerDependencies` are `"*"` because Pi supplies the
+host packages, so npm enforces nothing here — this is a claim, and the `minimum` CI job is what makes
+it true: it installs exactly this version and runs the typecheck and the whole test suite against it.
+
+| Declared | Value |
+| --- | --- |
+| Minimum supported Pi version | 0.87.1 |
+
+Raising it is a breaking change for anyone still below it, so it moves in its own commit with the
+reason recorded here, not as a side effect of a dependency bump.
 ## Probe results
 
 `bun run compat:upstream <version|latest>` — the type surface only, never a session.
