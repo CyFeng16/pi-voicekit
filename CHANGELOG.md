@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.8] - 2026-11-22
+
 ### Fixed
 
 - **Tapping SPACE in a Kitty-protocol terminal no longer moves the cursor or flickers.** The tap path
@@ -16,7 +18,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   holding (or half of `holdThresholdMs`, if that is shorter, so a short threshold still shows it
   before recording starts), so in Kitty-protocol terminals ordinary typing no longer flashes it on
   every space. Terminals without key-release events (e.g. Ghostty on macOS) never showed either
-  symptom and are unchanged.
+  symptom and are unchanged. The tap path finally has tests: they fail against 0.6.7 and pass here.
+  Thanks to [@mr-narender](https://github.com/mr-narender) for the fix
+  ([#3](https://github.com/CyFeng16/pi-voicekit/pull/3)).
+
+### Added
+
+- **The extension says so when the Pi running it is too old.** `peerDependencies` stay `"*"` because
+  Pi supplies the host packages, so nothing at install time stops an older Pi from loading this code,
+  and the first symptom used to be a bare `TypeError` inside a key handler. `session_start` now probes
+  the UI verbs this extension calls and reports the missing ones once per process. It probes the
+  surface rather than the version string: an API's presence and its version number are not in lockstep
+  across Pi's 0.x line.
+- **The supported Pi floor is declared, and tested.** `package.json` → `engines.pi` records the oldest
+  host this package claims to work with, the way a VS Code extension declares `engines.vscode`, and a
+  `minimum` CI job installs exactly that version and runs the typecheck and the whole test suite
+  against it. `packaging` waits on that job, so a broken floor blocks a merge the way a broken
+  baseline does.
+
+### Changed
+
+- **Dead code is gone and the internal export surface is narrower.** Helpers nothing referenced were
+  deleted, and twelve symbols lost an export that no other module and no public signature used.
+  Nothing a user can see changes.
+
+### Internal
+
+- The CI workflow's token is explicitly read-only; Dependabot now maintains `bun.lock` — the file CI
+  installs from — and holds back the Pi host packages and `prettier` from automated bumps; and
+  `format:check`, which CI has always run, is finally in the contributor checklist.
 
 ## [0.6.7] - 2026-10-26
 
@@ -1565,7 +1595,8 @@ single source of truth per row.
 - VAD pre-filtering
 - Pompom/Lumo creature companion (now separate package)
 
-[Unreleased]: https://github.com/CyFeng16/pi-voicekit/compare/v0.6.7...HEAD
+[Unreleased]: https://github.com/CyFeng16/pi-voicekit/compare/v0.6.8...HEAD
+[0.6.8]: https://github.com/CyFeng16/pi-voicekit/compare/v0.6.7...v0.6.8
 [0.6.7]: https://github.com/CyFeng16/pi-voicekit/compare/v0.6.6...v0.6.7
 [0.6.6]: https://github.com/CyFeng16/pi-voicekit/compare/v0.6.5...v0.6.6
 [0.6.5]: https://github.com/CyFeng16/pi-voicekit/compare/v0.6.4...v0.6.5
