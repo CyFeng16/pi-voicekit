@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Tapping SPACE in a Kitty-protocol terminal no longer moves the cursor or flickers.** The tap path
+  re-inserted the space with `setEditorText(text + " ")`, which appended it at the end of the buffer
+  and redrew the editor, so a space typed mid-line jumped the cursor to the end. It now uses the
+  cursor-respecting `pasteToEditor(" ")`. The warmup countdown is also shown only after 250 ms of
+  holding (or half of `holdThresholdMs`, if that is shorter, so a short threshold still shows it
+  before recording starts), so in Kitty-protocol terminals ordinary typing no longer flashes it on
+  every space. Terminals without key-release events (e.g. Ghostty on macOS) never showed either
+  symptom and are unchanged.
+
 ## [0.6.7] - 2026-10-26
 
 Same content as 0.6.6 — that version was tagged but never reached the registry: the release workflow

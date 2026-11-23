@@ -9,7 +9,11 @@ import * as local from "../extensions/voice/local";
 import * as previewWorker from "../extensions/voice/preview-worker-client";
 import voiceExtension, { resetCaptureToolProbeCache, resetHostUiNotice } from "../extensions/voice";
 
-async function extensionHarness(previewEnabled = false, uiOverrides: Record<string, unknown> = {}) {
+async function extensionHarness(
+	previewEnabled = false,
+	uiOverrides: Record<string, unknown> = {},
+	voice: Record<string, unknown> = {}
+) {
 	const home = mkdtempSync(join(os.tmpdir(), "voice-recording-extension-"));
 	const previousAgent = process.env.PI_CODING_AGENT_DIR;
 	process.env.PI_CODING_AGENT_DIR = join(home, "agent");
@@ -25,6 +29,7 @@ async function extensionHarness(previewEnabled = false, uiOverrides: Record<stri
 				punctuationNoticeShown: true,
 				audioFeedback: false,
 				onboarding: { completed: true },
+				...voice,
 			},
 		})
 	);
@@ -75,7 +80,8 @@ async function extensionHarness(previewEnabled = false, uiOverrides: Record<stri
 	);
 	const notices: string[] = [],
 		writes: string[] = [],
-		sends: unknown[] = [];
+		sends: unknown[] = [],
+		widgetKeys: string[] = [];
 	let buffer = "typed|suffix";
 	const handlers = new Map<string, (event: any, ctx: any) => Promise<void>>();
 	const commands = new Map<string, { handler: (args: string, ctx: any) => Promise<void> }>();
@@ -87,7 +93,10 @@ async function extensionHarness(previewEnabled = false, uiOverrides: Record<stri
 		ui: {
 			notify: (text: string) => notices.push(text),
 			setStatus() {},
-			setWidget() {},
+			// Records mounts only; a clear (undefined widget) is not something the user sees.
+			setWidget: (key: string, widget: unknown) => {
+				if (widget !== undefined) widgetKeys.push(key);
+			},
 			getEditorText: () => buffer,
 			pasteToEditor: (text: string) => {
 				writes.push(text);
@@ -139,6 +148,7 @@ async function extensionHarness(previewEnabled = false, uiOverrides: Record<stri
 		startupNotices,
 		writes,
 		sends,
+		widgetKeys,
 		captures,
 		finalEntered,
 		shutdown,
@@ -146,6 +156,7 @@ async function extensionHarness(previewEnabled = false, uiOverrides: Record<stri
 		run: (args: string) => commands.get("voice")!.handler(args, ctx),
 		toggle: () => shortcuts[0]!.handler(ctx),
 		cancel: () => input("\x1b"),
+		press: (data: string) => input(data),
 		feed: () => captures.at(-1)!.stdout.emit("data", Buffer.from([1, 0])),
 		finish: () => finish({ text: "final", hadSpeech: true }),
 		get passes() {
@@ -159,6 +170,54 @@ async function extensionHarness(previewEnabled = false, uiOverrides: Record<stri
 		},
 	};
 }
+
+// Kitty keyboard protocol: SPACE press, and SPACE release (event type 3).
+const SPACE_PRESS = "\x1b[32u";
+const SPACE_RELEASE = "\x1b[32;1:3u";
+
+test("a tapped SPACE inserts at the cursor", async () => {
+	const h = await extensionHarness();
+	try {
+		h.press(SPACE_RELEASE); // any release event marks the Kitty protocol as available
+		h.press(SPACE_PRESS); // press → warmup
+		h.press(SPACE_RELEASE); // release inside 300 ms → tap
+		expect(h.writes).toEqual([" "]);
+		expect(h.buffer).toBe("typed |suffix");
+	} finally {
+		await h.dispose();
+	}
+});
+
+test("a SPACE press does not mount the warmup widget until the key is held", async () => {
+	const h = await extensionHarness();
+	try {
+		h.press(SPACE_RELEASE);
+		h.press(SPACE_PRESS);
+		expect(h.widgetKeys).toEqual([]);
+		// Still held past the show delay → the countdown appears, so the counter really observes mounts.
+		await new Promise((resolve) => setTimeout(resolve, 300));
+		expect(h.widgetKeys).toContain("voice-recording");
+		h.press(SPACE_RELEASE);
+	} finally {
+		await h.dispose();
+	}
+});
+
+test("a short hold threshold still shows the warmup widget before recording starts", async () => {
+	// At 200 ms a fixed 250 ms delay would never show the countdown; half the threshold (100 ms) does.
+	const h = await extensionHarness(false, {}, { holdThresholdMs: 200 });
+	try {
+		h.press(SPACE_RELEASE);
+		h.press(SPACE_PRESS);
+		expect(h.widgetKeys).toEqual([]);
+		await new Promise((resolve) => setTimeout(resolve, 150));
+		expect(h.widgetKeys).toContain("voice-recording");
+		expect(h.captures).toHaveLength(0); // still warming up: recording has not started
+		h.press(SPACE_RELEASE);
+	} finally {
+		await h.dispose();
+	}
+});
 
 for (const superseded of [false, true]) {
 	test(`real dictate start ${superseded ? "superseded publishes nothing and leaves dictation off" : "publishes one notice and enables dictation"}`, async () => {
